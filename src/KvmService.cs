@@ -75,7 +75,13 @@ sealed class KvmService:IDisposable
     {
         var peers=wire.Channel=="control"?controls:wire.Channel=="audio"?audio:bulk;
         if(peers.Count>=16){wire.Dispose();return;}
-        if(wire.Channel!="control"&&!controls.ContainsKey(wire.Peer.Id)){wire.Dispose();return;}
+        // Welcome can reach the client before the host has registered its control socket.
+        if(wire.Channel!="control")
+        {
+            try{for(int attempt=0;attempt<40&&!controls.ContainsKey(wire.Peer.Id);attempt++)await Task.Delay(25,stop.Token);}
+            catch(OperationCanceledException){wire.Dispose();return;}
+            if(!controls.ContainsKey(wire.Peer.Id)){wire.Dispose();return;}
+        }
         if(!peers.TryAdd(wire.Peer.Id,wire)){wire.Dispose();return;}
         using var linked=CancellationTokenSource.CreateLinkedTokenSource(stop.Token,wire.Token);
         var ping=Task.Run(async()=>
@@ -95,7 +101,7 @@ sealed class KvmService:IDisposable
                 if(message.Type=="screens")
                 {
                     KvmWire.ValidateScreens(message.Screens);
-                    if(wire.Channel=="control"){wire.SetScreens(message.Screens!);PeersChanged?.Invoke();}continue;
+                    if(wire.Channel=="control"){wire.SetScreens(message.Screens!,message.RemoteViewOnly);PeersChanged?.Invoke();}continue;
                 }
                 if(wire.Channel=="audio")
                 {
@@ -137,6 +143,7 @@ sealed class KvmService:IDisposable
                 if(options.Role=="Client")KvmInput.ReleaseAll();
                 Disconnected?.Invoke(wire.Peer.Id);PeersChanged?.Invoke();
             }
+            if(wire.Channel=="audio")KvmAudioBus.Remove(wire.Peer.Id);
         }
     }
     public bool Send(string peer,KvmMessage message)=>controls.TryGetValue(peer,out var connection)&&connection.Post(message);
@@ -158,7 +165,7 @@ sealed class KvmService:IDisposable
     public void RefreshScreens()
     {
         var screens=KvmScreen.Local();
-        foreach(var connection in controls.Values)connection.Post(new(){Type="screens",Screens=screens});
+        foreach(var connection in controls.Values)connection.Post(new(){Type="screens",Screens=screens,RemoteViewOnly=options.RemoteViewOnly});
         SelectAudio(ActiveAudioPeer);
     }
     public void Dispose()

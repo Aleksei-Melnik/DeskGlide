@@ -44,13 +44,14 @@ static class KvmTests
         var host=new KvmOptions{Role="Host"};
         var listener=new TcpListener(IPAddress.Loopback,0);listener.Start();
         int port=((IPEndPoint)listener.LocalEndpoint).Port;
-        var client=new KvmOptions{Role="Client",Host="127.0.0.1",Port=port,PairingCode=identity.Code};
+        var client=new KvmOptions{Role="Client",Host="127.0.0.1",Port=port,PairingCode=identity.Code,RemoteViewOnly=true};
         async Task<KvmWire> Accept()=>await KvmWire.Accept(await listener.AcceptTcpClientAsync(deadline.Token),identity,host,deadline.Token);
         try
         {
             var accepting=Accept();
             using var connection=await KvmWire.Connect(client,"bulk",deadline.Token);
             using var server=await accepting;
+            if(!server.Peer.RemoteViewOnly)throw new Exception("Server-only capability lost in handshake");
             if(server.Peer.Version!=Updates.VersionText||server.Peer.UpdateProtocol!=1||connection.Peer.UpdateProtocol!=1)throw new Exception("Update capability handshake lost");
             byte[] payload=RandomNumberGenerator.GetBytes(65536);
             await connection.SendAsync(new(){Type="file-data",Id="test",Data=payload},deadline.Token);
@@ -75,6 +76,16 @@ static class KvmTests
         var layout=new[]{left,center,right};
         if(KvmLayout.At(layout,new(-1,500))!=left||KvmLayout.At(layout,new(2560,500))!=right)throw new Exception("Side-specific monitor routing");
         if(KvmLayout.ToPhysical(left,new("left",1920,-200,1920,1080,false),new(-1,500))!=new Point(3839,300))throw new Exception("Remote monitor coordinate mapping");
+        var peers=new[]{new KvmPeerInfo("game","Gaming PC",[new("center",0,0,2560,1440,true)]),new KvmPeerInfo("stream","Streaming PC",[new("left",0,0,1920,1080,true),new("right",1920,0,1920,1080,false)]),new KvmPeerInfo("server","Server",[new("server-screen",0,0,1920,1080,true)],RemoteViewOnly:true)};
+        var layoutOptions=new KvmOptions{Id="game",Layout=layout.ToList()};
+        var merged=KvmLayout.Merge(layoutOptions,peers);
+        if(merged.Count!=3||merged.Any(m=>m.Peer=="server")||KvmLayout.At(merged,new(-1,500))?.Device!="left"||KvmLayout.At(merged,new(2560,500))?.Device!="right")throw new Exception("Remote-only server changed edge routing");
+        layoutOptions.RemoteOnlyPeers.Add("stream");
+        if(KvmLayout.Merge(layoutOptions,peers).Any(m=>m.Peer!="game"))throw new Exception("Host exclusion ignored");
+        layoutOptions.RemoteOnlyPeers.Clear();
+        if(KvmLayout.Merge(layoutOptions,peers).First(m=>m.Device=="left").X!=-1920)throw new Exception("Restoring a PC lost its layout");
+        foreach(var invalid in new KvmScreen[][]{[peers[0].Screens[0],peers[0].Screens[0]],[new(null!,0,0,1,1,true)],[null!]})
+        {bool rejected=false;try{KvmWire.ValidateScreens(invalid);}catch(IOException){rejected=true;}if(!rejected)throw new Exception("Malformed screens accepted");}
         KvmClipboard.ValidateManifest([new("Folder",0,true),new("Folder/тест.txt",10,false),new("other.bin",200,false)]);
         foreach(var files in new KvmFileEntry[][]{
             [new("../bad",1,false)],[new("C:/bad",1,false)],[new("a:ads",1,false)],[new("CON.txt",1,false)],

@@ -109,7 +109,7 @@ sealed class TrayApp:ApplicationContext
         items.Add(new ToolStripSeparator());
         items.Add("Настройки…",null,(_,_)=>OpenSettings());
         items.Add("Обновления…",null,(_,_)=>OpenUpdates());
-        items.Add("Открыть записи",null,(_,_)=>Guard(()=>Process.Start(new ProcessStartInfo(settings.Replay.Folder){UseShellExecute=true})));
+        items.Add("Открыть записи",null,async(_,_)=>{string folder=settings.Replay.Folder;try{await Task.Run(()=>Directory.CreateDirectory(folder));Process.Start(new ProcessStartInfo(folder){UseShellExecute=true});}catch(Exception e){notifications.Enqueue("Не удалось открыть папку записей: "+e.Message);}});
         items.Add(new ToolStripSeparator());items.Add("Выход",null,(_,_)=>ExitThread());
     }
     void OpenSettings(int page=0)=>Guard(()=>
@@ -120,7 +120,7 @@ sealed class TrayApp:ApplicationContext
         var result=form.ResultSettings;
         if(!hotkey.Set(result.Replay.HotkeyModifiers,result.Replay.HotkeyKey))
         {hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey);throw new InvalidOperationException("Клавиша сохранения занята другой программой.");}
-        string priorKvm=JsonSerializer.Serialize(settings.Kvm with{Layout=[],Seamless=true});
+        string priorKvm=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],Seamless=true});
         settings.Device=result.Device;settings.Compensate=result.Compensate;settings.CaptureCursor=result.CaptureCursor;settings.SendOnLaunch=result.SendOnLaunch;settings.NdiAudioDevice=result.NdiAudioDevice;settings.NdiAudioVolume=result.NdiAudioVolume;settings.Updates=result.Updates;settings.Replay=result.Replay;settings.Kvm=result.Kvm;settings.Save();
         engine.Update(settings.Options);engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;engine.ReplayEnabled=settings.Replay.Enabled;engine.ReplayFrameRate=settings.Replay.Fps;replay.Update(settings.Replay);
         if(IsAutorun()!=form.StartWithWindows)
@@ -128,7 +128,7 @@ sealed class TrayApp:ApplicationContext
             using var key=Registry.CurrentUser.CreateSubKey(RunKey);
             if(form.StartWithWindows)key.SetValue("ScreenCapture",$"\"{Environment.ProcessPath}\"");else key.DeleteValue("ScreenCapture",false);key.DeleteValue("SdrCapture",false);
         }
-        if(priorKvm!=JsonSerializer.Serialize(settings.Kvm with{Layout=[],Seamless=true}))StartKvm();else controller?.UpdateLayout(settings.Kvm);
+        if(priorKvm!=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],Seamless=true}))StartKvm();else controller?.UpdateLayout(settings.Kvm);
         SelectRemoteAudio();notifications.Enqueue("Настройки применены.");
     });
     string Diagnostics()=>$"{engine.SourceName}\r\n{engine.Status}\r\n{engine.CaptureStatus}\r\nЗахват: {engine.CaptureMs:F1} мс; NDI: {engine.SendMs:F1} мс\r\n\r\n{replay.Status}\r\n{replay.AudioStatus}\r\nNDI audio: {engine.NdiAudioStatus}\r\nБуфер: {replay.CacheBytes/1048576.0:F0} МБ\r\nКадры записи: {replay.EncodedFrames}; повторы: {replay.RepeatedInputFrames}\r\nПримечание: неподвижный экран тоже даёт повторы.\r\nЗапусков кодировщика: {replay.EncoderStarts}\r\n{replay.Error}\r\n{delivery.Status}\r\n\r\nKVM: {kvm?.Status}\r\n{string.Join("\r\n",kvm?.Peers.Select(p=>p.Name+" · экранов: "+p.Screens.Length)??[])}";
@@ -147,13 +147,13 @@ sealed class TrayApp:ApplicationContext
         if(kvm==null||settings.Kvm.Role!="Host")return;
         controller?.ReturnLocal();
         if(viewers.TryGetValue(peer.Id,out var existing)&&!existing.IsDisposed){if(existing.WindowState==FormWindowState.Minimized)existing.WindowState=FormWindowState.Normal;existing.Activate();return;}
-        var viewer=new KvmViewer(kvm,peer);viewers[peer.Id]=viewer;viewer.FormClosed+=(_,_)=>viewers.Remove(peer.Id);viewer.Show();
+        var viewer=new KvmViewer(kvm,peer);viewers[peer.Id]=viewer;viewer.Activated+=(_,_)=>{controller?.ReturnLocal();if(controller!=null)controller.ViewerActive=true;};viewer.Deactivate+=(_,_)=>{if(controller!=null)controller.ViewerActive=false;};viewer.FormClosed+=(_,_)=>{viewers.Remove(peer.Id);if(controller!=null)controller.ViewerActive=false;};viewer.Show();
     }
     public void OpenKvm()
     {
         controller?.ReturnLocal();
         if(kvmHub is {IsDisposed:false}){if(kvmHub.WindowState==FormWindowState.Minimized)kvmHub.WindowState=FormWindowState.Normal;kvmHub.Activate();return;}
-        kvmHub=new(()=>kvm,()=>controller?.Seamless??false,enabled=>{if(controller!=null){controller.Seamless=enabled;settings.Kvm.Seamless=enabled;settings.Save();}},()=>{controller?.ReturnLocal();foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();},OpenViewer,OpenSettings);kvmHub.Show();
+        kvmHub=new(()=>kvm,()=>controller?.Seamless??false,enabled=>{if(controller!=null){controller.Seamless=enabled;settings.Kvm.Seamless=enabled;settings.Save();}},()=>{controller?.ReturnLocal();foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();},OpenViewer,OpenSettings,p=>p.RemoteViewOnly||settings.Kvm.RemoteOnlyPeers.Contains(p.Id),(p,only)=>{settings.Kvm.RemoteOnlyPeers.Remove(p.Id);if(only)settings.Kvm.RemoteOnlyPeers.Add(p.Id);settings.Save();controller?.UpdateLayout(settings.Kvm);});kvmHub.Show();
     }
     void StartKvm()
     {

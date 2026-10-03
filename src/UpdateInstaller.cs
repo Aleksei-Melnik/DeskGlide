@@ -36,14 +36,11 @@ static class UpdateInstaller
             }
             restartPrevious=true;
             // A second copy must not start while files are being replaced.
-            using var applicationMutex=new Mutex(false,"Local\\SdrCapture.Tray");
-            bool acquired=false;
-            try{try{acquired=applicationMutex.WaitOne(15000);}catch(AbandonedMutexException){acquired=true;}
-                if(!acquired)throw new IOException("Другая копия ScreenCapture ещё работает.");
+            WithInstallationLock(()=>
+            {
                 InstallFiles(payload,job.Destination,Path.Combine(stage,"backup"),manifest);
                 installed=true;
-            }
-            finally{if(acquired)applicationMutex.ReleaseMutex();}
+            });
             using var health=new EventWaitHandle(false,EventResetMode.ManualReset,"Local\\SdrCapture.UpdateHealth."+job.Nonce);
             var start=new ProcessStartInfo(Path.Combine(job.Destination,job.Executable)){UseShellExecute=false,CreateNoWindow=true,WorkingDirectory=job.Destination,WindowStyle=ProcessWindowStyle.Hidden};
             start.ArgumentList.Add("--updated");start.ArgumentList.Add(job.Nonce);
@@ -80,6 +77,19 @@ static class UpdateInstaller
             return 1;
         }
         finally{child?.Dispose();}
+    }
+    internal static void WithInstallationLock(Action install,string name="Local\\SdrCapture.Tray")
+    {
+        // Dispose the named object before launching the app: its singleton checks creation.
+        using var applicationMutex=new Mutex(false,name);
+        bool acquired=false;
+        try
+        {
+            try{acquired=applicationMutex.WaitOne(15000);}catch(AbandonedMutexException){acquired=true;}
+            if(!acquired)throw new IOException("Другая копия ScreenCapture ещё работает.");
+            install();
+        }
+        finally{if(acquired)applicationMutex.ReleaseMutex();}
     }
     sealed record Change(string Path,bool Existed);
     public static void InstallFiles(string payload,string destination,string backup,ReleaseManifest manifest,Action<int>? afterFile=null)

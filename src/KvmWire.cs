@@ -13,6 +13,7 @@ sealed record KvmMessage
 {
     public string Version {get;set;}="";
     public int UpdateProtocol {get;set;}
+    public bool RemoteViewOnly {get;set;}
     public string Type {get;set;}="";
     public string Text {get;set;}="";
     public string Id {get;set;}="";
@@ -89,7 +90,7 @@ sealed class KvmWire:IDisposable
             byte[] expected=HMACSHA256.HashData(identity.Key,nonce.Concat(Encoding.UTF8.GetBytes(hello.Id+"|"+hello.Device)).ToArray());
             if(hello.Data==null||!CryptographicOperations.FixedTimeEquals(expected,hello.Data))throw new AuthenticationException("Неверный код KVM.");
             ValidateScreens(hello.Screens);
-            wire.Peer=new(hello.Id,hello.Text,hello.Screens!,hello.Version,Math.Clamp(hello.UpdateProtocol,0,1));wire.Channel=hello.Device;
+            wire.Peer=new(hello.Id,hello.Text,hello.Screens!,hello.Version,Math.Clamp(hello.UpdateProtocol,0,1),hello.RemoteViewOnly);wire.Channel=hello.Device;
             await wire.SendAsync(new(){Type="welcome",Version=Updates.VersionText,UpdateProtocol=1,Id=options.Id,Text=Environment.MachineName,Screens=KvmScreen.Local()},timeout.Token);
             wire.StartWriter();return wire;
         }
@@ -109,7 +110,7 @@ sealed class KvmWire:IDisposable
             var challenge=await wire.ReadAsync(timeout.Token);
             if(challenge.Type!="challenge"||challenge.Data?.Length!=32)throw new AuthenticationException("Invalid host challenge.");
             byte[] proof=HMACSHA256.HashData(key,challenge.Data.Concat(Encoding.UTF8.GetBytes(options.Id+"|"+channel)).ToArray());
-            await wire.SendAsync(new(){Type="hello",Version=Updates.VersionText,UpdateProtocol=1,Id=options.Id,Device=channel,Text=Environment.MachineName,Data=proof,Screens=KvmScreen.Local()},timeout.Token);
+            await wire.SendAsync(new(){Type="hello",Version=Updates.VersionText,UpdateProtocol=1,RemoteViewOnly=options.RemoteViewOnly,Id=options.Id,Device=channel,Text=Environment.MachineName,Data=proof,Screens=KvmScreen.Local()},timeout.Token);
             var welcome=await wire.ReadAsync(timeout.Token);
             if(welcome.Type!="welcome"||!Guid.TryParseExact(welcome.Id,"N",out _)||welcome.Text.Length>100)throw new AuthenticationException("Invalid host reply.");
             ValidateScreens(welcome.Screens);
@@ -119,10 +120,10 @@ sealed class KvmWire:IDisposable
     }
     public static void ValidateScreens(KvmScreen[]? screens)
     {
-        if(screens==null||screens.Length>16)throw new IOException("Invalid monitor list.");
-        foreach(var s in screens)if(s.Device.Length>128||s.Width<1||s.Width>16384||s.Height<1||s.Height>16384||Math.Abs((long)s.X)>100000||Math.Abs((long)s.Y)>100000)throw new IOException("Invalid monitor bounds.");
+        if(screens==null||screens.Length>16||screens.Any(s=>s==null)||screens.Select(s=>s.Device).Distinct().Count()!=screens.Length)throw new IOException("Invalid monitor list.");
+        foreach(var s in screens)if(string.IsNullOrEmpty(s.Device)||s.Device.Length>128||s.Width<1||s.Width>16384||s.Height<1||s.Height>16384||Math.Abs((long)s.X)>100000||Math.Abs((long)s.Y)>100000)throw new IOException("Invalid monitor bounds.");
     }
-    public void SetScreens(KvmScreen[] screens)=>Peer=Peer with{Screens=screens};
+    public void SetScreens(KvmScreen[] screens,bool remoteOnly)=>Peer=Peer with{Screens=screens,RemoteViewOnly=remoteOnly};
     void StartWriter()=>writer=Task.Run(async()=>
     {
         try{await foreach(var message in queue.Reader.ReadAllAsync(stop.Token))await SendAsync(message,stop.Token);}

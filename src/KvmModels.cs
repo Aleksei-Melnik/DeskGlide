@@ -15,13 +15,16 @@ public sealed record KvmOptions
     public bool ClipboardFiles {get;set;}=true;
     public string AudioDevice {get;set;}="";
     public bool AllowView {get;set;}=true;
+    public bool RemoteViewOnly {get;set;}
+    public List<string> RemoteOnlyPeers {get;set;}=[];
     public List<MonitorPlacement> Layout {get;set;}=[];
-    public KvmOptions Copy()=>this with{Layout=Layout.Select(m=>m with{}).ToList()};
+    public KvmOptions Copy()=>this with{Layout=Layout.Select(m=>m with{}).ToList(),RemoteOnlyPeers=RemoteOnlyPeers.ToList()};
     public void Validate()
     {
         if(Role is not ("Off" or "Host" or "Client"))throw new ArgumentException("Неизвестная роль KVM.");
         if(Port<1024||Port>65535)throw new ArgumentException("Порт KVM: 1024–65535.");
         if(!Guid.TryParseExact(Id,"N",out _))throw new ArgumentException("Повреждён идентификатор KVM.");
+        if(RemoteOnlyPeers.Count>64||RemoteOnlyPeers.Any(id=>!Guid.TryParseExact(id,"N",out _)||id==Id))throw new ArgumentException("Недопустимый список серверов KVM.");
         if(Role=="Client"){if(string.IsNullOrWhiteSpace(Host))throw new ArgumentException("Введите имя или IP управляющего ПК.");KvmPairing.Decode(PairingCode);}
         if(Layout.Count>32||Layout.GroupBy(m=>m.Key).Any(g=>g.Count()>1))throw new ArgumentException("Недопустимая схема мониторов.");
         foreach(var m in Layout)
@@ -49,7 +52,7 @@ public sealed record KvmScreen(string Device,int X,int Y,int Width,int Height,bo
     public static KvmScreen[] Local()=>Screen.AllScreens.Select(s=>new KvmScreen(s.DeviceName,s.Bounds.X,s.Bounds.Y,s.Bounds.Width,s.Bounds.Height,s.Primary)).ToArray();
     [JsonIgnore] public Rectangle Bounds=>new(X,Y,Width,Height);
 }
-public sealed record KvmPeerInfo(string Id,string Name,KvmScreen[] Screens,string Version="",int UpdateProtocol=0);
+public sealed record KvmPeerInfo(string Id,string Name,KvmScreen[] Screens,string Version="",int UpdateProtocol=0,bool RemoteViewOnly=false);
 
 static class KvmPairing
 {
@@ -71,8 +74,10 @@ static class KvmLayout
 {
     public static List<MonitorPlacement> Merge(KvmOptions options,IEnumerable<KvmPeerInfo> peers)
     {
-        var result=options.Layout.Select(m=>m with{}).ToList();
-        foreach(var peer in peers)
+        var available=peers.ToArray();
+        var remoteOnly=options.RemoteOnlyPeers.Concat(available.Where(p=>p.RemoteViewOnly&&p.Id!=options.Id).Select(p=>p.Id)).ToHashSet();
+        var result=options.Layout.Where(m=>!remoteOnly.Contains(m.Peer)).Select(m=>m with{}).ToList();
+        foreach(var peer in available.Where(p=>!remoteOnly.Contains(p.Id)))
         foreach(var screen in peer.Screens)
         {
             var found=result.FirstOrDefault(m=>m.Peer==peer.Id&&m.Device==screen.Device);

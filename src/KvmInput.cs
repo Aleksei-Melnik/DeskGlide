@@ -71,13 +71,14 @@ sealed class KvmController:IDisposable
     KvmOptions options;
     MonitorPlacement? remote;
     Point logical,anchor,returnPoint;
-    long cooldown;
+    Point? pendingWarp;
     readonly HashSet<int> swallowed=[];
     readonly HashSet<int> physicalKeys=[];
     List<MonitorPlacement> currentMonitors=[];
     Dictionary<string,KvmScreen> physicalScreens=[];
     KvmScreen[] localScreens=[];
     volatile bool seamless;
+    public volatile bool ViewerActive;
     public bool Seamless {get=>seamless;set=>seamless=value;}
     public event Action<bool>? SeamlessChanged;
     public event Action? EmergencyReturn;
@@ -124,7 +125,7 @@ sealed class KvmController:IDisposable
         var peers=new[]{new KvmPeerInfo(options.Id,Environment.MachineName,localScreens)}.Concat(service.Peers).ToArray();
         physicalScreens=peers.SelectMany(p=>p.Screens.Select(s=>(Key:p.Id+"|"+s.Device,Screen:s))).ToDictionary(p=>p.Key,p=>p.Screen);
         currentMonitors=KvmLayout.Merge(options,peers).Where(m=>physicalScreens.ContainsKey(m.Key)).ToList();
-        if(remote!=null&&!physicalScreens.ContainsKey(remote.Key))ReturnLocal();
+        if(remote!=null&&(!physicalScreens.ContainsKey(remote.Key)||!currentMonitors.Any(m=>m.Key==remote.Key)))ReturnLocal();
     }
     public void UpdateLayout(KvmOptions value){if(Dispatch(()=>UpdateLayout(value)))return;ReturnLocal();options=value.Copy();Seamless=value.Seamless;Refresh();}
     bool TryPhysical(MonitorPlacement monitor,Point position,out Point physical)
@@ -138,19 +139,23 @@ sealed class KvmController:IDisposable
         var position=point??new Point(target.X+target.Width/2,target.Y+target.Height/2);
         if(!TryPhysical(target,position,out var physical))return;
         if(remote!=null)service.Send(remote.Peer,new(){Type="release"});
-        if(target.Peer==options.Id){ReturnLocal();KvmInput.SetCursorPos(physical.X,physical.Y);return;}
+        if(target.Peer==options.Id){ReturnLocalCore(physical);return;}
         if(remote==null){returnPoint=Cursor.Position;anchor=Screen.FromPoint(returnPoint).Bounds.Location;var bounds=Screen.FromPoint(returnPoint).Bounds;anchor=new(bounds.Left+bounds.Width/2,bounds.Top+bounds.Height/2);Cursor.Hide();}
-        remote=target;logical=position;cooldown=Environment.TickCount64+250;
-        KvmInput.SetCursorPos(anchor.X,anchor.Y);
+        remote=target;logical=position;
+        Warp(anchor);
         service.Send(target.Peer,new(){Type="mouse",X=physical.X,Y=physical.Y});
     }
     public void ReturnLocal()
     {
         if(Dispatch(ReturnLocal))return;
-        if(remote==null)return;
-        service.Send(remote.Peer,new(){Type="release"});remote=null;
-        Cursor.Show();KvmInput.SetCursorPos(returnPoint.X,returnPoint.Y);cooldown=Environment.TickCount64+400;
+        ReturnLocalCore();
     }
+    void ReturnLocalCore(Point? destination=null)
+    {
+        if(remote!=null){service.Send(remote.Peer,new(){Type="release"});remote=null;Cursor.Show();Warp(destination??returnPoint);}
+        else if(destination.HasValue)Warp(destination.Value);
+    }
+    void Warp(Point point){pendingWarp=point;KvmInput.SetCursorPos(point.X,point.Y);}
     IntPtr MouseHook(int code,IntPtr w,IntPtr l)
     {
         if(code<0)return CallNextHookEx(IntPtr.Zero,code,w,l);
@@ -159,9 +164,11 @@ sealed class KvmController:IDisposable
         var point=new Point(data.Point.X,data.Point.Y);
         try
         {
+            // Ignore our own recentering event, without delaying the next physical movement.
+            if(message==0x200&&pendingWarp==point){pendingWarp=null;return remote!=null?(IntPtr)1:CallNextHookEx(IntPtr.Zero,code,w,l);}
             if(remote==null)
             {
-                if(message==0x200&&Seamless&&Environment.TickCount64>cooldown&&!(Down(1)||Down(2)||Down(4)))
+                if(message==0x200&&Seamless&&!ViewerActive&&!(Down(1)||Down(2)||Down(4)))
                 {
                     var screen=localScreens.FirstOrDefault(s=>s.Bounds.Contains(point));
                     var local=Monitors.FirstOrDefault(m=>m.Peer==options.Id&&m.Device==screen?.Device);
@@ -182,9 +189,9 @@ sealed class KvmController:IDisposable
             {
                 if(point==anchor)return (IntPtr)1;
                 var candidate=new Point(logical.X+point.X-anchor.X,logical.Y+point.Y-anchor.Y);
-                var target=Seamless&&Environment.TickCount64>cooldown?KvmLayout.At(Monitors,candidate):null;
+                var target=Seamless?KvmLayout.At(Monitors,candidate):null;
                 if(target!=null&&target.Key!=remote.Key){Activate(target,candidate);return (IntPtr)1;}
-                logical=KvmLayout.Clamp(remote,candidate);KvmInput.SetCursorPos(anchor.X,anchor.Y);
+                logical=KvmLayout.Clamp(remote,candidate);Warp(anchor);
             }
             if(!TryPhysical(remote,logical,out var physical)){ReturnLocal();return (IntPtr)1;}
             int flags=message switch{0x201=>2,0x202=>4,0x204=>8,0x205=>16,0x207=>32,0x208=>64,0x20B=>128,0x20C=>256,0x20A=>2048,0x20E=>4096,_=>0};
@@ -208,7 +215,7 @@ sealed class KvmController:IDisposable
         {
             if(key==27){ReturnLocal();EmergencyReturn?.Invoke();swallowed.Add(key);return (IntPtr)1;}
             if(key==19){Seamless=!Seamless;SeamlessChanged?.Invoke(Seamless);swallowed.Add(key);return (IntPtr)1;}
-            var target=Monitors.FirstOrDefault(m=>m.Hotkey>0&&key==(int)Keys.F1+m.Hotkey-1);
+            var target=ViewerActive?null:Monitors.FirstOrDefault(m=>m.Hotkey>0&&key==(int)Keys.F1+m.Hotkey-1);
             if(target!=null){Activate(target);swallowed.Add(key);return (IntPtr)1;}
         }
         if(remote==null)return CallNextHookEx(IntPtr.Zero,code,w,l);

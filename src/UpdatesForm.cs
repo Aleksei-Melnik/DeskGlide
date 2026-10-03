@@ -13,6 +13,7 @@ sealed class UpdatesForm:Form
         this.updater=updater;this.network=network;
         Text="ScreenCapture · Обновления";ClientSize=new(760,460);MinimumSize=new(680,400);Font=new("Segoe UI",10);Padding=new(18);StartPosition=FormStartPosition.CenterScreen;
         Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
+        UiStyle.FixedWindow(this);
         var buttons=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=48,WrapContents=false};buttons.Controls.AddRange([check,here,all]);
         var heading=new LinkLabel{Text=$"ScreenCapture {Updates.VersionText} · GitHub Releases",AutoSize=true,Dock=DockStyle.Top,Padding=new(0,0,0,10)};
         heading.LinkClicked+=(_,_)=>Process.Start(new ProcessStartInfo(Updates.RepositoryUrl+"/releases"){UseShellExecute=true});

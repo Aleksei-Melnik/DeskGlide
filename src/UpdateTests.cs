@@ -31,6 +31,14 @@ static class UpdateTests
         Require(failed&&File.ReadAllText(Path.Combine(target,"ScreenCapture.exe"))=="old exe"&&!File.Exists(Path.Combine(target,"ScreenCapture.dll")),"Failed installation did not roll back");
         Require(File.ReadAllText(Path.Combine(target,"settings.json"))=="private profile"&&File.ReadAllText(Path.Combine(target,"tools","ffmpeg.exe"))=="existing encoder","User files changed");
         UpdateInstaller.InstallFiles(payload,target,Path.Combine(root,"backup-success"),verified);
+        string mutexName="Local\\ScreenCapture.UpdateTest."+Guid.NewGuid().ToString("N");
+        foreach(bool fail in new[]{false,true})
+        {
+            try{UpdateInstaller.WithInstallationLock(()=>{if(fail)throw new IOException("Test failure");},mutexName);}catch(IOException)when(fail){}
+            using var singleton=new Mutex(true,mutexName,out bool first);
+            Require(first,"Installer still holds the singleton object: restarted app would exit");
+            singleton.ReleaseMutex();
+        }
         Require(File.ReadAllText(Path.Combine(target,"ScreenCapture.exe"))=="new exe","New executable not installed");
         File.AppendAllText(Path.Combine(payload,"ScreenCapture.dll"),"tampered");Reject(()=>Updates.VerifyPayload(payload,verified),"Tampered payload accepted");
         Require(Updates.ParseVersion("0.10.0")>Updates.ParseVersion("0.9.9"),"Version comparison is lexical");

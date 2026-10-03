@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
-# A vector master for Explorer, plus a simplified S mark for tiny tray sizes.
+# SC monogram built from vector paths, consistent at every tray and Explorer size.
 # Supersampling preserves the rounded silhouette; no external graphics tools required.
 function New-RoundedPath([single]$X, [single]$Y, [single]$Width, [single]$Height, [single]$Radius) {
     $path = [System.Drawing.Drawing2D.GraphicsPath]::new()
@@ -19,42 +19,32 @@ function New-IconBitmap([int]$Size) {
     $g = [System.Drawing.Graphics]::FromImage($large)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $g.ScaleTransform($Size*$scale/256.0, $Size*$scale/256.0)
-    $dark = [System.Drawing.SolidBrush]::new([System.Drawing.ColorTranslator]::FromHtml('#102532'))
-    $white = [System.Drawing.SolidBrush]::new([System.Drawing.ColorTranslator]::FromHtml('#f5fcff'))
-    $mint = [System.Drawing.Pen]::new([System.Drawing.ColorTranslator]::FromHtml('#45e5c0'),12)
-    $mint.StartCap = $mint.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
-    $tile = New-RoundedPath 8 8 240 240 48
-    $g.FillPath($dark,$tile)
-    if ($Size -le 32) {
-        # Wider strokes and a geometric S stay readable at 16 pixels.
-        $screen = New-RoundedPath 32 40 192 136 12
-        $mint.Width = 16
-        $g.DrawPath($mint,$screen)
-        $g.DrawLine($mint,128,184,128,208)
-        $g.DrawLine($mint,88,216,168,216)
-        $mark = [System.Drawing.Drawing2D.GraphicsPath]::new()
-        $points = [System.Drawing.PointF[]]@(
-            [System.Drawing.PointF]::new(166,72),[System.Drawing.PointF]::new(94,72),
-            [System.Drawing.PointF]::new(94,118),[System.Drawing.PointF]::new(142,118),
-            [System.Drawing.PointF]::new(142,134),[System.Drawing.PointF]::new(94,134),
-            [System.Drawing.PointF]::new(94,154),[System.Drawing.PointF]::new(166,154),
-            [System.Drawing.PointF]::new(166,100),[System.Drawing.PointF]::new(118,100),
-            [System.Drawing.PointF]::new(118,92),[System.Drawing.PointF]::new(166,92))
-        $mark.AddPolygon($points)
-        $g.FillPath($white,$mark)
-        $mark.Dispose()
-    } else {
-        $screen = New-RoundedPath 40 49 176 125 14
-        $g.DrawPath($mint,$screen)
-        $g.DrawLine($mint,128,180,128,206)
-        $g.DrawLine($mint,94,212,162,212)
-        $font = [System.Drawing.Font]::new('Segoe UI',51,[System.Drawing.FontStyle]::Bold,[System.Drawing.GraphicsUnit]::Pixel)
-        $format = [System.Drawing.StringFormat]::new()
-        $format.Alignment = $format.LineAlignment = [System.Drawing.StringAlignment]::Center
-        $g.DrawString('SDR',$font,$white,[System.Drawing.RectangleF]::new(40,49,176,125),$format)
-        $format.Dispose(); $font.Dispose()
+    $tile = New-RoundedPath 8 8 240 240 52
+    $gradient = [System.Drawing.Drawing2D.LinearGradientBrush]::new([System.Drawing.Point]::new(24,12),[System.Drawing.Point]::new(224,248),[System.Drawing.ColorTranslator]::FromHtml('#233c62'),[System.Drawing.ColorTranslator]::FromHtml('#0c1529'))
+    $g.FillPath($gradient,$tile)
+    $border = [System.Drawing.Pen]::new([System.Drawing.ColorTranslator]::FromHtml('#466384'),2)
+    $g.DrawPath($border,$tile)
+    $white = [System.Drawing.Pen]::new([System.Drawing.ColorTranslator]::FromHtml('#f4f8ff'),22)
+    $mint = [System.Drawing.Pen]::new([System.Drawing.ColorTranslator]::FromHtml('#57e3d0'),22)
+    foreach ($pen in @($white,$mint)) {
+        $pen.StartCap = $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
+        $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
     }
-    $screen.Dispose(); $tile.Dispose(); $mint.Dispose(); $white.Dispose(); $dark.Dispose(); $g.Dispose()
+    $s = [System.Drawing.Drawing2D.GraphicsPath]::new()
+    $s.AddLine(108,80,78,80)
+    $s.AddBezier(78,80,62,80,56,87,56,102)
+    $s.AddBezier(56,102,56,117,64,124,80,124)
+    $s.AddLine(80,124,88,124)
+    $s.AddBezier(88,124,104,124,112,133,112,149)
+    $s.AddBezier(112,149,112,167,102,176,86,176)
+    $s.AddLine(86,176,54,176)
+    $c = [System.Drawing.Drawing2D.GraphicsPath]::new()
+    $c.AddLine(202,80,178,80)
+    $c.AddBezier(178,80,155,80,146,99,146,128)
+    $c.AddBezier(146,128,146,157,155,176,178,176)
+    $c.AddLine(178,176,202,176)
+    $g.DrawPath($white,$s); $g.DrawPath($mint,$c)
+    $s.Dispose(); $c.Dispose(); $tile.Dispose(); $gradient.Dispose(); $border.Dispose(); $mint.Dispose(); $white.Dispose(); $g.Dispose()
     $result = [System.Drawing.Bitmap]::new($Size,$Size)
     $target = [System.Drawing.Graphics]::FromImage($result)
     $target.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
@@ -109,3 +99,4 @@ foreach ($size in @(16,20,24,32,40,48,64)) {
 $preview.Save((Join-Path $PSScriptRoot 'Icon-preview.png'),[System.Drawing.Imaging.ImageFormat]::Png)
 $label.Dispose(); $background.Dispose(); $canvas.Dispose(); $preview.Dispose()
 Write-Output ('Icon built: ' + ($sizes -join ', ') + ' px')
+

@@ -12,6 +12,7 @@ internal static class Program
             if(args.Contains("--apply-update"))return UpdateInstaller.Run(args[Array.IndexOf(args,"--apply-update")+1]);
             if(args.Contains("--kvm")&&EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var openKvm)){using(openKvm)openKvm.Set();return 0;}
             if(args.Contains("--update-tests")){UpdateTests.Run();return 0;}
+            if(args.Contains("--ui-tests")){UiTests.Run();return 0;}
             if(args.Contains("--check-update")){var release=Updates.Check().GetAwaiter().GetResult();Write("update-check.json",new{Current=Updates.VersionText,Latest=release?.Manifest.Version,SignatureVerified=release!=null});return 0;}
             if(args.Contains("--repair-update"))
             {

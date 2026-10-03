@@ -60,6 +60,13 @@ and Disconnect; closing it does not stop capture or recording. Reopening the
 same PC activates its existing window. Settings have contextual descriptions,
 role-specific fields and a short transition that follows Windows animation settings.
 
+In a connected computer's KVM card, enable **Только окно KVM** to exclude it
+from physical monitor transitions while keeping remote viewing/control available.
+Alternatively, enable **Режим сервера** on the controlled computer. Excluding a
+PC retains its saved monitor positions; disabling the option restores them.
+There is no timed cooldown when crossing monitor edges. Actual input latency
+still depends on Windows scheduling and the network.
+
 KVM and remote audio need the program on both computers. Secure desktops/UAC,
 headless machines without a usable capture surface, elevated windows, games and
 anti-cheat can restrict capture/input. The experimental KVM path has local
@@ -94,6 +101,7 @@ Requires Windows x64, PowerShell 7 and .NET 10 SDK:
 ./app/ScreenCapture.exe --update-tests
 ./app/ScreenCapture.exe --audio-timing-test
 ./app/ScreenCapture.exe --kvm-test
+./app/ScreenCapture.exe --ui-tests
 ```
 
 Tests write JSON reports beside the executable. `--ndi-audio-test` also needs

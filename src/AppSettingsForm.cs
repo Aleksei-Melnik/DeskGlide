@@ -20,6 +20,7 @@ class AppSettingsForm:Form
     readonly TextBox folder=new(),host=new(),pairing=new(),hostCode=new(){ReadOnly=true};
     readonly NumericUpDown port=new(){Minimum=1024,Maximum=65535};
     readonly CheckBox seamless=new(){Text="Переходить мышью между мониторами"},textClipboard=new(){Text="Общий текстовый буфер обмена"},fileClipboard=new(){Text="Копировать файлы и папки"},allowView=new(){Text="Разрешить просмотр рабочего стола"};
+    readonly CheckBox remoteViewOnly=new(){Text="Сервер: только окно KVM, без переходов мышью"};
     readonly CheckBox ctrl=new(){Text="Ctrl",AutoSize=true},alt=new(){Text="Alt",AutoSize=true},shift=new(){Text="Shift",AutoSize=true};
     readonly ComboBox hotkey=Choice();
     readonly MonitorLayoutEditor monitors;
@@ -29,6 +30,7 @@ class AppSettingsForm:Form
     {
         initial=value.Copy();ResultSettings=value.Copy();this.service=service;
         Text=$"ScreenCapture {Updates.VersionText} · Настройки";Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(1020,760);MinimumSize=new(940,700);Font=new Font("Segoe UI",10);StartPosition=FormStartPosition.CenterScreen;AutoScaleMode=AutoScaleMode.Dpi;BackColor=Color.White;
+        UiStyle.FixedWindow(this);
         var heading=new Panel{Dock=DockStyle.Top,Height=88,Padding=new Padding(24,14,24,8),BackColor=Color.FromArgb(24,35,54)};
         heading.Controls.Add(new Label{Text="ScreenCapture",ForeColor=Color.White,Font=new Font(Font.FontFamily,23,FontStyle.Bold),Dock=DockStyle.Top,Height=43});
         heading.Controls.Add(new Label{Text="Экран, мгновенный повтор и управление компьютерами",ForeColor=Color.FromArgb(195,211,234),Dock=DockStyle.Bottom,Height=22});
@@ -56,8 +58,10 @@ class AppSettingsForm:Form
         ndiVolume.ValueChanged+=(_,_)=>volumeLabel.Text=ndiVolume.Value+"%";Row(general,"Громкость NDI / Discord",volumePanel,50);
         help.SetToolTip(ndiVolume,"Меняет только звук, отправляемый на стрим-ПК. 0% — тишина. Громкость записи и Windows не меняется.");
         Note(general,"NDI High Bandwidth · исходное разрешение · 60 FPS · SDR BT.709. Выберите выход с игрой для звука в Discord; Silent выключает звук NDI независимо от записи.");
-        var obs=new Button{Text="Подключить к OBS",AutoSize=true};obs.Click+=(_,_)=>MessageBox.Show(this,TrayApp.ConnectionText,"OBS / DistroAV");Row(general,"OBS",obs);
-        Note(general,"Discord без OBS: на стрим-ПК откройте NDI Webcam Input → выберите источник «"+Environment.MachineName+" (SdrCapture SDR)» → в Discord выберите NDI Webcam Video 1. Для звука выберите NDI Audio / NDI Webcam Audio в настройках звука трансляции Discord. Микрофон и звук стрим-ПК из записи сюда не подмешиваются.");
+        var connectHelp=new FlowLayoutPanel{WrapContents=false};
+        connectHelp.Controls.Add(UiStyle.Button("Подключение OBS",()=>MessageBox.Show(this,TrayApp.ConnectionText,"OBS / DistroAV")));
+        connectHelp.Controls.Add(UiStyle.Button("Подключение Discord",()=>MessageBox.Show(this,"На стрим-ПК откройте NDI Webcam Input → выберите «"+Environment.MachineName+" (SdrCapture SDR)».\nВ Discord выберите NDI Webcam Video 1 и NDI Audio / NDI Webcam Audio.\n\nМикрофон и звук стрим-ПК из записи сюда не подмешиваются. Доступные FPS зависят от виртуальной камеры и Discord.","Discord без OBS")));
+        Row(general,"Инструкция",connectHelp,64);
 
         var recording=Page("Мгновенный повтор","Запись на видеокарте NVIDIA");
         replay.Checked=value.Replay.Enabled;Row(recording,"Фоновая запись",replay);
@@ -108,14 +112,15 @@ class AppSettingsForm:Form
         var clipPanel=new FlowLayoutPanel{WrapContents=true};textClipboard.AutoSize=fileClipboard.AutoSize=true;clipPanel.Controls.AddRange([textClipboard,fileClipboard]);Row(network,"Буфер обмена",clipPanel,65);
         PopulateAudio(remoteAudio,value.Kvm.AudioDevice);Row(network,"Передавать звук",remoteAudio);
         allowView.Checked=value.Kvm.AllowView;Row(network,"Удалённое окно",allowView);
-        void RoleChanged(){foreach(var field in new Control[]{host,pairing,remoteAudio,allowView})ShowRow(field,role.SelectedIndex==2);ShowRow(codePanel,role.SelectedIndex==1);ShowRow(seamless,role.SelectedIndex==1);ShowRow(clipPanel,role.SelectedIndex!=0);roleHelp.Text=role.SelectedIndex switch{1=>"Здесь подключены клавиатура и мышь. На втором ПК выберите «Управляемый ПК», затем введите имя «"+Environment.MachineName+"» и код этого компьютера. Для просмотра откройте отдельное окно KVM из трея.",2=>"Этот ПК принимает управление. Введите имя и код игрового ПК. «Передавать звук» отправляет выбранный звук в запись игрового ПК; Silent выключает отправку.",_=>"KVM выключен. Передача картинки NDI и запись работают независимо. Выберите роль, чтобы связать компьютеры."};}
+        remoteViewOnly.Checked=value.Kvm.RemoteViewOnly;Row(network,"Режим сервера",remoteViewOnly,52);
+        void RoleChanged(){foreach(var field in new Control[]{host,pairing,remoteAudio,allowView,remoteViewOnly})ShowRow(field,role.SelectedIndex==2);ShowRow(codePanel,role.SelectedIndex==1);ShowRow(seamless,role.SelectedIndex==1);ShowRow(clipPanel,role.SelectedIndex!=0);roleHelp.Text=role.SelectedIndex switch{1=>"Клавиатура и мышь подключены здесь. На втором ПК выберите «Управляемый ПК», укажите имя «"+Environment.MachineName+"» и код ниже. Для сервера включите «Только окно KVM» в его карточке.",2=>"Укажите имя и код игрового ПК. Для сервера включите режим ниже: он будет доступен в KVM, но не появится среди мониторов. «Передавать звук» отправляет звук только в запись игрового ПК.",_=>"KVM выключен. Передача NDI и запись работают независимо. Выберите роль, чтобы связать компьютеры."};}
         role.SelectedIndexChanged+=(_,_)=>RoleChanged();RoleChanged();
-        Note(network,"Код даёт доступ к управлению: вводите его только на своих компьютерах. Соединения шифруются. При первом подключении разрешите SdrCapture в частной сети в запросе Windows. Ctrl+Alt+Esc — домой; Ctrl+Alt+Pause — включить/выключить переходы мышью.");
+        Note(network,"Ctrl+Alt+Esc — вернуть управление. Ctrl+Alt+Pause — включить/выключить переходы мышью. Код сопряжения вводится только на ваших компьютерах.");
         Note(network,"Экран блокировки и окна с повышенными правами могут быть недоступны. На сервере без монитора Windows должна предоставлять рабочий экран; при его отсутствии потребуется виртуальный дисплей или HDMI-заглушка.");
         var layoutPage=Page("Мониторы","Каждый монитор располагается отдельно");
         monitors=new MonitorLayoutEditor(value.Kvm,KvmLayout.Merge(value.Kvm,new[]{new KvmPeerInfo(value.Kvm.Id,Environment.MachineName,KvmScreen.Local())}.Concat(service?.Peers??[]))){Dock=DockStyle.Fill,Height=390};
         layoutPage.Controls.Add(monitors,0,layoutPage.RowCount);layoutPage.SetColumnSpan(monitors,2);layoutPage.RowStyles.Add(new(SizeType.Absolute,420));layoutPage.RowCount++;
-        Note(layoutPage,"Перетащите экраны так, как они стоят на столе. Границы соседних экранов должны касаться. Выберите левый экран стрим-ПК и нажмите «Слева», правый — «Справа». Ctrl+Alt+F1…F12 можно назначить конкретному экрану. Новые экраны появятся здесь после подключения ПК.");
+        Note(layoutPage,"Перетащите экраны как на столе: соседние границы должны касаться. «Слева» и «Справа» размещают экран около основного. «Только KVM» исключает весь выбранный ПК из переходов мышью — вернуть его можно в карточке KVM. Позиции сохраняются.");
         var updates=Page("Обновления","GitHub Releases · ScreenCapture "+Updates.VersionText);
         checkUpdates.Checked=value.Updates.CheckOnStartup;remoteUpdates.Checked=value.Updates.AllowFromHost;
         Row(updates,"Проверка",checkUpdates);Row(updates,"Обновлять с хоста",remoteUpdates,64);
@@ -128,6 +133,8 @@ class AppSettingsForm:Form
         var refresh=new Button{Text="Обновить",AutoSize=true};refresh.Click+=(_,_)=>state.Text=diagnostics?.Invoke()??"";Row(statePage,"",refresh);
         var logs=new Button{Text="Открыть журнал",AutoSize=true};logs.Click+=(_,_)=>Process.Start(new ProcessStartInfo(Log.Folder){UseShellExecute=true});Row(statePage,"",logs);
         var pending=new Button{Text="Повторы, ожидающие копирования",AutoSize=true};pending.Click+=(_,_)=>{string path=Path.Combine(ReplayTools.Root,"saved");Directory.CreateDirectory(path);Process.Start(new ProcessStartInfo(path){UseShellExecute=true});};Row(statePage,"",pending);
+        // Give spare vertical space to an empty row instead of stretching the final setting.
+        foreach(var page in pages.Cast<TableLayoutPanel>()){page.RowCount++;page.RowStyles.Add(new(SizeType.Percent,100));}
         navigation.SelectedIndex=Math.Clamp(startPage,0,pages.Count-1);
         save.Click+=(_,_)=>Save();
     }
@@ -168,7 +175,7 @@ class AppSettingsForm:Form
     static Label Note(TableLayoutPanel panel,string text)
     {
         int row=panel.RowCount++;panel.RowStyles.Add(new(SizeType.AutoSize));
-        var note=new Label{Text=text,AutoSize=true,MaximumSize=new(715,0),ForeColor=Color.FromArgb(91,104,121),Margin=new(0,10,0,14),Dock=DockStyle.Fill};
+        var note=new Label{Text=text,AutoSize=true,MaximumSize=new(715,0),ForeColor=Color.FromArgb(67,85,108),BackColor=Color.FromArgb(243,247,252),Padding=new(12),Margin=new(0,8,0,12),Dock=DockStyle.Fill};
         panel.Controls.Add(note,0,row);panel.SetColumnSpan(note,2);return note;
     }
     void PopulateAudio(ComboBox box,string id,bool includeRemote=false)
@@ -187,7 +194,7 @@ class AppSettingsForm:Form
             result.NdiAudioVolume=ndiVolume.Value;result.Updates=new(){CheckOnStartup=checkUpdates.Checked,AllowFromHost=remoteUpdates.Checked};result.NdiAudioDevice=((AudioChoice)ndiAudio.SelectedItem!).Id;result.SendOnLaunch=ndi.Checked;result.CaptureCursor=cursor.Checked;result.Device=((DisplayChoice)display.SelectedItem!).Id;
             result.Replay=initial.Replay with{Enabled=replay.Checked,Minutes=(int)minutes.Value,Codec=(string)codec.SelectedItem!,Quality=(string)quality.SelectedItem!,Fps=fps.SelectedIndex==1?120:60,Width=size.Item1,Height=size.Item2,Folder=folder.Text.Trim(),GroupByApp=true,Silent=false,AudioMode=audioMode.SelectedIndex switch{1=>"Separate",2=>"Silent",_=>"Mixed"},Microphone=((AudioChoice)mic.SelectedItem!).Id,GameAudio=((AudioChoice)game.SelectedItem!).Id,ExtraAudio=((AudioChoice)extra.SelectedItem!).Id,HotkeyModifiers=(uint)((ctrl.Checked?2:0)|(alt.Checked?1:0)|(shift.Checked?4:0)),HotkeyKey=(uint)Enum.Parse<Keys>((string)hotkey.SelectedItem!)};
             if(result.Replay.HotkeyModifiers==0)throw new ArgumentException("Для сохранения повтора выберите Ctrl, Alt или Shift.");
-            result.Kvm=initial.Kvm with{Role=role.SelectedIndex switch{1=>"Host",2=>"Client",_=>"Off"},Port=(int)port.Value,Host=host.Text.Trim(),PairingCode=pairing.Text.Trim(),Seamless=seamless.Checked,ClipboardText=textClipboard.Checked,ClipboardFiles=fileClipboard.Checked,AllowView=allowView.Checked,AudioDevice=((AudioChoice)remoteAudio.SelectedItem!).Id,Layout=monitors.Result};
+            result.Kvm=initial.Kvm with{Role=role.SelectedIndex switch{1=>"Host",2=>"Client",_=>"Off"},Port=(int)port.Value,Host=host.Text.Trim(),PairingCode=pairing.Text.Trim(),Seamless=seamless.Checked,ClipboardText=textClipboard.Checked,ClipboardFiles=fileClipboard.Checked,AllowView=allowView.Checked,RemoteViewOnly=remoteViewOnly.Checked,RemoteOnlyPeers=monitors.RemoteOnlyPeers,AudioDevice=((AudioChoice)remoteAudio.SelectedItem!).Id,Layout=monitors.Result};
             result.Replay.Validate();result.Kvm.Validate();
             if(result.Kvm.Layout.Any(m=>m.Hotkey>0&&(int)result.Replay.HotkeyKey==(int)Keys.F1+m.Hotkey-1)&&result.Replay.HotkeyModifiers==3)throw new ArgumentException("Клавиша сохранения повтора совпадает с клавишей переключения монитора.");
             ResultSettings=result;DialogResult=DialogResult.OK;Close();

@@ -13,10 +13,10 @@ jobs:
       - name: Build
         shell: pwsh
         run: ./Build.ps1
-      - name: Test update integrity, rollback and audio clock
+      - name: Test update integrity, rollback, audio clock and windows
         shell: pwsh
         run: |
-          foreach ($flag in @('--update-tests', '--audio-timing-test')) {
+          foreach ($flag in @('--update-tests', '--audio-timing-test', '--ui-tests')) {
             $p=Start-Process ./app/ScreenCapture.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){throw "$flag failed"}
           }

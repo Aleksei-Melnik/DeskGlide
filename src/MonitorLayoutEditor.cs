@@ -10,22 +10,25 @@ sealed class MonitorLayoutEditor:UserControl
     readonly Label selectedName=new(){AutoSize=true};
     readonly List<MonitorPlacement> monitors;
     readonly string localId;
+    readonly KvmOptions original;
+    readonly HashSet<string> remoteOnly;
     readonly Dictionary<MonitorPlacement,RectangleF> boxes=[];
     MonitorPlacement? selected;
     Point dragOrigin,nodeOrigin;
     bool dragging,updating;
     float scale=1;
-    public List<MonitorPlacement> Result=>monitors.Select(m=>m with{}).ToList();
+    public List<MonitorPlacement> Result=>monitors.Concat(original.Layout.Where(m=>remoteOnly.Contains(m.Peer))).DistinctBy(m=>m.Key).Select(m=>m with{}).ToList();
+    public List<string> RemoteOnlyPeers=>remoteOnly.ToList();
     public MonitorLayoutEditor(KvmOptions options,List<MonitorPlacement> monitors)
     {
-        localId=options.Id;this.monitors=monitors.Select(m=>m with{}).ToList();
+        localId=options.Id;original=options.Copy();remoteOnly=options.RemoteOnlyPeers.ToHashSet();this.monitors=monitors.Select(m=>m with{}).ToList();
         var controls=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=85,Padding=new(0,6,0,0),WrapContents=true};
         selectedName.Width=600;selectedName.AutoSize=false;selectedName.Height=24;controls.Controls.Add(selectedName);controls.SetFlowBreak(selectedName,true);
         controls.Controls.AddRange([new Label{Text="X",AutoSize=true},x,new Label{Text="Y",AutoSize=true},y,hotkey]);
         Button left=new(){Text="Слева",AutoSize=true},right=new(){Text="Справа",AutoSize=true};
         controls.Controls.AddRange([left,right]);Controls.Add(canvas);Controls.Add(controls);
-        var remove=new Button{Text="Убрать",AutoSize=true};controls.Controls.Add(remove);
-        remove.Click+=(_,_)=>{if(selected!=null&&selected.Peer!=localId){monitors.Remove(selected);selected=monitors.FirstOrDefault();RefreshSelection();}};
+        var remove=new Button{Text="Только KVM",AutoSize=true};controls.Controls.Add(remove);
+        remove.Click+=(_,_)=>{if(selected!=null&&selected.Peer!=localId){string peer=selected.Peer;remoteOnly.Add(peer);original.Layout.RemoveAll(m=>m.Peer==peer);original.Layout.AddRange(this.monitors.Where(m=>m.Peer==peer).Select(m=>m with{}));this.monitors.RemoveAll(m=>m.Peer==peer);selected=this.monitors.FirstOrDefault();RefreshSelection();}};
         hotkey.Items.Add("Без клавиши");for(int i=1;i<=12;i++)hotkey.Items.Add("Ctrl+Alt+F"+i);
         x.ValueChanged+=(_,_)=>Change();y.ValueChanged+=(_,_)=>Change();hotkey.SelectedIndexChanged+=(_,_)=>Change();
         left.Click+=(_,_)=>Place(-1);right.Click+=(_,_)=>Place(1);

@@ -1,24 +1,16 @@
-ScreenCapture 0.6.0 (formerly SdrCapture)
+# ScreenCapture 0.6.1
 
-- NDI audio volume: 0–100%, default 50%. Replay audio remains independent.
-- Public GitHub releases with signed manifests, verified package/file hashes,
-  retained settings, replay saving before restart and file/startup rollback.
-- Update this PC or all connected compatible KVM PCs from the controlling PC.
-- Separate KVM window with connected PCs; one viewer per remote PC, monitor
-  selection, fullscreen and view-only toggle. Launch directly with `--kvm`.
-- Settings navigation with descriptions, contextual tips, role-specific KVM
-  fields and a short page transition respecting Windows animation preferences.
+- Убраны искусственные паузы 250–400 мс после переходов между мониторами. Собственные перемещения курсора фильтруются без таймера ожидания.
+- Исправлены пустые карточки подключённых компьютеров в отдельном окне KVM.
+- Новый режим «Только окно KVM»: компьютер остаётся доступным для удалённого просмотра и управления, но исключается из переходов мышью. Его можно включить в карточке ПК на хосте или в настройках управляемого сервера. Сохранённые позиции мониторов восстанавливаются при возвращении ПК в раскладку.
+- Исправлен фокус клавиатуры в удалённом просмотре; Tab и стрелки поступают в удалённое окно. Добавлены освобождение ввода при потере фокуса, защита от повторного F11, обновление списка экранов и фильтрация кликов по чёрным полям.
+- Устранена гонка при подключении дополнительных каналов KVM.
+- Исправлена блокировка, которая могла мешать запуску приложения после обновления.
+- Фиксированные размеры окон, более компактные инструкции в настройках и новая иконка SC во всех размерах от 16 до 256 px.
+- Команда «Открыть записи» создаёт отсутствующую папку и не блокирует интерфейс ожиданием сетевого диска.
 
-NDI source name and SDR processing are unchanged. Existing shortcuts can keep
-using SdrCapture.exe; ScreenCapture.exe is the new primary launcher.
+Обновление: трей → «Обновления…» → «Проверить» → «Обновить все подключённые ПК» (на управляющем ПК). Можно обновить только текущий ПК. Версии до 0.6 требуют однократной ручной установки. Настройки, код сопряжения, записи и tools/ сохраняются.
 
-**First upgrade from 0.5.x:** exit the app and unpack this ZIP over the existing
-app folder on each PC, retaining tools/. After this one-time installation,
-subsequent releases can be installed from the app. Offline PCs must reconnect.
-NDI runtime and FFmpeg are installed separately (see README); existing tools
-are preserved. Release signatures are not Windows Authenticode signatures.
+Проверено локально: сборка; целостность подписанного пакета и откат файлов; освобождение блокировки установщика; шифрованный KVM по loopback; исключение серверов из раскладки; отображение подключённых ПК; ввод через сообщения Windows; получение JPEG в окне просмотра; аудиотайминг; GPU SDR/курсор и синтетический NDI. В коротких тестах HEVC 2560×1440 на 60 и 120 FPS с тремя аудиодорожками не обнаружены повторы или пропуски после стартового участка.
 
-Validation: local build; signed-manifest/tamper/path tests; interrupted-copy
-rollback; audio-clock tests; paired local KVM protocol tests; synthetic NDI
-volume/mute test. Real two-PC update coordination and Discord listening still
-require validation on connected machines.
+Физическую задержку между двумя ПК и обновление всех ПК через реальную сеть нужно проверить на подключённых машинах. Нулевая задержка не гарантируется. Сервер без монитора ещё не проверен: Windows должна предоставлять рабочий дисплей. Подпись пакета проверяется приложением; это не Windows Authenticode.
