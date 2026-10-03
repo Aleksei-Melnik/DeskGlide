@@ -1,0 +1,22 @@
+name: Windows build and deterministic tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build
+        shell: pwsh
+        run: ./Build.ps1
+      - name: Test update integrity, rollback and audio clock
+        shell: pwsh
+        run: |
+          foreach ($flag in @('--update-tests', '--audio-timing-test')) {
+            $p=Start-Process ./app/ScreenCapture.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
+            if($p.ExitCode -ne 0){throw "$flag failed"}
+          }
