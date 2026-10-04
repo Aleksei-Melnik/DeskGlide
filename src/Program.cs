@@ -16,6 +16,7 @@ internal static class Program
             if(args.Contains("--feature-tests")){FeatureTests.Run();return 0;}
             if(args.Contains("--camera-test")){FeatureTests.Camera();return 0;}
             if(args.Contains("--camera-ndi-test")){FeatureTests.NdiCamera();return 0;}
+            if(args.Contains("--discord-device-test")){DiscordDeviceTests.Run();return 0;}
             if(args.Contains("--verify-cable")){string path=args[Array.IndexOf(args,"--verify-cable")+1];DiscordSetup.VerifySignature(path);Write("cable-signature-test.json",new{Pass=true,AuthenticodeVerified=true,Installed=false});return 0;}
             if(args.Contains("--check-update")){var release=Updates.Check().GetAwaiter().GetResult();Write("update-check.json",new{Current=Updates.VersionText,Latest=release?.Manifest.Version,SignatureVerified=release!=null});return 0;}
             if(args.Contains("--repair-update"))

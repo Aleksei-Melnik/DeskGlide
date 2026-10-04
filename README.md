@@ -40,18 +40,29 @@ the recording tracks or Windows device volume. Select Silent for no audio.
 For Discord without OBS or NDI Webcam Input, open **Discord · приём** on the
 **receiving/streaming PC**. Install **ScreenCapture Camera**, find/select the
 gaming PC's NDI source, enable reception and save. The native camera offers
-1920×1080 RGB video at 60 FPS. It is registered for the current Windows user;
+1920×1080 RGB24/RGB32 video at 60 FPS, with 30 FPS negotiation for clients that
+initialise preview at a lower frame rate. RGB24 is first because native WebRTC
+DirectShow capture ignores RGB32. It is registered for the current Windows user;
 restart Discord after first installation. Select it under screen share → Devices
 and select 60 FPS in Discord. Discord's account, streaming settings and network
 can still limit the outgoing stream; the device cannot override those limits.
 
 For sound, use **Установить аудиокабель…** on that same receiving PC. This downloads
 the pinned, signed, original **VB-CABLE** package and opens its administrator
-installer. Click Install Driver and reboot if requested. Select **CABLE Input**
-in ScreenCapture and **CABLE Output (VB-Audio Virtual Cable)** in Discord's
-share-device audio selector. VB-CABLE is donationware by VB-Audio; licensing and
+installer. Click Install Driver and reboot if requested. Select the cable output
+in ScreenCapture and use **Связать устройства**. The recording endpoint becomes
+**ScreenCapture Camera Audio (VB-CABLE)**, matching the complete camera name.
+The name can be customised in settings. Both endpoint IDs and the vendor's
+interface name remain unchanged. Fully quit/reopen Discord after updating.
+Chromium can infer the camera/audio group from these names; Discord's saved
+device selection may still require choosing the paired audio input once.
+VB-CABLE is donationware by VB-Audio; licensing and
 donation links are in our settings. Existing cables are reused. ScreenCapture
-does not change the default Windows audio device; check it after driver setup.
+snapshots the six Windows audio-default roles before installation and restores
+the original active endpoints if the installer selects the new cable instead.
+Recovery is retained for the installer's reboot; a deliberate switch to another
+non-cable device is preserved. Previous defaults from installations before 0.7.1
+cannot be reconstructed: restore those once in Windows sound settings if needed.
 Audio can be Silent and has a separate receiver volume slider.
 
 No cable or camera is installed automatically, through updates or through KVM
@@ -88,16 +99,11 @@ The viewer defaults to native-resolution PNG for sharp text, with selectable
 high-quality JPEG and bandwidth-saving 1080p. Large frames fall back to bounded
 JPEG rather than exceeding the transport's packet limit.
 
-Experimental file dragging **from the controlling PC to a controlled PC** needs
-0.7.0 on both ends and the KVM file-sharing option. Drag files/folders to a shared
-screen edge and keep the mouse button held while they transfer. Once ready, the
-cursor crosses and the files follow a normal COPY drag into Explorer/desktop or
-another drop-enabled app. Originals are never moved or deleted. Releasing early
-cancels the handoff; Escape/returning local cancels a remote drag. Large files must
-finish transferring first; this cannot be instantaneous. Temporary app-drop
-copies expire after four hours, while Explorer destination copies remain.
-Reverse drag handoff, virtual shell items and elevated drop targets are not
-supported in this version. Clipboard file copy remains available in both directions.
+File dragging is an unfinished experiment and has been reported not to hand off
+between the actual PCs. Do not rely on it in this release. Use **Ctrl+C / Ctrl+V**
+for file transfer in either direction. The current experimental implementation
+only attempts controlling-PC → controlled-PC handoff; reverse drag is not
+implemented. This update does not fix drag/drop.
 
 **Мой профиль** exports an encrypted `.scprofile` for each PC, including pairing
 identity, monitor layout, devices, replay/NDI/Discord settings and autorun. Keep
@@ -145,14 +151,24 @@ build tools / Windows SDK:
 ./scripts/Build-Camera.ps1 -Output ./app/camera -Probe
 ./app/ScreenCapture.exe --camera-test
 ./app/ScreenCapture.exe --camera-ndi-test
+./app/ScreenCapture.exe --discord-device-test
 ```
 
 Tests write JSON reports beside the executable. `--ndi-audio-test` also needs
 the NDI runtime and checks a synthetic signal at 100%, 50% and mute. Hardware
 capture/encoding tests require a real desktop and GPU and are not run in CI.
 The camera probe loads the filter directly without installing devices or drivers.
-It verifies real DirectShow samples, 1080p60 timestamps and changing image data.
+It verifies real DirectShow RGB24/RGB32 samples, 1080p60 timestamps, 30 FPS preview,
+connected-graph renegotiation, orientation, colour channels and changing image data.
 The NDI camera test uses a synthetic 2560×1440 source and also needs the NDI runtime.
+The device test checks default-restore rules and reads Windows PolicyConfig without
+changing audio devices. Actual Discord publishing and VB-CABLE playback still
+require a receiving-PC test. Bounded native camera logs under
+`%LOCALAPPDATA%\SdrCapture\Discord\camera-*.log` record formats and frame counters,
+never image or audio content.
+
+Compatibility references: [WebRTC DirectShow formats](https://github.com/webrtc-mirror/webrtc/blob/main/modules/video_capture/windows/device_info_ds.cc)
+and [Chromium GuessVideoGroupID](https://github.com/chromium/chromium/blob/main/content/browser/renderer_host/media/media_devices_manager.cc).
 
 To package a release, set the version in `src/ScreenCapture.csproj` and run
 `scripts/New-Release.ps1 -SigningKey <private-key-outside-repo>`. Use

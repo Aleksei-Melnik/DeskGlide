@@ -12,9 +12,8 @@ static class DiscordSetup
     public static List<AudioChoice> Outputs()
     {
         var result=new List<AudioChoice>{new("","Silent — без звука")};
-        using var devices=new MMDeviceEnumerator();
-        foreach(var device in devices.EnumerateAudioEndPoints(DataFlow.Render,DeviceState.Active))using(device)
-            if(device.FriendlyName.Contains("CABLE",StringComparison.OrdinalIgnoreCase))result.Add(new(device.ID,device.FriendlyName));
+        foreach(var device in DiscordDevices.Endpoints().Where(d=>d.Flow==DataFlow.Render&&DiscordDevices.IsCable(d)))
+            result.Add(new(device.Id,device.Name));
         return result;
     }
     public static async Task InstallCable(string role)
@@ -28,9 +27,16 @@ static class DiscordSetup
         using(var archive=new ZipArchive(new MemoryStream(zip)))archive.ExtractToDirectory(folder);
         string exe=Path.Combine(folder,"VBCABLE_Setup_x64.exe");VerifySignature(exe);
         // Keep the vendor's signed, unmodified installer and its license prompts visible.
-        using var process=Process.Start(new ProcessStartInfo(exe){UseShellExecute=true,Verb="runas",WorkingDirectory=folder})??throw new IOException("Установщик не запущен.");
-        await process.WaitForExitAsync();
-        if(process.ExitCode!=0)throw new IOException("Установщик VB-CABLE завершился с кодом "+process.ExitCode+". Если установка отменена, устройства не будут включены.");
+        DiscordDevices.BeforeInstall(role);
+        bool launched=false;
+        try
+        {
+            using var process=Process.Start(new ProcessStartInfo(exe){UseShellExecute=true,Verb="runas",WorkingDirectory=folder})??throw new IOException("Установщик не запущен.");
+            launched=true;
+            await process.WaitForExitAsync();
+            if(process.ExitCode!=0)throw new IOException("Установщик VB-CABLE завершился с кодом "+process.ExitCode+". Если установка отменена, устройства не будут включены.");
+        }
+        finally{if(launched)await DiscordDevices.AfterInstall(role);else DiscordDevices.CancelBeforeLaunch(role);}
     }
     internal static void VerifyPackage(byte[] zip){if(zip.Length>4*1024*1024||!Convert.ToHexString(SHA256.HashData(zip)).Equals(PackageHash,StringComparison.Ordinal))throw new IOException("Контрольная сумма VB-CABLE не совпала. Установка отменена.");}
     internal static void VerifySignature(string file)

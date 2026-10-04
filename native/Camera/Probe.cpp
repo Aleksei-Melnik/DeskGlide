@@ -20,14 +20,17 @@ static const CLSID grabClass={0xc1f400a0,0x3f08,0x11d3,{0x9f,0x0b,0,0x60,0x08,0x
 static const CLSID nullClass={0xc1f400a4,0x3f08,0x11d3,{0x9f,0x0b,0,0x60,0x08,0x03,0x9e,0x37}};
 struct Counter:GrabCallback {
     LONG refs=1,count=0,unique=0,badSize=0;DWORD last=0;double first=-1,end=0,maxGap=0;
+    int bytesPerPixel=3;bool pattern=false;LONG badColors=0;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id,void** p)override{if(!p)return E_POINTER;*p=nullptr;if(id==IID_IUnknown||id==__uuidof(GrabCallback)){*p=this;AddRef();return S_OK;}return E_NOINTERFACE;}
     ULONG STDMETHODCALLTYPE AddRef()override{return InterlockedIncrement(&refs);}
     ULONG STDMETHODCALLTYPE Release()override{return InterlockedDecrement(&refs);}
     HRESULT STDMETHODCALLTYPE SampleCB(double,IMediaSample*)override{return E_NOTIMPL;}
     HRESULT STDMETHODCALLTYPE BufferCB(double time,BYTE* buffer,long length)override{
-        if(length!=1920*1080*4)badSize++;
+        if(length!=1920*1080*bytesPerPixel){badSize++;return S_OK;}
         if(first<0)first=time;else if(time-end>maxGap)maxGap=time-end;end=time;
-        DWORD pixel=*(DWORD*)(buffer+((1080/2)*1920+1920/2)*4);if(pixel!=last){unique++;last=pixel;}count++;return S_OK;
+        BYTE* p=buffer+((1080/2)*1920+1920/2)*bytesPerPixel;DWORD pixel=p[0]|(p[1]<<8)|(p[2]<<16);if(pixel!=last){unique++;last=pixel;}
+        if(pattern){BYTE* bottom=buffer+10*1920*bytesPerPixel;BYTE* top=buffer+1070*1920*bytesPerPixel;if(top[0]!=0||top[1]!=0||top[2]!=255||bottom[0]!=255||bottom[1]!=0||bottom[2]!=0)badColors++;}
+        count++;return S_OK;
     }
 };
 static void Check(HRESULT hr){if(FAILED(hr)){fprintf(stderr,"HRESULT %08lx\n",hr);ExitProcess(2);}}
@@ -51,23 +54,33 @@ static bool DeviceEnumeration(){
     RegCloseKey(root);RegDeleteTreeW(HKEY_CURRENT_USER,path);devices->Release();return found;
 }
 int wmain(int argc,wchar_t** argv){
-    if(argc!=2)return 1;Check(CoInitializeEx(nullptr,COINIT_MULTITHREADED));
+    if(argc<2)return 1;Check(CoInitializeEx(nullptr,COINIT_MULTITHREADED));
+    bool rgb32=argc>2&&wcscmp(argv[2],L"rgb32")==0;bool fps30=argc>2&&wcscmp(argv[2],L"30")==0;
     bool enumerated=DeviceEnumeration();if(!enumerated){fprintf(stderr,"Device enumeration failed\n");return 4;}
     HMODULE module=LoadLibraryW(argv[1]);if(!module){fprintf(stderr,"LoadLibrary %lu\n",GetLastError());return 2;}
     auto create=(HRESULT(WINAPI*)(REFCLSID,REFIID,void**))GetProcAddress(module,"DllGetClassObject");IClassFactory* factory=nullptr;Check(create(camera,IID_IClassFactory,(void**)&factory));
     IBaseFilter *source=nullptr,*grabFilter=nullptr,*sink=nullptr;Check(factory->CreateInstance(nullptr,IID_IBaseFilter,(void**)&source));factory->Release();
     IPin* out=Pin(source,PINDIR_OUTPUT);IAMStreamConfig* config=nullptr;Check(out->QueryInterface(IID_IAMStreamConfig,(void**)&config));
     AM_MEDIA_TYPE* format=nullptr;Check(config->GetFormat(&format));auto info=(VIDEOINFOHEADER*)format->pbFormat;
-    bool native60=info->bmiHeader.biWidth==1920&&info->bmiHeader.biHeight==1080&&info->AvgTimePerFrame==166667;
-    info->AvgTimePerFrame=333333;bool rejects30=FAILED(config->SetFormat(format));info->AvgTimePerFrame=166667;Check(config->SetFormat(format));
-    CoTaskMemFree(format->pbFormat);CoTaskMemFree(format);config->Release();
+    bool native60=info->bmiHeader.biWidth==1920&&info->bmiHeader.biHeight==1080&&info->AvgTimePerFrame==166666&&format->subtype==MEDIASUBTYPE_RGB24;
+    // Native WebRTC ignores RGB32 capabilities, requests RGB24, and can initialise at 30 FPS.
+    int count=0,size=0;Check(config->GetNumberOfCapabilities(&count,&size));bool webRtc=false;
+    for(int i=0;i<count;i++){AM_MEDIA_TYPE* cap=nullptr;VIDEO_STREAM_CONFIG_CAPS caps={};Check(config->GetStreamCaps(i,&cap,(BYTE*)&caps));if(cap->subtype==MEDIASUBTYPE_RGB24&&10000000/((VIDEOINFOHEADER*)cap->pbFormat)->AvgTimePerFrame==60)webRtc=true;CoTaskMemFree(cap->pbFormat);CoTaskMemFree(cap);}
+    info->AvgTimePerFrame=333333;bool accepts30=SUCCEEDED(config->SetFormat(format));
+    AM_MEDIA_TYPE* roundtrip=nullptr;Check(config->GetFormat(&roundtrip));bool roundtrips=((VIDEOINFOHEADER*)roundtrip->pbFormat)->AvgTimePerFrame==333333;CoTaskMemFree(roundtrip->pbFormat);CoTaskMemFree(roundtrip);
+    info->AvgTimePerFrame=1000;bool rejectsInvalid=FAILED(config->SetFormat(format));info->AvgTimePerFrame=fps30?333333:166666;
+    if(rgb32){format->subtype=MEDIASUBTYPE_RGB32;format->lSampleSize=1920*1080*4;info->bmiHeader.biBitCount=32;info->bmiHeader.biSizeImage=format->lSampleSize;}
+    Check(config->SetFormat(format));
     IGraphBuilder* graph=nullptr;Check(CoCreateInstance(CLSID_FilterGraph,nullptr,CLSCTX_INPROC_SERVER,IID_IGraphBuilder,(void**)&graph));Check(graph->AddFilter(source,L"Camera"));
     Check(CoCreateInstance(grabClass,nullptr,CLSCTX_INPROC_SERVER,IID_IBaseFilter,(void**)&grabFilter));Check(graph->AddFilter(grabFilter,L"Probe"));
-    Grabber* grab=nullptr;Check(grabFilter->QueryInterface(__uuidof(Grabber),(void**)&grab));AM_MEDIA_TYPE type={};type.majortype=MEDIATYPE_Video;type.subtype=MEDIASUBTYPE_RGB32;type.formattype=FORMAT_VideoInfo;Check(grab->SetMediaType(&type));Counter counter;Check(grab->SetCallback(&counter,1));
+    Grabber* grab=nullptr;Check(grabFilter->QueryInterface(__uuidof(Grabber),(void**)&grab));AM_MEDIA_TYPE type={};type.majortype=MEDIATYPE_Video;type.subtype=rgb32?MEDIASUBTYPE_RGB32:MEDIASUBTYPE_RGB24;type.formattype=FORMAT_VideoInfo;Check(grab->SetMediaType(&type));Counter counter;counter.bytesPerPixel=rgb32?4:3;counter.pattern=argc>3&&wcscmp(argv[3],L"pattern")==0;Check(grab->SetCallback(&counter,1));
     Check(CoCreateInstance(nullClass,nullptr,CLSCTX_INPROC_SERVER,IID_IBaseFilter,(void**)&sink));Check(graph->AddFilter(sink,L"Sink"));
     IPin* in=Pin(grabFilter,PINDIR_INPUT);Check(graph->ConnectDirect(out,in,nullptr));in->Release();out->Release();out=Pin(grabFilter,PINDIR_OUTPUT);in=Pin(sink,PINDIR_INPUT);Check(graph->ConnectDirect(out,in,nullptr));in->Release();out->Release();
+    // Reconfigure a connected but stopped graph, as capture clients do during startup.
+    info->AvgTimePerFrame=fps30?166666:333333;Check(config->SetFormat(format));info->AvgTimePerFrame=fps30?333333:166666;Check(config->SetFormat(format));
+    CoTaskMemFree(format->pbFormat);CoTaskMemFree(format);config->Release();
     IMediaControl* control=nullptr;Check(graph->QueryInterface(IID_IMediaControl,(void**)&control));ULONGLONG started=GetTickCount64();Check(control->Run());Sleep(4000);Check(control->Stop());double seconds=(GetTickCount64()-started)/1000.0;
-    printf("{\"Frames\":%ld,\"Unique\":%ld,\"BadSize\":%ld,\"Seconds\":%.3f,\"TimestampFps\":%.5f,\"MaxGapMs\":%.3f,\"Native60\":%s,\"Rejects30\":%s,\"DeviceEnumerated\":true}\n",counter.count,counter.unique,counter.badSize,seconds,(counter.count-1)/(counter.end-counter.first),counter.maxGap*1000,native60?"true":"false",rejects30?"true":"false");
+    printf("{\"Frames\":%ld,\"Unique\":%ld,\"BadSize\":%ld,\"BadColors\":%ld,\"Seconds\":%.3f,\"TimestampFps\":%.5f,\"MaxGapMs\":%.3f,\"Native60\":%s,\"Accepts30\":%s,\"RgbBits\":%d,\"DeviceEnumerated\":true,\"WebRtcCompatibleCaps\":%s,\"FormatRoundtrip\":%s,\"RejectsInvalid\":%s}\n",counter.count,counter.unique,counter.badSize,counter.badColors,seconds,(counter.count-1)/(counter.end-counter.first),counter.maxGap*1000,native60?"true":"false",accepts30?"true":"false",counter.bytesPerPixel*8,webRtc?"true":"false",roundtrips?"true":"false",rejectsInvalid?"true":"false");
     grab->SetCallback(nullptr,1);control->Release();grab->Release();sink->Release();grabFilter->Release();source->Release();graph->Release();FreeLibrary(module);CoUninitialize();
-    return native60&&rejects30&&counter.count>=230&&counter.count<=250&&counter.badSize==0&&counter.unique>=200?0:3;
+    return native60&&accepts30&&roundtrips&&rejectsInvalid&&webRtc&&counter.count>=(fps30?115:230)&&counter.count<=(fps30?125:250)&&counter.badSize==0&&counter.badColors==0&&counter.unique>=(fps30?100:200)?0:3;
 }

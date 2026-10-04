@@ -89,6 +89,7 @@ sealed class TrayApp:ApplicationContext
             if(notifications.TryDequeue(out string? message))tray.ShowBalloonTip(5000,"ScreenCapture",message[..Math.Min(255,message.Length)],ToolTipIcon.Info);
         };
         timer.Start();engine.Start(settings.Options);StartKvm();StartDiscord();
+        if(settings.Kvm.Role!="Host")_=Task.Run(async()=>{for(int i=0;i<30&&!closing;i++){try{DiscordDevices.RecoverDefaults(settings.Kvm.Role);}catch(Exception e){Log.Write("Audio default recovery: "+e.Message);}await Task.Delay(1000);}});
     }
     static Icon LoadAppIcon()
     {
@@ -190,8 +191,13 @@ sealed class TrayApp:ApplicationContext
     void StartDiscord()
     {
         discord?.Dispose();discord=null;
-        if(!settings.Discord.Enabled||settings.Kvm.Role=="Host")return;
-        try{if(CameraInstallation.Installed)CameraInstallation.Install(settings.Kvm.Role);discord=new(settings.Discord);}
+        if(settings.Kvm.Role=="Host")return;
+        try{if(CameraInstallation.Installed)CameraInstallation.Install(settings.Kvm.Role,settings.Discord.CameraName);}
+        catch(Exception e){notifications.Enqueue("Камера Discord: "+e.Message);}
+        if(!settings.Discord.Enabled)return;
+        try{DiscordDevices.PairAudio(settings.Kvm.Role,settings.Discord.AudioDevice,CameraInstallation.Name(settings.Discord.CameraName));}
+        catch(Exception e){Log.Write("Discord audio pairing: "+e);notifications.Enqueue("Имя аудиовхода: "+e.Message);}
+        try{discord=new(settings.Discord);}
         catch(Exception e){notifications.Enqueue("Discord: "+e.Message);}
     }
     static bool IsAutorun(){using var key=Registry.CurrentUser.OpenSubKey(RunKey);return key?.GetValue("ScreenCapture")!=null||key?.GetValue("SdrCapture")!=null;}

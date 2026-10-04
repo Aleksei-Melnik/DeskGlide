@@ -9,6 +9,7 @@ static class FeatureTests
     static void Require(bool value,string message){if(!value)throw new Exception(message);}
     public static void Run()
     {
+        DiscordDeviceTests.Rules();
         var buttons=new KvmMouseButtons();Require(buttons.Release().Length==0,"Idle release must not synthesize clicks");
         buttons.Track(8,0);buttons.Track(16,0);Require(buttons.Release().Length==0,"Released right button repeated");
         buttons.Track(8,0);var release=buttons.Release();Require(release.Length==1&&release[0].Up==16,"Held right not released exactly once");Require(buttons.Release().Length==0,"Duplicate release");
@@ -59,16 +60,21 @@ static class FeatureTests
             fixed(byte* ptr=pixels)while(!stop.IsCancellationRequested)
             {
                 int index=(int)(clock.Elapsed.TotalSeconds*60);if(index==previous){Thread.Sleep(1);continue;}
-                previous=index;Array.Fill(pixels,(byte)(index%250+1));frames.Write((IntPtr)ptr,CameraFrames.Width*4);
+                previous=index;Array.Fill(pixels,(byte)(index%250+1));
+                for(int p=0;p<CameraFrames.Width*32*4;p+=4){pixels[p]=0;pixels[p+1]=0;pixels[p+2]=255;int bottom=p+CameraFrames.Width*(CameraFrames.Height-32)*4;pixels[bottom]=255;pixels[bottom+1]=0;pixels[bottom+2]=0;}
+                frames.Write((IntPtr)ptr,CameraFrames.Width*4);
             }
         },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
         try
         {
-            var start=new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory,"camera","CameraProbe.exe")){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
-            start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory,"camera","ScreenCapture.Camera.dll"));
-            using var process=Process.Start(start)!;string text=process.StandardOutput.ReadToEnd(),error=process.StandardError.ReadToEnd();process.WaitForExit();
-            File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"camera-native-test.json"),text);
-            Require(process.ExitCode==0,"Native camera failed: "+text+error);
+            foreach(string mode in new[]{"rgb24","rgb32","30"})
+            {
+                var start=new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory,"camera","CameraProbe.exe")){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+                start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory,"camera","ScreenCapture.Camera.dll"));start.ArgumentList.Add(mode);start.ArgumentList.Add("pattern");
+                using var process=Process.Start(start)!;string text=process.StandardOutput.ReadToEnd(),error=process.StandardError.ReadToEnd();process.WaitForExit();
+                File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"camera-native-"+mode+"-test.json"),text);
+                Require(process.ExitCode==0,"Native camera "+mode+" failed: "+text+error);
+            }
         }
         finally{stop.Cancel();publish.GetAwaiter().GetResult();}
         float[] sample=[10,-10,float.NaN,5,2,-2,float.PositiveInfinity,1];fixed(float* ptr=sample)

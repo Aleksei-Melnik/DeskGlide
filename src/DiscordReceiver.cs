@@ -15,8 +15,9 @@ sealed record DiscordOptions
     public bool Enabled {get;set;}
     public string Source {get;set;}="";
     public string AudioDevice {get;set;}="";
+    public string CameraName {get;set;}="";
     public int Volume {get;set;}=100;
-    public void Validate(){if(Source==null||AudioDevice==null||Source.Length>1024||Volume is <0 or >100)throw new ArgumentException("Некорректные настройки Discord.");if(Enabled&&string.IsNullOrWhiteSpace(Source))throw new ArgumentException("Выберите NDI-источник игрового ПК для Discord.");}
+    public void Validate(){if(Source==null||AudioDevice==null||CameraName==null||Source.Length>1024||Volume is <0 or >100)throw new ArgumentException("Некорректные настройки Discord.");if(CameraName.Length>0)CameraInstallation.ValidateName(CameraName);if(Enabled&&string.IsNullOrWhiteSpace(Source))throw new ArgumentException("Выберите NDI-источник игрового ПК для Discord.");}
 }
 
 // Fixed-size IPC contract with the native DirectShow filter. One latest frame, no video queue.
@@ -155,16 +156,27 @@ static class CameraInstallation
     const string ClassKey=@"Software\Classes\CLSID\"+ClassId;
     const string DeviceKey=@"Software\Classes\CLSID\{860BB310-5D01-11D0-BD3B-00A0C911CE86}\Instance\"+ClassId;
     public static bool Installed{get{using var key=Registry.CurrentUser.OpenSubKey(ClassKey+@"\InprocServer32");return key?.GetValue(null) is string path&&File.Exists(path);}}
-    public static void Install(string role)
+    public static string Name(string? configured=null)
+    {
+        if(!string.IsNullOrWhiteSpace(configured))return configured.Trim();
+        using var key=Registry.CurrentUser.OpenSubKey(DeviceKey);return key?.GetValue("FriendlyName") as string??"ScreenCapture Camera";
+    }
+    public static void ValidateName(string name){if(string.IsNullOrWhiteSpace(name)||name.Length<4||name.Length>60||name.Any(char.IsControl))throw new ArgumentException("Имя камеры: от 4 до 60 символов, без переносов строк.");}
+    public static void Install(string role,string? configured=null)
     {
         RequireReceiver(role);
+        string name=Name(configured);ValidateName(name);
         string source=Path.Combine(AppContext.BaseDirectory,"camera","ScreenCapture.Camera.dll");
         string hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source)))[..16];
         string directory=Path.Combine(Log.Folder,"Discord","Camera",hash);Directory.CreateDirectory(directory);
         string target=Path.Combine(directory,"ScreenCapture.Camera.dll");if(!File.Exists(target))File.Copy(source,target);
-        using(var key=Registry.CurrentUser.CreateSubKey(ClassKey)){key.SetValue(null,"ScreenCapture Camera");}
+        using(var key=Registry.CurrentUser.CreateSubKey(ClassKey)){key.SetValue(null,name);}
         using(var key=Registry.CurrentUser.CreateSubKey(ClassKey+@"\InprocServer32")){key.SetValue(null,target);key.SetValue("ThreadingModel","Both");}
-        using(var key=Registry.CurrentUser.CreateSubKey(DeviceKey)){key.SetValue("CLSID",ClassId);key.SetValue("FriendlyName","ScreenCapture Camera");}
+        using(var key=Registry.CurrentUser.CreateSubKey(DeviceKey)){key.SetValue("CLSID",ClassId);key.SetValue("FriendlyName",name);}
+        // Native diagnostics contain only negotiation/counters; cap retained logs across Discord restarts.
+        string logs=Path.Combine(Log.Folder,"Discord");
+        foreach(var old in Directory.EnumerateFiles(logs,"camera-*.log",SearchOption.TopDirectoryOnly).Select(p=>new FileInfo(p)).OrderByDescending(f=>f.LastWriteTimeUtc).Skip(16))
+            try{old.Delete();}catch(IOException){}catch(UnauthorizedAccessException){}
     }
     public static void Uninstall(){Registry.CurrentUser.DeleteSubKeyTree(DeviceKey,false);Registry.CurrentUser.DeleteSubKeyTree(ClassKey,false);}
     public static void RequireReceiver(string role){if(role=="Host")throw new InvalidOperationException("На игровом управляющем ПК виртуальные устройства не устанавливаются. Откройте этот раздел на стрим-ПК.");}

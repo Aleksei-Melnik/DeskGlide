@@ -27,6 +27,7 @@ class AppSettingsForm:Form
     readonly CheckBox discordEnabled=new(){Text="Принимать экран и звук для Discord"};
     readonly ComboBox discordSource=new(){DropDownStyle=ComboBoxStyle.DropDown},discordOutput=Choice();
     readonly TrackBar discordVolume=new(){Minimum=0,Maximum=100,TickFrequency=10};
+    readonly TextBox discordName=new(){MaxLength=60};
     public Settings ResultSettings {get;private set;}
     public ConfigurationProfile? ImportedProfile {get;private set;}
     public bool StartWithWindows=>startup.Checked;
@@ -153,27 +154,29 @@ class AppSettingsForm:Form
     void BuildDiscordPage(Settings value)
     {
         var page=Page("Discord · приём","ScreenCapture Camera · 1920 × 1080 · 60 FPS");
-        Note(page,"Настраивается на стрим-ПК, где открыт Discord. На игровом ПК включите передачу NDI и выберите звук игры. OBS и NDI Webcam Input для этого не нужны.");
+        Note(page,"На стрим-ПК включите приём ниже. На игровом — передачу NDI и звук игры. OBS и NDI Webcam Input не нужны.");
         discordEnabled.Checked=value.Discord.Enabled;Row(page,"Приём",discordEnabled);
+        discordName.Text=CameraInstallation.Name(value.Discord.CameraName);Row(page,"Имя камеры в Discord",discordName);
         discordSource.Text=value.Discord.Source;Row(page,"Источник игрового ПК",discordSource);
         var refresh=UiStyle.Button("Найти источники",()=>{});
         refresh.Click+=async(_,_)=>{refresh.Enabled=false;try{var sources=await Task.Run(NdiDiscovery.Sources);if(IsDisposed)return;string selected=discordSource.Text;discordSource.Items.Clear();discordSource.Items.AddRange(sources);discordSource.Text=selected;if(string.IsNullOrEmpty(selected)&&sources.Length==1)discordSource.Text=sources[0];}catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Поиск NDI");}finally{if(!IsDisposed)refresh.Enabled=true;}};
-        Row(page,"",refresh);
+        Row(page,"",refresh,38);
         void RefreshOutputs(){string selected=(discordOutput.SelectedItem as AudioChoice)?.Id??value.Discord.AudioDevice;var choices=DiscordSetup.Outputs();if(!choices.Any(x=>x.Id==selected)&&!string.IsNullOrEmpty(selected))choices.Add(new(selected,"Сохранённый кабель недоступен"));discordOutput.Items.Clear();discordOutput.Items.AddRange(choices.ToArray());discordOutput.SelectedItem=choices.First(x=>x.Id==selected);}
         RefreshOutputs();Row(page,"Звук → кабель",discordOutput);
         discordVolume.Value=value.Discord.Volume;Row(page,"Громкость приёма",discordVolume,48);
-        var installCamera=UiStyle.Button(CameraInstallation.Installed?"Обновить камеру":"Установить камеру",()=>{try{CameraInstallation.Install(role.SelectedIndex==1?"Host":"Client");MessageBox.Show(this,"ScreenCapture Camera зарегистрирована. Если Discord был открыт, полностью перезапустите его.","Камера готова");}catch(Exception e){MessageBox.Show(this,e.Message,"Камера");}});
+        void PairDevices(){string currentRole=role.SelectedIndex==1?"Host":"Client";CameraInstallation.Install(currentRole,discordName.Text.Trim());DiscordDevices.PairAudio(currentRole,(discordOutput.SelectedItem as AudioChoice)?.Id??"",discordName.Text.Trim());RefreshOutputs();}
+        var installCamera=UiStyle.Button(CameraInstallation.Installed?"Связать устройства":"Установить камеру",()=>{try{PairDevices();MessageBox.Show(this,"Камера и выбранный кабель настроены. Полностью закройте Discord через его значок в трее и откройте снова.\n\nАудиовход: "+DiscordDevices.CaptureName(discordName.Text.Trim()),"Устройства готовы");}catch(Exception e){MessageBox.Show(this,e.Message,"Устройства Discord");}});
         var installAudio=UiStyle.Button("Установить аудиокабель…",()=>{});
         installAudio.Click+=async(_,_)=>
         {
             if(role.SelectedIndex==1)return;
             if(MessageBox.Show(this,"Установить VB-CABLE на ЭТОМ принимающем ПК?\n\nОткроется подписанный установщик VB-Audio с запросом администратора. Нажмите Install Driver; может понадобиться перезагрузка.\n\nVB-CABLE — donationware VB-Audio (vb-cable.com). Условия и поддержка автора доступны по ссылке ниже.","Звук для Discord",MessageBoxButtons.OKCancel,MessageBoxIcon.Information)!=DialogResult.OK)return;
-            installAudio.Enabled=false;try{await DiscordSetup.InstallCable("Client");if(!IsDisposed){RefreshOutputs();var cable=discordOutput.Items.Cast<AudioChoice>().FirstOrDefault(x=>!string.IsNullOrEmpty(x.Id));if(cable!=null)discordOutput.SelectedItem=cable;MessageBox.Show(this,"Установщик завершён. Если кабель ещё не появился, перезагрузите Windows. В Discord выберите CABLE Output (VB-Audio Virtual Cable). Проверьте, что обычным выходом Windows остались ваши наушники/колонки.","VB-CABLE");}}catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Установка аудиокабеля");}finally{if(!IsDisposed)installAudio.Enabled=role.SelectedIndex!=1;}
+            installAudio.Enabled=false;try{await DiscordSetup.InstallCable("Client");if(!IsDisposed){RefreshOutputs();var cable=discordOutput.Items.Cast<AudioChoice>().FirstOrDefault(x=>!string.IsNullOrEmpty(x.Id));if(cable!=null){discordOutput.SelectedItem=cable;PairDevices();}MessageBox.Show(this,"Установщик завершён. Прежние устройства Windows по умолчанию сохранены; после необходимой перезагрузки программа повторит восстановление.\n\nНажмите «Применить». В Discord выбирайте аудиовход с полным именем нашей камеры и словом Audio.","VB-CABLE");}}catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Установка аудиокабеля");}finally{if(!IsDisposed)installAudio.Enabled=role.SelectedIndex!=1;}
         };
         var installs=new FlowLayoutPanel{WrapContents=false};installs.Controls.AddRange([installCamera,installAudio]);Row(page,"Устройства на этом ПК",installs,52);
         var links=new FlowLayoutPanel{WrapContents=false};links.Controls.Add(UiStyle.Button("VB-CABLE · условия / донат",()=>Process.Start(new ProcessStartInfo("https://vb-audio.com/Services/licensing.htm"){UseShellExecute=true})));links.Controls.Add(UiStyle.Button("Обновить звук",RefreshOutputs));Row(page,"",links,50);
-        Note(page,"Discord → Демонстрация экрана → Устройства → ScreenCapture Camera. Аудиоустройство: CABLE Output (VB-Audio Virtual Cable). Выберите 60 FPS в Discord. Камера выдаёт 60; частота трансляции зависит также от режима Discord и подключения. Кабель здесь выбран как CABLE Input — это вход в него со стороны программы.");
-        void RoleChanged(){bool receiver=role.SelectedIndex!=1;discordEnabled.Enabled=discordSource.Enabled=discordOutput.Enabled=discordVolume.Enabled=installCamera.Enabled=installAudio.Enabled=receiver;if(!receiver)discordEnabled.Checked=false;}
+        Note(page,"Discord → Устройства → наша камера → 60 FPS. Звук: то же имя + Audio (VB-CABLE). После «Связать устройства» перезапустите Discord. Если он сохранил старый выбор звука, выберите парный вход вручную.");
+        void RoleChanged(){bool receiver=role.SelectedIndex!=1;discordEnabled.Enabled=discordName.Enabled=discordSource.Enabled=discordOutput.Enabled=discordVolume.Enabled=installCamera.Enabled=installAudio.Enabled=receiver;if(!receiver)discordEnabled.Checked=false;}
         role.SelectedIndexChanged+=(_,_)=>RoleChanged();RoleChanged();
     }
     public void RenderPreviews(string folder)
@@ -231,7 +234,7 @@ class AppSettingsForm:Form
             if(result.Replay.HotkeyModifiers==0)throw new ArgumentException("Для сохранения повтора выберите Ctrl, Alt или Shift.");
             result.Kvm=initial.Kvm with{Role=role.SelectedIndex switch{1=>"Host",2=>"Client",_=>"Off"},Port=(int)port.Value,Host=host.Text.Trim(),PairingCode=pairing.Text.Trim(),Seamless=seamless.Checked,ClipboardText=textClipboard.Checked,ClipboardFiles=fileClipboard.Checked,AllowView=allowView.Checked,RemoteViewOnly=remoteViewOnly.Checked,RemoteOnlyPeers=monitors.RemoteOnlyPeers,AudioDevice=((AudioChoice)remoteAudio.SelectedItem!).Id,Layout=monitors.Result};
             result.Replay.Validate();result.Kvm.Validate();
-            result.Discord=new(){Enabled=discordEnabled.Checked&&result.Kvm.Role!="Host",Source=discordSource.Text.Trim(),AudioDevice=(discordOutput.SelectedItem as AudioChoice)?.Id??"",Volume=discordVolume.Value};result.Discord.Validate();
+            result.Discord=new(){Enabled=discordEnabled.Checked&&result.Kvm.Role!="Host",Source=discordSource.Text.Trim(),AudioDevice=(discordOutput.SelectedItem as AudioChoice)?.Id??"",Volume=discordVolume.Value,CameraName=discordName.Text.Trim()};result.Discord.Validate();
             if(result.Kvm.Layout.Any(m=>m.Hotkey>0&&(int)result.Replay.HotkeyKey==(int)Keys.F1+m.Hotkey-1)&&result.Replay.HotkeyModifiers==3)throw new ArgumentException("Клавиша сохранения повтора совпадает с клавишей переключения монитора.");
             return result;
     }
