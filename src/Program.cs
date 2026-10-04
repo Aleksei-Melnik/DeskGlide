@@ -9,8 +9,9 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         try
         {
+            if(args.Length==4&&args[0]=="--pair-discord-input"){DiscordDevices.RenameInput(args[1],args[2],args[3]);return 0;}
             if(args.Contains("--apply-update"))return UpdateInstaller.Run(args[Array.IndexOf(args,"--apply-update")+1]);
-            if(args.Contains("--kvm")&&EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var openKvm)){using(openKvm)openKvm.Set();return 0;}
+            if(args.Contains("--kvm")&&EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var openKvm)){WindowActivation.AllowExisting();using(openKvm)openKvm.Set();return 0;}
             if(args.Contains("--update-tests")){UpdateTests.Run();return 0;}
             if(args.Contains("--ui-tests")){UiTests.Run();return 0;}
             if(args.Contains("--feature-tests")){FeatureTests.Run();return 0;}
@@ -29,6 +30,8 @@ internal static class Program
             if(args.Contains("--audio-timing-test")){AudioTimingTests.Run();return 0;}
             if(args.Contains("--audio-live-test")){AudioTimingTests.Live(args.Contains("--play-tone"));return 0;}
             if(args.Contains("--kvm-test")){KvmTests.Run();return 0;}
+            if(args.Contains("--kvm-video-test")){KvmVideoTests.Codec();return 0;}
+            if(args.Contains("--kvm-video-live-test")){KvmVideoTests.Live();return 0;}
             if(args.Contains("--replay-local-test")){int i=Array.IndexOf(args,"--seconds"),f=Array.IndexOf(args,"--fps");ReplayTests.LiveLocal(i<0?35:int.Parse(args[i+1]),f<0?120:int.Parse(args[f+1]));return 0;}
             if(args.Contains("--cadence-test")){int f=Array.IndexOf(args,"--fps"),c=Array.IndexOf(args,"--codec"),a=Array.IndexOf(args,"--audio");ReplayCadenceTest.Run(f<0?60:int.Parse(args[f+1]),c<0?"HEVC":args[c+1],a<0?"Mixed":args[a+1],args.Contains("--live-audio"));return 0;}
             if(args.Contains("--save-replay"))

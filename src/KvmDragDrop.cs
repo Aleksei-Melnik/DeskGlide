@@ -103,7 +103,7 @@ sealed class KvmDragDrop:IDisposable
         var crossing=KvmLayout.EdgeCrossing(controller.Monitors,local,screen,position);if(crossing is not {} edge||edge.Target.Peer==options.Id)return;
         var peer=service.Peers.FirstOrDefault(p=>p.Id==edge.Target.Peer);if(peer==null||!Version.TryParse(peer.Version,out var version)||version<new Version(0,7,0)){Notification?.Invoke("Для перетаскивания обновите оба ПК до 0.7.0.");return;}
         var transfer=new Pending(peer.Id,Guid.NewGuid().ToString("N"),edge.Target,edge.Point,portal);pending=transfer;args.Effect=DragDropEffects.Copy;
-        Notification?.Invoke("Передаю файлы. Удерживайте кнопку мыши — после передачи курсор перейдёт на другой ПК.");
+
         _=Task.Run(async()=>{try{await files.SendDrag(transfer.Peer,transfer.Id,paths,transfer.Stop.Token);}catch(Exception e){Ui(()=>{if(pending==transfer){Notification?.Invoke("Перетаскивание отменено: "+e.Message);CancelPending();}});}});
     }
     void CancelPending(){var prior=pending;pending=null;if(prior!=null){prior.Dispose();if(!prior.HandedOff)service.Send(prior.Peer,new(){Type="drag-cancel",Id=prior.Id});}}
@@ -160,7 +160,7 @@ sealed class KvmDragDrop:IDisposable
         source.QueryContinueDrag+=(_,e)=>e.Action=drag.Cancel||e.EscapePressed?DragAction.Cancel:drag.Drop?DragAction.Drop:DragAction.Continue;
         // OLE polls the drop source on mouse messages. Wake it on cancellation/disconnect too.
         using var wake=new System.Windows.Forms.Timer{Interval=20};wake.Tick+=(_,_)=>{if(drag.Cancel||drag.Drop)PostMessage(source.Handle,0x200,IntPtr.Zero,IntPtr.Zero);};wake.Start();
-        try{var data=new DataObject(DataFormats.FileDrop,drag.Paths);var effect=source.DoDragDrop(data,DragDropEffects.Copy);Notification?.Invoke(effect==DragDropEffects.Copy?"Файлы переданы приложению. Временный кэш хранится 4 часа.":"Перетаскивание отменено.");}
+        try{var data=new DataObject(DataFormats.FileDrop,drag.Paths);var effect=source.DoDragDrop(data,DragDropEffects.Copy);}
         catch(Exception e){Notification?.Invoke("Перетаскивание: "+e.Message);}
         finally{wake.Stop();active=null;service.Send(drag.Peer,new(){Type="drag-finished",Id=drag.Id});}
     }

@@ -101,12 +101,13 @@ sealed class KvmController:IDisposable
     public bool Seamless {get=>seamless;set=>seamless=value;}
     public event Action<bool>? SeamlessChanged;
     public event Action? EmergencyReturn;
+    public event Action? OpenRequested;
     public KvmController(KvmService service,KvmOptions options)
     {
         this.service=service;this.options=options.Copy();Seamless=options.Seamless;
         Refresh();
         mouseProc=MouseHook;keyProc=KeyHook;
-        if(options.Role=="Host")
+        // The KVM launcher shortcut is also available when networking is off.
         {
             using var ready=new ManualResetEventSlim();Exception? failure=null;bool started=false;
             inputThread=new Thread(()=>
@@ -114,9 +115,9 @@ sealed class KvmController:IDisposable
                 try
                 {
                     inputDispatcher=new Control();_=inputDispatcher.Handle;
-                    mouseHook=SetWindowsHookEx(14,mouseProc,GetModuleHandle(null),0);
+                    if(options.Role=="Host")mouseHook=SetWindowsHookEx(14,mouseProc,GetModuleHandle(null),0);
                     keyHook=SetWindowsHookEx(13,keyProc,GetModuleHandle(null),0);
-                    if(mouseHook==IntPtr.Zero||keyHook==IntPtr.Zero)throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+                    if((options.Role=="Host"&&mouseHook==IntPtr.Zero)||keyHook==IntPtr.Zero)throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
                     started=true;ready.Set();Application.Run();
                 }
                 catch(Exception e){failure=e;if(!started)ready.Set();else Log.Write("KVM input thread: "+e);}
@@ -175,6 +176,14 @@ sealed class KvmController:IDisposable
         else if(destination.HasValue)Warp(destination.Value);
     }
     void Warp(Point point){pendingWarp=point;KvmInput.SetCursorPos(point.X,point.Y);}
+    // Feed the same path as WH_KEYBOARD_LL without sending any OS input in regression tests.
+    internal IntPtr TestKey(int key,bool up,bool injected)
+    {
+        if(inputDispatcher?.InvokeRequired==true)return (IntPtr)inputDispatcher.Invoke(()=>TestKey(key,up,injected));
+        var ptr=Marshal.AllocHGlobal(Marshal.SizeOf<KeyData>());
+        try{Marshal.StructureToPtr(new KeyData{Vk=(uint)key,Flags=(up?128u:0)|(injected?16u:0)},ptr,false);return KeyHook(0,IntPtr.Zero,ptr);}
+        finally{Marshal.FreeHGlobal(ptr);}
+    }
     IntPtr MouseHook(int code,IntPtr w,IntPtr l)
     {
         if(code<0)return CallNextHookEx(IntPtr.Zero,code,w,l);
@@ -221,16 +230,19 @@ sealed class KvmController:IDisposable
     {
         if(code<0)return CallNextHookEx(IntPtr.Zero,code,w,l);
         var data=Marshal.PtrToStructure<KeyData>(l);
-        if(data.Extra==KvmInput.Marker||(data.Flags&16)!=0)return CallNextHookEx(IntPtr.Zero,code,w,l);
+        // Ignore only our own remote input. Stream Deck and accessibility tools set LLKHF_INJECTED too.
+        if(data.Extra==KvmInput.Marker)return CallNextHookEx(IntPtr.Zero,code,w,l);
         int key=(int)data.Vk;bool up=(data.Flags&128)!=0;
-        if(up)physicalKeys.Remove(key);else physicalKeys.Add(key);
+        bool repeat=!up&&!physicalKeys.Add(key);if(up)physicalKeys.Remove(key);
         if(up&&swallowed.Remove(key))return (IntPtr)1;
-        bool control=physicalKeys.Any(k=>k is 17 or 162 or 163),alt=physicalKeys.Any(k=>k is 18 or 164 or 165);
-        if(!up&&control&&alt)
+        if(repeat&&swallowed.Contains(key))return (IntPtr)1;
+        uint modifiers=KvmShortcut.Modifiers(physicalKeys);
+        if(!up&&!repeat)
         {
-            if(key==27){ReturnLocal();EmergencyReturn?.Invoke();swallowed.Add(key);return (IntPtr)1;}
-            if(key==19){Seamless=!Seamless;SeamlessChanged?.Invoke(Seamless);swallowed.Add(key);return (IntPtr)1;}
-            var target=ViewerActive?null:Monitors.FirstOrDefault(m=>m.Hotkey>0&&key==(int)Keys.F1+m.Hotkey-1);
+            if(KvmShortcut.Matches(options.OpenHotkeyModifiers,options.OpenHotkeyKey,modifiers,key)){ReturnLocal();OpenRequested?.Invoke();swallowed.Add(key);return (IntPtr)1;}
+            if(modifiers==3&&key==27){ReturnLocal();EmergencyReturn?.Invoke();swallowed.Add(key);return (IntPtr)1;}
+            if(options.Role=="Host"&&KvmShortcut.Matches(options.ToggleHotkeyModifiers,options.ToggleHotkeyKey,modifiers,key)){Seamless=!Seamless;if(!Seamless)ReturnLocal();SeamlessChanged?.Invoke(Seamless);swallowed.Add(key);return (IntPtr)1;}
+            var target=options.Role!="Host"||ViewerActive||modifiers!=3?null:Monitors.FirstOrDefault(m=>m.Hotkey>0&&key==(int)Keys.F1+m.Hotkey-1);
             if(target!=null){Activate(target);swallowed.Add(key);return (IntPtr)1;}
         }
         if(remote==null)return CallNextHookEx(IntPtr.Zero,code,w,l);

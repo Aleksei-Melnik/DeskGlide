@@ -6,7 +6,7 @@ namespace SdrCapture;
 sealed class KvmService:IDisposable
 {
     readonly CancellationTokenSource stop=new();
-    readonly ConcurrentDictionary<string,KvmWire> controls=new(),bulk=new(),audio=new();
+    readonly ConcurrentDictionary<string,KvmWire> controls=new(),bulk=new(),audio=new(),video=new();
     readonly SemaphoreSlim handshakes=new(16);
     readonly KvmOptions options;
     readonly Task worker;
@@ -53,7 +53,7 @@ sealed class KvmService:IDisposable
     {
         while(!stop.IsCancellationRequested)
         {
-            KvmWire? control=null,files=null,sound=null;
+            KvmWire? control=null,files=null,sound=null,picture=null;
             try
             {
                 Status="Подключаюсь к "+options.Host;
@@ -63,17 +63,19 @@ sealed class KvmService:IDisposable
                 var bulkTask=Serve(files);
                 sound=await KvmWire.Connect(options,"audio",stop.Token);
                 var audioTask=Serve(sound);
+                var tasks=new List<Task>{controlTask,bulkTask,audioTask};
+                if(control.Peer.ViewProtocol>=1){picture=await KvmWire.Connect(options,"video",stop.Token);tasks.Add(Serve(picture));}
                 Status="Подключено к "+control.Peer.Name;
-                await Task.WhenAny(controlTask,bulkTask,audioTask);
+                await Task.WhenAny(tasks);
             }
             catch(OperationCanceledException){}catch(Exception e){Status="Нет подключения: "+e.Message;}
-            finally{control?.Dispose();files?.Dispose();sound?.Dispose();}
+            finally{control?.Dispose();files?.Dispose();sound?.Dispose();picture?.Dispose();}
             try{await Task.Delay(3000,stop.Token);}catch(OperationCanceledException){break;}
         }
     }
     async Task Serve(KvmWire wire)
     {
-        var peers=wire.Channel=="control"?controls:wire.Channel=="audio"?audio:bulk;
+        var peers=wire.Channel=="control"?controls:wire.Channel=="audio"?audio:wire.Channel=="video"?video:bulk;
         if(peers.Count>=16){wire.Dispose();return;}
         // Welcome can reach the client before the host has registered its control socket.
         if(wire.Channel!="control")
@@ -92,12 +94,20 @@ sealed class KvmService:IDisposable
         if(wire.Channel=="control"){Status="Подключений: "+controls.Count;PeersChanged?.Invoke();}
         if(wire.Channel=="audio"&&options.Role=="Host"){KvmAudioBus.Remove(wire.Peer.Id);wire.Post(new(){Type="audio-subscribe",Flags=wire.Peer.Id==ActiveAudioPeer?1:0});}
         using var audioSender=wire.Channel=="audio"&&options.Role=="Client"?new KvmAudioSender(options.AudioDevice,wire):null;
+        using var videoSender=wire.Channel=="video"&&options.Role=="Client"?new KvmVideoSession(wire,options.AllowView):null;
         try
         {
             while(!linked.IsCancellationRequested)
             {
                 var message=await wire.ReadAsync(linked.Token);
                 if(message.Type=="ping")continue;
+                if(wire.Channel=="video")
+                {
+                    if(videoSender!=null)await videoSender.Handle(message,linked.Token);
+                    else if(options.Role=="Host"&&message.Type is "view-frame" or "view-error")
+                    {Received?.Invoke(wire.Peer.Id,message);if(message.Type=="view-frame")wire.Post(new(){Type="view-ack",Id=message.Id,Size=message.Size});}
+                    continue;
+                }
                 if(message.Type=="screens")
                 {
                     KvmWire.ValidateScreens(message.Screens);
@@ -140,6 +150,7 @@ sealed class KvmService:IDisposable
             {
                 if(bulk.TryRemove(wire.Peer.Id,out var b))b.Dispose();
                 if(audio.TryRemove(wire.Peer.Id,out var a))a.Dispose();
+                if(video.TryRemove(wire.Peer.Id,out var v))v.Dispose();
                 if(options.Role=="Client")KvmInput.ReleaseAll();
                 Disconnected?.Invoke(wire.Peer.Id);PeersChanged?.Invoke();
             }
@@ -147,6 +158,7 @@ sealed class KvmService:IDisposable
         }
     }
     public bool Send(string peer,KvmMessage message)=>controls.TryGetValue(peer,out var connection)&&connection.Post(message);
+    public bool SendVideo(string peer,KvmMessage message)=>video.TryGetValue(peer,out var connection)&&connection.Post(message);
     public Func<string,KvmMessage,bool>? BeforeInput {get;set;}
     public async Task SendControl(string peer,KvmMessage message)
     {
@@ -172,7 +184,7 @@ sealed class KvmService:IDisposable
     public void Dispose()
     {
         stop.Cancel();listener?.Stop();
-        foreach(var c in controls.Values.Concat(bulk.Values).Concat(audio.Values))c.Dispose();
+        foreach(var c in controls.Values.Concat(bulk.Values).Concat(audio.Values).Concat(video.Values))c.Dispose();
         if(options.Role=="Client")KvmInput.ReleaseAll();
         // Identity remains alive until every handshake has left AuthenticateAsServer.
     }

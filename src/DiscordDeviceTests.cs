@@ -17,6 +17,8 @@ static class DiscordDeviceTests
         var pair=DiscordDevices.Pair("send",endpoints);Require(pair.Capture.Id=="capture"&&pair.Render.Id=="send","Pairing depends on display name");
         bool ambiguous=false;try{DiscordDevices.Pair("send",endpoints.Append(new("second",DataFlow.Capture,"Second","VB-Audio Virtual Cable")));}catch(IOException){ambiguous=true;}Require(ambiguous,"Ambiguous cable was renamed");
         const string camera="Gaming PC Camera";Require(DiscordDevices.CaptureName(camera).Contains(camera,StringComparison.Ordinal),"Chromium group label mismatch");
+        Require(DiscordDevices.PairedName(camera,new("rode",DataFlow.Capture,"RØDECaster Duo Main","RØDE"))==camera+" Audio","Mixer endpoint naming mismatch");
+        var options=new DiscordOptions{AudioMode="Local",CaptureDevice="rode",AudioDevice="send"};options.Validate();Require(options.AudioMode=="Local","Direct mixer selection lost");
         Require(!DiscordDevices.IsCable(new("fake",DataFlow.Render,"CABLE custom mic","USB Audio")),"Unrelated device matched by friendly name");
         bool host=false;try{DiscordDevices.PairAudio("Host","send",camera);}catch(InvalidOperationException){host=true;}Require(host,"Host device mutation allowed");
     }

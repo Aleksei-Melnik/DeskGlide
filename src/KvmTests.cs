@@ -13,6 +13,19 @@ static class KvmTests
         using var input=new KvmController(service,new KvmOptions{Role="Host",Seamless=false});
         input.Refresh();input.ReturnLocal();
         Thread.Sleep(150);
+        // No injected OS input or cursor movement: only launcher shortcut dispatch is exercised.
+        int opens=0;
+        using var shortcuts=new KvmController(service,new KvmOptions{Role="Off"});shortcuts.OpenRequested+=()=>opens++;
+        foreach(bool injected in new[]{false,true})
+        {
+            shortcuts.TestKey(162,false,injected);shortcuts.TestKey(164,false,injected);
+            if(shortcuts.TestKey((int)Keys.K,false,injected)!=(IntPtr)1)throw new Exception("KVM shortcut not consumed");
+            shortcuts.TestKey((int)Keys.K,false,injected);shortcuts.TestKey((int)Keys.K,true,injected);
+            shortcuts.TestKey(164,true,injected);shortcuts.TestKey(162,true,injected);
+        }
+        if(opens!=2)throw new Exception("Physical/Stream Deck shortcut or repeat guard failed");
+        var layoutOptions=new KvmOptions{Layout=[new(){Peer="local",Device="center",Width=100,Height=100,Hotkey=1}]};
+        layoutOptions.Validate();bool conflict=false;try{(layoutOptions with{OpenHotkeyKey=(uint)Keys.F1}).Validate();}catch(ArgumentException){conflict=true;}if(!conflict)throw new Exception("Duplicate monitor/hub shortcut allowed");
         Program.Write("kvm-input-thread-test.json",new{Pass=true,InstalledOnDedicatedThread=true,InjectedInput=false,KeyboardLogging=false});
     }
     static void Files()
@@ -22,6 +35,7 @@ static class KvmTests
         using var service=new KvmService(new KvmOptions());
         string[]? completed=null;
         using var clipboard=new KvmClipboard(service,new(),dispatcher,paths=>completed=paths,folder);
+        int notifications=0;clipboard.Notification+=_=>notifications++;
         string id=Guid.NewGuid().ToString("N");byte[] payload=RandomNumberGenerator.GetBytes(150000);
         clipboard.HandleFile("peer",new(){Type="file-begin",Id=id,Files=[new("Folder",0,true),new("Folder/example.bin",payload.Length,false),new("empty.txt",0,false)]});
         clipboard.HandleFile("peer",new(){Type="file-open",Id=id,Text="Folder/example.bin"});
@@ -31,6 +45,7 @@ static class KvmTests
         clipboard.HandleFile("peer",new(){Type="file-close",Id=id,Data=SHA256.HashData([])});
         clipboard.HandleFile("peer",new(){Type="file-done",Id=id});
         if(completed?.Length!=2||!File.ReadAllBytes(Path.Combine(completed.First(Directory.Exists),"example.bin")).SequenceEqual(payload))throw new Exception("Received clipboard files do not match");
+        if(notifications!=0)throw new Exception("Routine clipboard transfer raised a notification");
         Program.Write("kvm-files-test.json",new{Pass=true,NestedFolder=true,EmptyFile=true,Bytes=payload.Length,HashVerified=true,ClipboardModified=false});
     }
     static async Task RunAsync()

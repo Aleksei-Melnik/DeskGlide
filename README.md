@@ -47,10 +47,12 @@ restart Discord after first installation. Select it under screen share → Devic
 and select 60 FPS in Discord. Discord's account, streaming settings and network
 can still limit the outgoing stream; the device cannot override those limits.
 
-For sound, use **Установить аудиокабель…** on that same receiving PC. This downloads
+For network sound, use **Установить VB-CABLE…** on that same receiving PC. This downloads
 the pinned, signed, original **VB-CABLE** package and opens its administrator
 installer. Click Install Driver and reboot if requested. Select the cable output
-in ScreenCapture and use **Связать устройства**. The recording endpoint becomes
+and its paired recording input in ScreenCapture, then use **Настроить устройства…**.
+Renaming requests administrator permission separately; the main app stays unelevated.
+The recording endpoint becomes
 **ScreenCapture Camera Audio (VB-CABLE)**, matching the complete camera name.
 The name can be customised in settings. Both endpoint IDs and the vendor's
 interface name remain unchanged. Fully quit/reopen Discord after updating.
@@ -64,6 +66,14 @@ Recovery is retained for the installer's reboot; a deliberate switch to another
 non-cable device is preserved. Previous defaults from installations before 0.7.1
 cannot be reconstructed: restore those once in Windows sound settings if needed.
 Audio can be Silent and has a separate receiver volume slider.
+
+Choose **Вход этого ПК / микшер** to pair the camera with a local audio input,
+such as RØDECaster. Discord captures that endpoint directly; network audio is
+not played through a cable in this mode. Other cables can be used by selecting
+their playback and recording endpoints manually. Renaming only changes the
+selected recording endpoint, never Windows defaults. Multiple inputs with the
+same camera label can make grouping ambiguous; select the intended input in
+Discord if its automatic selection differs.
 
 No cable or camera is installed automatically, through updates or through KVM
 pairing. Installation is blocked on the controlling/gaming PC. Camera binaries
@@ -83,6 +93,10 @@ are kept in a versioned user directory so a running Discord cannot block updates
 
 Tray → **KVM · управление компьютерами…** opens an independent computer chooser.
 `ScreenCapture.exe --kvm` can be assigned to a shortcut or Stream Deck button.
+The same chooser has a configurable hotkey under **KVM / сеть**, initially
+**Ctrl+Alt+K**. **Ctrl+Alt+Pause** toggles mouse transitions (also configurable)
+and returns control locally when locking them. Monitor shortcuts are set in
+**Мониторы**. Stream Deck software keystrokes are supported; save edited settings.
 Each remote viewer has monitor selection, fullscreen (F11), a view-only toggle
 and Disconnect; closing it does not stop capture or recording. Reopening the
 same PC activates its existing window. Settings have contextual descriptions,
@@ -95,9 +109,14 @@ PC retains its saved monitor positions; disabling the option restores them.
 There is no timed cooldown when crossing monitor edges. Actual input latency
 still depends on Windows scheduling and the network.
 
-The viewer defaults to native-resolution PNG for sharp text, with selectable
-high-quality JPEG and bandwidth-saving 1080p. Large frames fall back to bounded
-JPEG rather than exceeding the transport's packet limit.
+The viewer offers 30/60 FPS and displays actual received/presented FPS.
+It defaults to native-resolution JPEG 95 with full 4:4:4 chroma for sharp text,
+with JPEG 88 and bandwidth-saving 1080p options. GPU capture, rotation and
+scaling feed a SIMD encoder. A dedicated authenticated TLS connection keeps
+video independent from file transfers, with bounded buffering and decoding
+outside the UI thread. Both PCs need 0.7.2; older peers use the compatible slow
+snapshot mode. GDI fallback is available if GPU capture cannot initialise.
+Native 1440p60 at high quality can use several hundred Mbit/s on detailed scenes.
 
 File dragging is an unfinished experiment and has been reported not to hand off
 between the actual PCs. Do not rely on it in this release. Use **Ctrl+C / Ctrl+V**

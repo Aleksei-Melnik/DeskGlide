@@ -56,7 +56,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             if(options.ClipboardFiles&&Clipboard.ContainsFileDropList())
             {
                 string[] files=Clipboard.GetFileDropList().Cast<string>().ToArray();
-                if(Interlocked.CompareExchange(ref sending,1,0)!=0){Notification?.Invoke("Дождитесь завершения предыдущей передачи файлов.");return;}
+                if(Interlocked.CompareExchange(ref sending,1,0)!=0){Log.Write("Clipboard transfer already in progress.");return;}
                 _=Task.Run(async()=>
                 {
                     try{await SendFiles(files);}
@@ -208,7 +208,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             foreach(var entry in message.Files.Where(e=>e.Directory).OrderBy(e=>e.Path.Length))Directory.CreateDirectory(SafePath(folder,entry.Path));
             transfers[transferKey]=new(){Id=message.Id,Folder=folder,Entries=message.Files.Where(e=>!e.Directory).ToArray(),Drag=message.Flags==1};
             if(message.Flags!=1&&testCompleted==null)Ui(()=>{Clipboard.Clear();ownSequence=GetClipboardSequenceNumber();});
-            Notification?.Invoke("Получаю файлы по KVM. Вставка будет доступна после завершения.");return;
+            return;
         }
         if(!transfers.TryGetValue(transferKey,out var state)||state.Id!=message.Id)throw new IOException("Unknown transfer.");
         switch(message.Type)
@@ -228,7 +228,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 string[] roots=Directory.GetFileSystemEntries(state.Folder);transfers.Remove(transferKey);state.Dispose();
                 if(state.Drag){KvmFileCache.Mark(storage,state.Folder);Ui(()=>DragFilesReady?.Invoke(peer,message.Id,roots));break;}
                 if(testCompleted!=null){testCompleted(roots);break;}
-                Ui(()=>{var list=new StringCollection();list.AddRange(roots);Clipboard.SetFileDropList(list);ownSequence=GetClipboardSequenceNumber();Notification?.Invoke("Файлы получены. Можно вставить их через Ctrl+V.");});break;
+                Ui(()=>{var list=new StringCollection();list.AddRange(roots);Clipboard.SetFileDropList(list);ownSequence=GetClipboardSequenceNumber();});break;
             default:throw new IOException("Unknown file operation.");
         }
     }
@@ -238,7 +238,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         if(!path.StartsWith(root,StringComparison.OrdinalIgnoreCase))throw new IOException("Path outside clipboard folder.");
         return path;
     }
-    void Ui(Action action){try{dispatcher.BeginInvoke(()=>{if(stop.IsCancellationRequested)return;try{action();}catch(ExternalException){Notification?.Invoke("Буфер обмена временно занят.");}});}catch(InvalidOperationException){}}
+    void Ui(Action action){try{dispatcher.BeginInvoke(()=>{if(stop.IsCancellationRequested)return;try{action();}catch(ExternalException){Log.Write("Clipboard temporarily busy.");}});}catch(InvalidOperationException){}}
     public void Dispose(){service.Received-=OnMessage;service.Disconnected-=OnDisconnected;RemoveClipboardFormatListener(Handle);DestroyHandle();stop.Cancel();incoming.Writer.TryComplete();}
     [DllImport("user32.dll")] static extern bool AddClipboardFormatListener(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool RemoveClipboardFormatListener(IntPtr hwnd);

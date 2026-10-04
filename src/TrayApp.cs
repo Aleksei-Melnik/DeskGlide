@@ -109,7 +109,7 @@ sealed class TrayApp:ApplicationContext
         replayToggle.Click+=(_,_)=>Guard(()=>ApplyReplay(settings.Replay with{Enabled=!settings.Replay.Enabled}));items.Add(replayToggle);
         var save=new ToolStripMenuItem($"Сохранить последние {settings.Replay.Minutes} мин · {ReplayHotkey.Text(settings.Replay)}"){Enabled=replay.BufferedSeconds>0};
         save.Click+=(_,_)=>SaveReplay();items.Add(save);
-        items.Add("KVM · управление компьютерами…",null,(_,_)=>OpenKvm());
+        items.Add("KVM · управление компьютерами…",null,(_,_)=>dispatcher.BeginInvoke(OpenKvm));
         items.Add(new ToolStripSeparator());
         items.Add("Настройки…",null,(_,_)=>OpenSettings());
         items.Add("Обновления…",null,(_,_)=>OpenUpdates());
@@ -119,8 +119,14 @@ sealed class TrayApp:ApplicationContext
     void OpenSettings(int page=0)=>Guard(()=>
     {
         controller?.ReturnLocal();
-        using var form=new AppSettingsForm(settings,kvm,IsAutorun(),Diagnostics,OpenViewer,OpenUpdates,page);
-        if(form.ShowDialog()!=DialogResult.OK)return;
+        var existing=Application.OpenForms.OfType<AppSettingsForm>().FirstOrDefault();
+        if(existing!=null){WindowActivation.Show(existing);return;}
+        var form=new AppSettingsForm(settings,kvm,IsAutorun(),Diagnostics,OpenViewer,OpenUpdates,page);
+        form.FormClosed+=(_,_)=>{try{if(form.DialogResult==DialogResult.OK)Guard(()=>ApplySettings(form));}finally{form.Dispose();}};
+        WindowActivation.Show(form);
+    });
+    void ApplySettings(AppSettingsForm form)
+    {
         var result=form.ResultSettings;
         bool discordChanged=settings.Discord!=result.Discord||settings.Kvm.Role!=result.Kvm.Role;
         if(!hotkey.Set(result.Replay.HotkeyModifiers,result.Replay.HotkeyKey))
@@ -141,7 +147,7 @@ sealed class TrayApp:ApplicationContext
         if(form.ImportedProfile!=null||priorKvm!=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],Seamless=true}))StartKvm();else controller?.UpdateLayout(settings.Kvm);
         settings.Discord=result.Discord;settings.Save();if(discordChanged)StartDiscord();
         SelectRemoteAudio();notifications.Enqueue("Настройки применены.");
-    });
+    }
     string Diagnostics()=>$"{engine.SourceName}\r\n{engine.Status}\r\n{engine.CaptureStatus}\r\nЗахват: {engine.CaptureMs:F1} мс; NDI: {engine.SendMs:F1} мс\r\n\r\n{replay.Status}\r\n{replay.AudioStatus}\r\nNDI audio: {engine.NdiAudioStatus}\r\nБуфер: {replay.CacheBytes/1048576.0:F0} МБ\r\nКадры записи: {replay.EncodedFrames}; повторы: {replay.RepeatedInputFrames}\r\nПримечание: неподвижный экран тоже даёт повторы.\r\nЗапусков кодировщика: {replay.EncoderStarts}\r\n{replay.Error}\r\n{delivery.Status}\r\n\r\nDiscord: {discord?.Status??"выключен"}\r\n\r\nKVM: {kvm?.Status}\r\n{string.Join("\r\n",kvm?.Peers.Select(p=>p.Name+" · экранов: "+p.Screens.Length)??[])}";
     async Task CheckForUpdatesQuietly()
     {
@@ -157,15 +163,15 @@ sealed class TrayApp:ApplicationContext
     {
         if(kvm==null||settings.Kvm.Role!="Host")return;
         controller?.ReturnLocal();
-        if(viewers.TryGetValue(peer.Id,out var existing)&&!existing.IsDisposed){if(existing.WindowState==FormWindowState.Minimized)existing.WindowState=FormWindowState.Normal;existing.Activate();return;}
+        if(viewers.TryGetValue(peer.Id,out var existing)&&!existing.IsDisposed){if(existing.WindowState==FormWindowState.Minimized)existing.WindowState=FormWindowState.Normal;WindowActivation.Show(existing);return;}
         var viewer=new KvmViewer(kvm,peer);viewers[peer.Id]=viewer;viewer.Activated+=(_,_)=>{controller?.ReturnLocal();if(controller!=null)controller.ViewerActive=true;};viewer.Deactivate+=(_,_)=>{if(controller!=null)controller.ViewerActive=false;};viewer.FormClosed+=(_,_)=>{viewers.Remove(peer.Id);if(controller!=null)controller.ViewerActive=false;};viewer.Show();
     }
-    public void OpenKvm()
+    public void OpenKvm()=>Guard(()=>
     {
         controller?.ReturnLocal();
-        if(kvmHub is {IsDisposed:false}){if(kvmHub.WindowState==FormWindowState.Minimized)kvmHub.WindowState=FormWindowState.Normal;kvmHub.Activate();return;}
-        kvmHub=new(()=>kvm,()=>controller?.Seamless??false,enabled=>{if(controller!=null){controller.Seamless=enabled;settings.Kvm.Seamless=enabled;settings.Save();}},()=>{controller?.ReturnLocal();foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();},OpenViewer,OpenSettings,p=>p.RemoteViewOnly||settings.Kvm.RemoteOnlyPeers.Contains(p.Id),(p,only)=>{settings.Kvm.RemoteOnlyPeers.Remove(p.Id);if(only)settings.Kvm.RemoteOnlyPeers.Add(p.Id);settings.Save();controller?.UpdateLayout(settings.Kvm);});kvmHub.Show();
-    }
+        if(kvmHub is {IsDisposed:false}){if(kvmHub.WindowState==FormWindowState.Minimized)kvmHub.WindowState=FormWindowState.Normal;WindowActivation.Show(kvmHub);return;}
+        kvmHub=new(()=>kvm,()=>controller?.Seamless??false,enabled=>{if(controller!=null){controller.Seamless=enabled;settings.Kvm.Seamless=enabled;settings.Save();}},()=>{controller?.ReturnLocal();foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();},OpenViewer,OpenSettings,p=>p.RemoteViewOnly||settings.Kvm.RemoteOnlyPeers.Contains(p.Id),(p,only)=>{settings.Kvm.RemoteOnlyPeers.Remove(p.Id);if(only)settings.Kvm.RemoteOnlyPeers.Add(p.Id);settings.Save();controller?.UpdateLayout(settings.Kvm);});WindowActivation.Show(kvmHub);
+    });
     void StartKvm()
     {
         foreach(var viewer in viewers.Values.ToArray())viewer.Close();
@@ -174,6 +180,7 @@ sealed class TrayApp:ApplicationContext
         {
             kvm=new KvmService(settings.Kvm);kvm.Notification+=m=>notifications.Enqueue(m);kvm.Received+=updater.Receive;
             controller=new KvmController(kvm,settings.Kvm);
+            controller.OpenRequested+=()=>{if(!closing)try{dispatcher.BeginInvoke(OpenKvm);}catch(InvalidOperationException){}};
             controller.EmergencyReturn+=()=>{if(!closing)dispatcher.BeginInvoke(()=>{foreach(var viewer in Application.OpenForms.OfType<KvmViewer>().ToArray())viewer.ReturnControl();});};
             controller.SeamlessChanged+=enabled=>{if(!closing)dispatcher.BeginInvoke(()=>{settings.Kvm.Seamless=enabled;settings.Save();});};
             kvm.Disconnected+=_=>{if(!closing)try{dispatcher.BeginInvoke(()=>controller?.ReturnLocal());}catch(InvalidOperationException){}};
@@ -195,8 +202,6 @@ sealed class TrayApp:ApplicationContext
         try{if(CameraInstallation.Installed)CameraInstallation.Install(settings.Kvm.Role,settings.Discord.CameraName);}
         catch(Exception e){notifications.Enqueue("Камера Discord: "+e.Message);}
         if(!settings.Discord.Enabled)return;
-        try{DiscordDevices.PairAudio(settings.Kvm.Role,settings.Discord.AudioDevice,CameraInstallation.Name(settings.Discord.CameraName));}
-        catch(Exception e){Log.Write("Discord audio pairing: "+e);notifications.Enqueue("Имя аудиовхода: "+e.Message);}
         try{discord=new(settings.Discord);}
         catch(Exception e){notifications.Enqueue("Discord: "+e.Message);}
     }

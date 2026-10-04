@@ -19,7 +19,7 @@ jobs:
       - name: Test update integrity, rollback, audio clock and windows
         shell: pwsh
         run: |
-          foreach ($flag in @('--update-tests', '--audio-timing-test', '--ui-tests', '--feature-tests', '--camera-test')) {
+          foreach ($flag in @('--update-tests', '--audio-timing-test', '--ui-tests', '--feature-tests', '--camera-test', '--kvm-video-test', '--kvm-test')) {
             $p=Start-Process ./app/ScreenCapture.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){throw "$flag failed"}
           }

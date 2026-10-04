@@ -59,12 +59,15 @@ static class UiTests
             receive.Invoke(viewer,[stream.Id,new KvmMessage{Type="view-frame",Device="LEFT",X=1920,Y=1080,Data=bytes.ToArray()}]);Application.DoEvents();
             Require(picture.Image==null,"Late frame undid monitor selection");
             receive.Invoke(viewer,[stream.Id,new KvmMessage{Type="view-frame",Device="RIGHT",X=1920,Y=1080,Data=bytes.ToArray()}]);Application.DoEvents();
+            var renderWait=System.Diagnostics.Stopwatch.StartNew();while(picture.Image==null&&renderWait.ElapsedMilliseconds<3000){Application.DoEvents();Thread.Sleep(5);}
             Require(picture.Image?.Width==640&&picture.Image.Height==360,"Received JPEG not displayed");
             var current=(KvmScreen?)typeof(KvmViewer).GetField("screen",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(viewer);
             Require(current?.X==1920,"Remote image lost second monitor origin");
             using var rendered=new Bitmap(viewer.Width,viewer.Height);viewer.DrawToBitmap(rendered,new(0,0,viewer.Width,viewer.Height));rendered.Save(Path.Combine(folder,"kvm-viewer.png"));viewer.Close();
         }
-        Program.Write("ui-tests.json",new{Pass=true,RolesRendered=3,VisiblePeerCards=true,FixedWindows=true,RemoteOnlyLayoutRoundtrip=true,ViewerKeyboardFocus=true,KeyReleasesPreserved=true,FullscreenRepeatGuard=true});
+        using(var window=new Form{Opacity=0,ShowInTaskbar=false})
+        {window.Show();window.Hide();WindowActivation.Show(window);Require(window.Visible,"Hidden window not shown");window.WindowState=FormWindowState.Minimized;WindowActivation.Show(window);Require(window.WindowState!=FormWindowState.Minimized,"Minimized window not restored");window.Location=new(-90000,-90000);WindowActivation.Show(window);Require(Screen.AllScreens.Any(s=>s.WorkingArea.IntersectsWith(window.Bounds)),"Offscreen window not recovered");window.Close();}
+        Program.Write("ui-tests.json",new{Pass=true,RolesRendered=3,VisiblePeerCards=true,FixedWindows=true,RemoteOnlyLayoutRoundtrip=true,ViewerKeyboardFocus=true,KeyReleasesPreserved=true,FullscreenRepeatGuard=true,WindowRestored=true});
     }
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
 }

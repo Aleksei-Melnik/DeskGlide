@@ -13,6 +13,7 @@ sealed record KvmMessage
 {
     public string Version {get;set;}="";
     public int UpdateProtocol {get;set;}
+    public int ViewProtocol {get;set;}
     public bool RemoteViewOnly {get;set;}
     public string Type {get;set;}="";
     public string Text {get;set;}="";
@@ -86,12 +87,12 @@ sealed class KvmWire:IDisposable
             byte[] nonce=RandomNumberGenerator.GetBytes(32);
             await wire.SendAsync(new(){Type="challenge",Data=nonce},timeout.Token);
             var hello=await wire.ReadAsync(timeout.Token);
-            if(hello.Type!="hello"||!Guid.TryParseExact(hello.Id,"N",out _)||hello.Id==options.Id||hello.Text.Length>100||hello.Device is not ("control" or "bulk" or "audio"))throw new AuthenticationException("Invalid KVM hello.");
+            if(hello.Type!="hello"||!Guid.TryParseExact(hello.Id,"N",out _)||hello.Id==options.Id||hello.Text.Length>100||hello.Device is not ("control" or "bulk" or "audio" or "video"))throw new AuthenticationException("Invalid KVM hello.");
             byte[] expected=HMACSHA256.HashData(identity.Key,nonce.Concat(Encoding.UTF8.GetBytes(hello.Id+"|"+hello.Device)).ToArray());
             if(hello.Data==null||!CryptographicOperations.FixedTimeEquals(expected,hello.Data))throw new AuthenticationException("Неверный код KVM.");
             ValidateScreens(hello.Screens);
-            wire.Peer=new(hello.Id,hello.Text,hello.Screens!,hello.Version,Math.Clamp(hello.UpdateProtocol,0,1),hello.RemoteViewOnly);wire.Channel=hello.Device;
-            await wire.SendAsync(new(){Type="welcome",Version=Updates.VersionText,UpdateProtocol=1,Id=options.Id,Text=Environment.MachineName,Screens=KvmScreen.Local()},timeout.Token);
+            wire.Peer=new(hello.Id,hello.Text,hello.Screens!,hello.Version,Math.Clamp(hello.UpdateProtocol,0,1),hello.RemoteViewOnly,Math.Clamp(hello.ViewProtocol,0,1));wire.Channel=hello.Device;
+            await wire.SendAsync(new(){Type="welcome",Version=Updates.VersionText,UpdateProtocol=1,ViewProtocol=1,Id=options.Id,Text=Environment.MachineName,Screens=KvmScreen.Local()},timeout.Token);
             wire.StartWriter();return wire;
         }
         catch{wire.Dispose();throw;}
@@ -110,11 +111,11 @@ sealed class KvmWire:IDisposable
             var challenge=await wire.ReadAsync(timeout.Token);
             if(challenge.Type!="challenge"||challenge.Data?.Length!=32)throw new AuthenticationException("Invalid host challenge.");
             byte[] proof=HMACSHA256.HashData(key,challenge.Data.Concat(Encoding.UTF8.GetBytes(options.Id+"|"+channel)).ToArray());
-            await wire.SendAsync(new(){Type="hello",Version=Updates.VersionText,UpdateProtocol=1,RemoteViewOnly=options.RemoteViewOnly,Id=options.Id,Device=channel,Text=Environment.MachineName,Data=proof,Screens=KvmScreen.Local()},timeout.Token);
+            await wire.SendAsync(new(){Type="hello",Version=Updates.VersionText,UpdateProtocol=1,ViewProtocol=1,RemoteViewOnly=options.RemoteViewOnly,Id=options.Id,Device=channel,Text=Environment.MachineName,Data=proof,Screens=KvmScreen.Local()},timeout.Token);
             var welcome=await wire.ReadAsync(timeout.Token);
             if(welcome.Type!="welcome"||!Guid.TryParseExact(welcome.Id,"N",out _)||welcome.Text.Length>100)throw new AuthenticationException("Invalid host reply.");
             ValidateScreens(welcome.Screens);
-            wire.Peer=new(welcome.Id,welcome.Text,welcome.Screens!,welcome.Version,Math.Clamp(welcome.UpdateProtocol,0,1));wire.StartWriter();return wire;
+            wire.Peer=new(welcome.Id,welcome.Text,welcome.Screens!,welcome.Version,Math.Clamp(welcome.UpdateProtocol,0,1),false,Math.Clamp(welcome.ViewProtocol,0,1));wire.StartWriter();return wire;
         }
         catch{wire?.Dispose();tcp.Dispose();throw;}
     }
@@ -146,9 +147,14 @@ sealed class KvmWire:IDisposable
     }
     public async Task SendAsync(KvmMessage message,CancellationToken token)
     {
-        byte[] data=JsonSerializer.SerializeToUtf8Bytes(message);
+        // Video uses bounded binary payloads, not the slower/larger JSON base64 path.
+        bool binary=Channel=="video"&&message.Type=="view-frame"&&message.Data!=null;
+        byte[] data=JsonSerializer.SerializeToUtf8Bytes(binary?message with{Data=null}:message);
         if(data.Length>MaximumPacket)throw new IOException("KVM packet too large.");
-        byte[] packet=new byte[4+data.Length];BinaryPrimitives.WriteInt32LittleEndian(packet,data.Length);data.CopyTo(packet,4);
+        int extra=binary?message.Data!.Length:0;
+        if(binary&&(extra>2800000||data.Length>4096))throw new IOException("KVM frame too large.");
+        byte[] packet=new byte[4+data.Length+(binary?4+extra:0)];BinaryPrimitives.WriteInt32LittleEndian(packet,binary?-data.Length:data.Length);data.CopyTo(packet,4);
+        if(binary){BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(4+data.Length),extra);message.Data!.CopyTo(packet,8+data.Length);}
         await writeGate.WaitAsync(token);
         try
         {
@@ -162,6 +168,15 @@ sealed class KvmWire:IDisposable
         using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token,stop.Token);deadline.CancelAfter(15000);
         byte[] header=new byte[4];await stream.ReadExactlyAsync(header,deadline.Token);
         int size=BinaryPrimitives.ReadInt32LittleEndian(header);
+        if(size<0&&size>=-4096&&Channel=="video")
+        {
+            byte[] metadata=new byte[-size];await stream.ReadExactlyAsync(metadata,deadline.Token);
+            var frame=JsonSerializer.Deserialize<KvmMessage>(metadata)??throw new IOException("Empty video metadata.");
+            if(frame.Type!="view-frame"||!Guid.TryParseExact(frame.Id,"N",out _)||frame.Data!=null)throw new IOException("Invalid video metadata.");
+            await stream.ReadExactlyAsync(header,deadline.Token);int length=BinaryPrimitives.ReadInt32LittleEndian(header);
+            if(length<1||length>2800000)throw new IOException("Invalid video payload.");
+            frame.Data=new byte[length];await stream.ReadExactlyAsync(frame.Data,deadline.Token);return frame;
+        }
         if(size<2||size>MaximumPacket)throw new IOException("Invalid KVM packet length.");
         byte[] data=new byte[size];await stream.ReadExactlyAsync(data,deadline.Token);
         return JsonSerializer.Deserialize<KvmMessage>(data)??throw new IOException("Empty KVM packet.");

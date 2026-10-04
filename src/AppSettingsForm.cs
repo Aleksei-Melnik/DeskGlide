@@ -1,7 +1,7 @@
 using System.Diagnostics;
 
 namespace SdrCapture;
-class AppSettingsForm:Form
+partial class AppSettingsForm:Form
 {
     readonly Settings initial;
     readonly KvmService? service;
@@ -23,9 +23,11 @@ class AppSettingsForm:Form
     readonly CheckBox remoteViewOnly=new(){Text="Сервер: только окно KVM, без переходов мышью"};
     readonly CheckBox ctrl=new(){Text="Ctrl",AutoSize=true},alt=new(){Text="Alt",AutoSize=true},shift=new(){Text="Shift",AutoSize=true};
     readonly ComboBox hotkey=Choice();
+    readonly ShortcutEditor kvmOpen,kvmToggle;
     readonly MonitorLayoutEditor monitors;
     readonly CheckBox discordEnabled=new(){Text="Принимать экран и звук для Discord"};
     readonly ComboBox discordSource=new(){DropDownStyle=ComboBoxStyle.DropDown},discordOutput=Choice();
+    readonly ComboBox discordMode=Choice(),discordInput=Choice();
     readonly TrackBar discordVolume=new(){Minimum=0,Maximum=100,TickFrequency=10};
     readonly TextBox discordName=new(){MaxLength=60};
     public Settings ResultSettings {get;private set;}
@@ -34,6 +36,7 @@ class AppSettingsForm:Form
     public AppSettingsForm(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action<KvmPeerInfo>? view=null,Action? openUpdates=null,int startPage=0)
     {
         initial=value.Copy();ResultSettings=value.Copy();this.service=service;
+        kvmOpen=new(value.Kvm.OpenHotkeyModifiers,value.Kvm.OpenHotkeyKey);kvmToggle=new(value.Kvm.ToggleHotkeyModifiers,value.Kvm.ToggleHotkeyKey);
         Text=$"ScreenCapture {Updates.VersionText} · Настройки";Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(1020,760);MinimumSize=new(940,700);Font=new Font("Segoe UI",10);StartPosition=FormStartPosition.CenterScreen;AutoScaleMode=AutoScaleMode.Dpi;BackColor=Color.White;
         UiStyle.FixedWindow(this);
         var heading=new Panel{Dock=DockStyle.Top,Height=88,Padding=new Padding(24,14,24,8),BackColor=Color.FromArgb(24,35,54)};
@@ -42,6 +45,7 @@ class AppSettingsForm:Form
         var footer=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=65,Padding=new Padding(16,12,20,10),FlowDirection=FlowDirection.RightToLeft,BackColor=Color.FromArgb(245,247,250)};
         var save=new Button{Text="Сохранить",Width=140,Height=36,BackColor=Color.FromArgb(33,105,211),ForeColor=Color.White,FlatStyle=FlatStyle.Flat};save.FlatAppearance.BorderSize=0;
         var cancel=new Button{Text="Отмена",Width=110,Height=36,DialogResult=DialogResult.Cancel};
+        cancel.Click+=(_,_)=>Close();
         footer.Controls.AddRange([save,cancel]);Controls.Add(content);Controls.Add(navigation);Controls.Add(footer);Controls.Add(heading);
         AcceptButton=save;CancelButton=cancel;
         navigation.DrawItem+=(_,e)=>{if(e.Index<0)return;bool selected=(e.State&DrawItemState.Selected)!=0;using var brush=new SolidBrush(selected?Color.FromArgb(221,232,249):navigation.BackColor);e.Graphics.FillRectangle(brush,e.Bounds);if(selected){using var accent=new SolidBrush(Color.FromArgb(33,105,211));e.Graphics.FillRectangle(accent,e.Bounds.X,e.Bounds.Y+9,3,e.Bounds.Height-18);}TextRenderer.DrawText(e.Graphics,navigation.Items[e.Index].ToString(),Font,new Point(e.Bounds.X+18,e.Bounds.Y+11),selected?Color.FromArgb(20,80,168):Color.FromArgb(50,61,78));using var small=new Font(Font.FontFamily,8);TextRenderer.DrawText(e.Graphics,subtitles[e.Index],small,new Point(e.Bounds.X+18,e.Bounds.Y+34),Color.FromArgb(96,111,133));};
@@ -105,7 +109,7 @@ class AppSettingsForm:Form
         var network=Page("KVM / сеть","Клавиатура, мышь, буфер обмена и звук");
         Set(role,["Выключен","Управляющий ПК (клавиатура и мышь)","Управляемый ПК (стрим-ПК / сервер)"],value.Kvm.Role switch{"Host"=>"Управляющий ПК (клавиатура и мышь)","Client"=>"Управляемый ПК (стрим-ПК / сервер)",_=>"Выключен"});Row(network,"Роль этого ПК",role);
         var roleHelp=Note(network,"");
-        Note(network,"Перетаскивание файлов: с управляющего ПК к краю соседнего экрана, удерживая кнопку до завершения передачи. Затем бросьте файл в папку или приложение. Временный кэш — 4 часа, копии в папках сохраняются. Нужна версия 0.7.0 на обоих ПК.");
+        Note(network,"Файлы и папки: Ctrl+C на одном ПК → Ctrl+V на другом. Прямое перетаскивание пока экспериментальное. Временный кэш удаляется через 4 часа; вставленные в папки копии остаются.");
         var advancedNetwork=new CheckBox{Text="Дополнительные параметры сети"};Row(network,"",advancedNetwork);
         port.Value=value.Kvm.Port;Row(network,"Порт KVM",port);ShowRow(port,false);advancedNetwork.CheckedChanged+=(_,_)=>ShowRow(port,advancedNetwork.Checked);
         host.Text=value.Kvm.Host;Row(network,"Имя / IP управляющего ПК",host);
@@ -114,6 +118,9 @@ class AppSettingsForm:Form
         var codePanel=new TableLayoutPanel{ColumnCount=2};codePanel.ColumnStyles.Add(new(SizeType.Percent,100));codePanel.ColumnStyles.Add(new(SizeType.Absolute,115));hostCode.Dock=DockStyle.Fill;codePanel.Controls.Add(hostCode);
         var copy=new Button{Text="Копировать",Dock=DockStyle.Fill};copy.Click+=(_,_)=>{try{if(hostCode.Text.Length==0){using var identity=new KvmIdentity(Path.Combine(Log.Folder,"Kvm"));hostCode.Text=identity.Code;}Clipboard.SetText(hostCode.Text);}catch(Exception e){MessageBox.Show(this,e.Message);}};codePanel.Controls.Add(copy);Row(network,"Код этого ПК",codePanel,46);
         seamless.Checked=value.Kvm.Seamless;Row(network,"Переходы",seamless);
+        Row(network,"Открыть окно KVM",kvmOpen);
+        Row(network,"Блокировка переходов",kvmToggle);
+        help.SetToolTip(kvmToggle,"Одно нажатие блокирует переходы мышью и возвращает управление сюда. Повторное разрешает переходы. Настройте ту же комбинацию в Stream Deck.");
         textClipboard.Checked=value.Kvm.ClipboardText;fileClipboard.Checked=value.Kvm.ClipboardFiles;
         var clipPanel=new FlowLayoutPanel{WrapContents=true};textClipboard.AutoSize=fileClipboard.AutoSize=true;clipPanel.Controls.AddRange([textClipboard,fileClipboard]);Row(network,"Буфер обмена",clipPanel,65);
         PopulateAudio(remoteAudio,value.Kvm.AudioDevice);Row(network,"Передавать звук",remoteAudio);
@@ -121,7 +128,7 @@ class AppSettingsForm:Form
         remoteViewOnly.Checked=value.Kvm.RemoteViewOnly;Row(network,"Режим сервера",remoteViewOnly,52);
         void RoleChanged(){foreach(var field in new Control[]{host,pairing,remoteAudio,allowView,remoteViewOnly})ShowRow(field,role.SelectedIndex==2);ShowRow(codePanel,role.SelectedIndex==1);ShowRow(seamless,role.SelectedIndex==1);ShowRow(clipPanel,role.SelectedIndex!=0);roleHelp.Text=role.SelectedIndex switch{1=>"Клавиатура и мышь подключены здесь. На втором ПК выберите «Управляемый ПК», укажите имя «"+Environment.MachineName+"» и код ниже. Для сервера включите «Только окно KVM» в его карточке.",2=>"Укажите имя и код игрового ПК. Для сервера включите режим ниже: он будет доступен в KVM, но не появится среди мониторов. «Передавать звук» отправляет звук только в запись игрового ПК.",_=>"KVM выключен. Передача NDI и запись работают независимо. Выберите роль, чтобы связать компьютеры."};}
         role.SelectedIndexChanged+=(_,_)=>RoleChanged();RoleChanged();
-        Note(network,"Ctrl+Alt+Esc — вернуть управление. Ctrl+Alt+Pause — включить/выключить переходы мышью. Код сопряжения вводится только на ваших компьютерах.");
+        Note(network,"Ctrl+Alt+Esc — вернуть управление. Клавиши мониторов настраиваются во вкладке «Мониторы». После изменений нажмите «Сохранить».");
         Note(network,"Экран блокировки и окна с повышенными правами могут быть недоступны. На сервере без монитора Windows должна предоставлять рабочий экран; при его отсутствии потребуется виртуальный дисплей или HDMI-заглушка.");
         var layoutPage=Page("Мониторы","Каждый монитор располагается отдельно");
         monitors=new MonitorLayoutEditor(value.Kvm,KvmLayout.Merge(value.Kvm,new[]{new KvmPeerInfo(value.Kvm.Id,Environment.MachineName,KvmScreen.Local())}.Concat(service?.Peers??[]))){Dock=DockStyle.Fill,Height=390};
@@ -151,34 +158,6 @@ class AppSettingsForm:Form
         save.Click+=(_,_)=>Save();
     }
     static ComboBox Choice()=>new(){DropDownStyle=ComboBoxStyle.DropDownList,IntegralHeight=false,DropDownHeight=280};
-    void BuildDiscordPage(Settings value)
-    {
-        var page=Page("Discord · приём","ScreenCapture Camera · 1920 × 1080 · 60 FPS");
-        Note(page,"На стрим-ПК включите приём ниже. На игровом — передачу NDI и звук игры. OBS и NDI Webcam Input не нужны.");
-        discordEnabled.Checked=value.Discord.Enabled;Row(page,"Приём",discordEnabled);
-        discordName.Text=CameraInstallation.Name(value.Discord.CameraName);Row(page,"Имя камеры в Discord",discordName);
-        discordSource.Text=value.Discord.Source;Row(page,"Источник игрового ПК",discordSource);
-        var refresh=UiStyle.Button("Найти источники",()=>{});
-        refresh.Click+=async(_,_)=>{refresh.Enabled=false;try{var sources=await Task.Run(NdiDiscovery.Sources);if(IsDisposed)return;string selected=discordSource.Text;discordSource.Items.Clear();discordSource.Items.AddRange(sources);discordSource.Text=selected;if(string.IsNullOrEmpty(selected)&&sources.Length==1)discordSource.Text=sources[0];}catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Поиск NDI");}finally{if(!IsDisposed)refresh.Enabled=true;}};
-        Row(page,"",refresh,38);
-        void RefreshOutputs(){string selected=(discordOutput.SelectedItem as AudioChoice)?.Id??value.Discord.AudioDevice;var choices=DiscordSetup.Outputs();if(!choices.Any(x=>x.Id==selected)&&!string.IsNullOrEmpty(selected))choices.Add(new(selected,"Сохранённый кабель недоступен"));discordOutput.Items.Clear();discordOutput.Items.AddRange(choices.ToArray());discordOutput.SelectedItem=choices.First(x=>x.Id==selected);}
-        RefreshOutputs();Row(page,"Звук → кабель",discordOutput);
-        discordVolume.Value=value.Discord.Volume;Row(page,"Громкость приёма",discordVolume,48);
-        void PairDevices(){string currentRole=role.SelectedIndex==1?"Host":"Client";CameraInstallation.Install(currentRole,discordName.Text.Trim());DiscordDevices.PairAudio(currentRole,(discordOutput.SelectedItem as AudioChoice)?.Id??"",discordName.Text.Trim());RefreshOutputs();}
-        var installCamera=UiStyle.Button(CameraInstallation.Installed?"Связать устройства":"Установить камеру",()=>{try{PairDevices();MessageBox.Show(this,"Камера и выбранный кабель настроены. Полностью закройте Discord через его значок в трее и откройте снова.\n\nАудиовход: "+DiscordDevices.CaptureName(discordName.Text.Trim()),"Устройства готовы");}catch(Exception e){MessageBox.Show(this,e.Message,"Устройства Discord");}});
-        var installAudio=UiStyle.Button("Установить аудиокабель…",()=>{});
-        installAudio.Click+=async(_,_)=>
-        {
-            if(role.SelectedIndex==1)return;
-            if(MessageBox.Show(this,"Установить VB-CABLE на ЭТОМ принимающем ПК?\n\nОткроется подписанный установщик VB-Audio с запросом администратора. Нажмите Install Driver; может понадобиться перезагрузка.\n\nVB-CABLE — donationware VB-Audio (vb-cable.com). Условия и поддержка автора доступны по ссылке ниже.","Звук для Discord",MessageBoxButtons.OKCancel,MessageBoxIcon.Information)!=DialogResult.OK)return;
-            installAudio.Enabled=false;try{await DiscordSetup.InstallCable("Client");if(!IsDisposed){RefreshOutputs();var cable=discordOutput.Items.Cast<AudioChoice>().FirstOrDefault(x=>!string.IsNullOrEmpty(x.Id));if(cable!=null){discordOutput.SelectedItem=cable;PairDevices();}MessageBox.Show(this,"Установщик завершён. Прежние устройства Windows по умолчанию сохранены; после необходимой перезагрузки программа повторит восстановление.\n\nНажмите «Применить». В Discord выбирайте аудиовход с полным именем нашей камеры и словом Audio.","VB-CABLE");}}catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Установка аудиокабеля");}finally{if(!IsDisposed)installAudio.Enabled=role.SelectedIndex!=1;}
-        };
-        var installs=new FlowLayoutPanel{WrapContents=false};installs.Controls.AddRange([installCamera,installAudio]);Row(page,"Устройства на этом ПК",installs,52);
-        var links=new FlowLayoutPanel{WrapContents=false};links.Controls.Add(UiStyle.Button("VB-CABLE · условия / донат",()=>Process.Start(new ProcessStartInfo("https://vb-audio.com/Services/licensing.htm"){UseShellExecute=true})));links.Controls.Add(UiStyle.Button("Обновить звук",RefreshOutputs));Row(page,"",links,50);
-        Note(page,"Discord → Устройства → наша камера → 60 FPS. Звук: то же имя + Audio (VB-CABLE). После «Связать устройства» перезапустите Discord. Если он сохранил старый выбор звука, выберите парный вход вручную.");
-        void RoleChanged(){bool receiver=role.SelectedIndex!=1;discordEnabled.Enabled=discordName.Enabled=discordSource.Enabled=discordOutput.Enabled=discordVolume.Enabled=installCamera.Enabled=installAudio.Enabled=receiver;if(!receiver)discordEnabled.Checked=false;}
-        role.SelectedIndexChanged+=(_,_)=>RoleChanged();RoleChanged();
-    }
     public void RenderPreviews(string folder)
     {
         preview=true;transition.Finish();Directory.CreateDirectory(folder);Opacity=0;ShowInTaskbar=false;Show();Application.DoEvents();
@@ -232,9 +211,10 @@ class AppSettingsForm:Form
             result.NdiAudioVolume=ndiVolume.Value;result.Updates=new(){CheckOnStartup=checkUpdates.Checked,AllowFromHost=remoteUpdates.Checked};result.NdiAudioDevice=((AudioChoice)ndiAudio.SelectedItem!).Id;result.SendOnLaunch=ndi.Checked;result.CaptureCursor=cursor.Checked;result.Device=((DisplayChoice)display.SelectedItem!).Id;
             result.Replay=initial.Replay with{Enabled=replay.Checked,Minutes=(int)minutes.Value,Codec=(string)codec.SelectedItem!,Quality=(string)quality.SelectedItem!,Fps=fps.SelectedIndex==1?120:60,Width=size.Item1,Height=size.Item2,Folder=folder.Text.Trim(),GroupByApp=true,Silent=false,AudioMode=audioMode.SelectedIndex switch{1=>"Separate",2=>"Silent",_=>"Mixed"},Microphone=((AudioChoice)mic.SelectedItem!).Id,GameAudio=((AudioChoice)game.SelectedItem!).Id,ExtraAudio=((AudioChoice)extra.SelectedItem!).Id,HotkeyModifiers=(uint)((ctrl.Checked?2:0)|(alt.Checked?1:0)|(shift.Checked?4:0)),HotkeyKey=(uint)Enum.Parse<Keys>((string)hotkey.SelectedItem!)};
             if(result.Replay.HotkeyModifiers==0)throw new ArgumentException("Для сохранения повтора выберите Ctrl, Alt или Shift.");
-            result.Kvm=initial.Kvm with{Role=role.SelectedIndex switch{1=>"Host",2=>"Client",_=>"Off"},Port=(int)port.Value,Host=host.Text.Trim(),PairingCode=pairing.Text.Trim(),Seamless=seamless.Checked,ClipboardText=textClipboard.Checked,ClipboardFiles=fileClipboard.Checked,AllowView=allowView.Checked,RemoteViewOnly=remoteViewOnly.Checked,RemoteOnlyPeers=monitors.RemoteOnlyPeers,AudioDevice=((AudioChoice)remoteAudio.SelectedItem!).Id,Layout=monitors.Result};
+            result.Kvm=initial.Kvm with{Role=role.SelectedIndex switch{1=>"Host",2=>"Client",_=>"Off"},Port=(int)port.Value,Host=host.Text.Trim(),PairingCode=pairing.Text.Trim(),Seamless=seamless.Checked,OpenHotkeyModifiers=kvmOpen.Modifiers,OpenHotkeyKey=kvmOpen.Key,ToggleHotkeyModifiers=kvmToggle.Modifiers,ToggleHotkeyKey=kvmToggle.Key,ClipboardText=textClipboard.Checked,ClipboardFiles=fileClipboard.Checked,AllowView=allowView.Checked,RemoteViewOnly=remoteViewOnly.Checked,RemoteOnlyPeers=monitors.RemoteOnlyPeers,AudioDevice=((AudioChoice)remoteAudio.SelectedItem!).Id,Layout=monitors.Result};
             result.Replay.Validate();result.Kvm.Validate();
-            result.Discord=new(){Enabled=discordEnabled.Checked&&result.Kvm.Role!="Host",Source=discordSource.Text.Trim(),AudioDevice=(discordOutput.SelectedItem as AudioChoice)?.Id??"",Volume=discordVolume.Value,CameraName=discordName.Text.Trim()};result.Discord.Validate();
+            result.Discord=new(){Enabled=discordEnabled.Checked&&result.Kvm.Role!="Host",Source=discordSource.Text.Trim(),AudioDevice=(discordOutput.SelectedItem as AudioChoice)?.Id??"",AudioMode=discordMode.SelectedIndex switch{1=>"Local",2=>"Silent",_=>"Network"},CaptureDevice=(discordInput.SelectedItem as AudioChoice)?.Id??"",Volume=discordVolume.Value,CameraName=discordName.Text.Trim()};result.Discord.Validate();
+            if(new[]{(result.Kvm.OpenHotkeyModifiers,result.Kvm.OpenHotkeyKey),(result.Kvm.ToggleHotkeyModifiers,result.Kvm.ToggleHotkeyKey)}.Contains((result.Replay.HotkeyModifiers,result.Replay.HotkeyKey)))throw new ArgumentException("Клавиша повтора совпадает с клавишей KVM.");
             if(result.Kvm.Layout.Any(m=>m.Hotkey>0&&(int)result.Replay.HotkeyKey==(int)Keys.F1+m.Hotkey-1)&&result.Replay.HotkeyModifiers==3)throw new ArgumentException("Клавиша сохранения повтора совпадает с клавишей переключения монитора.");
             return result;
     }

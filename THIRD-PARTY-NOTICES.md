@@ -36,3 +36,9 @@ is retained in tools/FFmpeg-LICENSE and its corresponding source/build details
 are linked from the upstream build page. FFmpeg binaries are not bundled in
 this project's GitHub release. See https://ffmpeg.org/legal.html .
 
+KVM JPEG encoding/decoding uses the unmodified x64 libjpeg-turbo 3.2.0 binary
+from its official distribution. This software is based in part on the work of
+the Independent JPEG Group. IJG and BSD license texts are retained in
+licenses/libjpeg-turbo, with binary provenance in native/TurboJpeg/UPSTREAM.md.
+https://github.com/libjpeg-turbo/libjpeg-turbo
+

@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Diagnostics;
 using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 
 namespace SdrCapture;
 
@@ -81,6 +83,38 @@ static class DiscordDevices
         }
     }
     internal static string CaptureName(string cameraName)=>cameraName+" Audio (VB-CABLE)";
+    internal static string PairedName(string cameraName,Endpoint endpoint)=>cameraName+" Audio"+(IsCable(endpoint)?" (VB-CABLE)":"");
+    public static async Task PairInput(string role,string captureId,string cameraName)
+    {
+        CameraInstallation.RequireReceiver(role);CameraInstallation.ValidateName(cameraName);
+        var endpoint=Endpoints().SingleOrDefault(e=>e.Id==captureId&&e.Flow==DataFlow.Capture)??throw new IOException("Выберите доступный аудиовход Discord.");
+        string name=PairedName(cameraName,endpoint);if(endpoint.Name==name)return;
+        var start=new ProcessStartInfo(Environment.ProcessPath!){UseShellExecute=true,Verb="runas",WorkingDirectory=AppContext.BaseDirectory};
+        foreach(string arg in new[]{"--pair-discord-input",role,captureId,cameraName})start.ArgumentList.Add(arg);
+        try
+        {
+            using var process=Process.Start(start)??throw new IOException("Не удалось запустить настройку звука.");
+            await process.WaitForExitAsync();
+            if(process.ExitCode!=0)throw new IOException("Windows не разрешила переименование аудиовхода. Камера продолжает работать; звук можно выбрать вручную в Discord.");
+        }
+        catch(System.ComponentModel.Win32Exception e)when(e.NativeErrorCode==1223){throw new IOException("Запрос администратора отменён. Имя аудиовхода не изменено.");}
+        if(Endpoints().FirstOrDefault(e=>e.Id==captureId)?.Name!=name)throw new IOException("Windows не сохранила имя аудиовхода.");
+    }
+    public static void RenameInput(string role,string captureId,string cameraName)
+    {
+        CameraInstallation.RequireReceiver(role);CameraInstallation.ValidateName(cameraName);
+        if(captureId.Length>512)throw new ArgumentException("Недопустимый идентификатор аудиовхода.");
+        var endpoint=Endpoints().SingleOrDefault(e=>e.Id==captureId&&e.Flow==DataFlow.Capture)??throw new IOException("Аудиовход недоступен.");
+        RenameEndpoint(endpoint.Id,PairedName(cameraName,endpoint));
+    }
+    static void RenameEndpoint(string id,string name)
+    {
+        using var devices=new MMDeviceEnumerator();using var device=devices.GetDevice(id);
+        device.GetPropertyInformation(StorageAccessMode.ReadWrite);
+        IntPtr text=Marshal.StringToCoTaskMemUni(name);
+        try{device.Properties.SetValue(new PropertyKey(new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"),14),new PropVariant{vt=31,pointerValue=text});device.Properties.Commit();}
+        finally{Marshal.FreeCoTaskMem(text);}
+    }
     internal static (Endpoint Render,Endpoint Capture) Pair(string renderId,IEnumerable<Endpoint> endpoints)
     {
         var cable=endpoints.Where(IsCable).ToArray();
@@ -94,12 +128,11 @@ static class DiscordDevices
         CameraInstallation.RequireReceiver(role);CameraInstallation.ValidateName(cameraName);
         if(string.IsNullOrEmpty(renderId))return;
         var pair=Pair(renderId,Endpoints());
-        using var policy=new AudioPolicy();
         // Chromium GuessVideoGroupID searches the entire camera label inside the audio label.
         // "ScreenCapture Audio" alone would NOT match "ScreenCapture Camera".
-        if(pair.Capture.Name!=CaptureName(cameraName))policy.Rename(pair.Capture.Id,CaptureName(cameraName));
+        if(pair.Capture.Name!=CaptureName(cameraName))RenameEndpoint(pair.Capture.Id,CaptureName(cameraName));
         string renderName=cameraName+" Send (VB-CABLE)";
-        if(pair.Render.Name!=renderName)policy.Rename(pair.Render.Id,renderName);
+        if(pair.Render.Name!=renderName)RenameEndpoint(pair.Render.Id,renderName);
         var updated=Endpoints();
         if(updated.Single(e=>e.Id==pair.Capture.Id).Name!=CaptureName(cameraName))throw new IOException("Windows не сохранила имя аудиовхода. Нажмите «Связать устройства» ещё раз.");
     }

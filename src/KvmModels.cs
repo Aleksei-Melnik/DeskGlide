@@ -11,6 +11,10 @@ public sealed record KvmOptions
     public string PairingCode {get;set;}="";
     public string Id {get;set;}=Guid.NewGuid().ToString("N");
     public bool Seamless {get;set;}=true;
+    public uint OpenHotkeyModifiers {get;set;}=3;
+    public uint OpenHotkeyKey {get;set;}=(uint)Keys.K;
+    public uint ToggleHotkeyModifiers {get;set;}=3;
+    public uint ToggleHotkeyKey {get;set;}=(uint)Keys.Pause;
     public bool ClipboardText {get;set;}=true;
     public bool ClipboardFiles {get;set;}=true;
     public string AudioDevice {get;set;}="";
@@ -31,6 +35,9 @@ public sealed record KvmOptions
             if(Math.Abs((long)m.X)>100000||Math.Abs((long)m.Y)>100000||m.Width<1||m.Width>16384||m.Height<1||m.Height>16384||m.Hotkey<0||m.Hotkey>12)
                 throw new ArgumentException("Недопустимое положение или размер монитора.");
         if(Layout.Where(m=>m.Hotkey>0).GroupBy(m=>m.Hotkey).Any(g=>g.Count()>1))throw new ArgumentException("Горячая клавиша назначена двум мониторам.");
+        KvmShortcut.Validate(OpenHotkeyModifiers,OpenHotkeyKey);KvmShortcut.Validate(ToggleHotkeyModifiers,ToggleHotkeyKey);
+        var shortcuts=Layout.Where(m=>m.Hotkey>0).Select(m=>(3u,(uint)Keys.F1+(uint)m.Hotkey-1)).Append((OpenHotkeyModifiers,OpenHotkeyKey)).Append((ToggleHotkeyModifiers,ToggleHotkeyKey)).Where(k=>k.Item2!=0).ToArray();
+        if(shortcuts.Distinct().Count()!=shortcuts.Length||shortcuts.Contains((3u,(uint)Keys.Escape)))throw new ArgumentException("Горячие клавиши KVM должны отличаться друг от друга и от Ctrl+Alt+Esc.");
     }
 }
 
@@ -52,7 +59,7 @@ public sealed record KvmScreen(string Device,int X,int Y,int Width,int Height,bo
     public static KvmScreen[] Local()=>Screen.AllScreens.Select(s=>new KvmScreen(s.DeviceName,s.Bounds.X,s.Bounds.Y,s.Bounds.Width,s.Bounds.Height,s.Primary)).ToArray();
     [JsonIgnore] public Rectangle Bounds=>new(X,Y,Width,Height);
 }
-public sealed record KvmPeerInfo(string Id,string Name,KvmScreen[] Screens,string Version="",int UpdateProtocol=0,bool RemoteViewOnly=false);
+public sealed record KvmPeerInfo(string Id,string Name,KvmScreen[] Screens,string Version="",int UpdateProtocol=0,bool RemoteViewOnly=false,int ViewProtocol=0);
 
 static class KvmPairing
 {

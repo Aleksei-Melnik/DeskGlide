@@ -15,9 +15,11 @@ sealed record DiscordOptions
     public bool Enabled {get;set;}
     public string Source {get;set;}="";
     public string AudioDevice {get;set;}="";
+    public string AudioMode {get;set;}="Network";
+    public string CaptureDevice {get;set;}="";
     public string CameraName {get;set;}="";
     public int Volume {get;set;}=100;
-    public void Validate(){if(Source==null||AudioDevice==null||CameraName==null||Source.Length>1024||Volume is <0 or >100)throw new ArgumentException("Некорректные настройки Discord.");if(CameraName.Length>0)CameraInstallation.ValidateName(CameraName);if(Enabled&&string.IsNullOrWhiteSpace(Source))throw new ArgumentException("Выберите NDI-источник игрового ПК для Discord.");}
+    public void Validate(){if(Source==null||AudioDevice==null||CaptureDevice==null||CameraName==null||Source.Length>1024||Volume is <0 or >100||AudioMode is not("Network" or "Local" or "Silent"))throw new ArgumentException("Некорректные настройки Discord.");if(CameraName.Length>0)CameraInstallation.ValidateName(CameraName);if(Enabled&&string.IsNullOrWhiteSpace(Source))throw new ArgumentException("Выберите NDI-источник игрового ПК для Discord.");}
 }
 
 // Fixed-size IPC contract with the native DirectShow filter. One latest frame, no video queue.
@@ -118,7 +120,7 @@ sealed class DiscordReceiver:IDisposable
     unsafe void ReceiveAudioSession(IntPtr receiver,CancellationToken token)
     {
         using var devices=new MMDeviceEnumerator();
-        using var outputDevice=string.IsNullOrEmpty(options.AudioDevice)?null:devices.GetDevice(options.AudioDevice);
+        using var outputDevice=options.AudioMode!="Network"||string.IsNullOrEmpty(options.AudioDevice)?null:devices.GetDevice(options.AudioDevice);
         if(outputDevice!=null&&outputDevice.DataFlow!=DataFlow.Render)throw new IOException("Нужен выход виртуального кабеля (CABLE Input).");
         using var output=outputDevice==null?null:new WasapiOut(outputDevice,AudioClientShareMode.Shared,true,30);
         var buffer=new BufferedWaveProvider(WaveFormat.CreateIeeeFloatWaveFormat(48000,2)){BufferDuration=TimeSpan.FromMilliseconds(160),DiscardOnBufferOverflow=true,ReadFully=true};
@@ -130,7 +132,7 @@ sealed class DiscordReceiver:IDisposable
             if(kind!=2){if(output!=null&&Environment.TickCount64-lastAudio>2000)audioStatus="нет звука NDI; проверьте выход на игровом ПК";continue;}
             try
             {
-                if(output==null){audioStatus="Silent";continue;}
+                if(output==null){audioStatus=options.AudioMode=="Local"?"звук берётся Discord напрямую из выбранного входа":"Silent";continue;}
                 if(frame.Rate!=48000||frame.Channels<1||frame.Channels>64||frame.Samples<1||frame.Samples>48000||frame.Data==IntPtr.Zero||frame.Stride<frame.Samples*4)throw new IOException("Нужен NDI-звук 48 кГц");
                 var pcm=ConvertAudio(frame,options.Volume);
                 // Prevent clock drift/reconnects from accumulating seconds of delay.

@@ -12,14 +12,14 @@ static class DiscordSetup
     public static List<AudioChoice> Outputs()
     {
         var result=new List<AudioChoice>{new("","Silent — без звука")};
-        foreach(var device in DiscordDevices.Endpoints().Where(d=>d.Flow==DataFlow.Render&&DiscordDevices.IsCable(d)))
+        foreach(var device in DiscordDevices.Endpoints().Where(d=>d.Flow==DataFlow.Render).OrderByDescending(DiscordDevices.IsCable))
             result.Add(new(device.Id,device.Name));
         return result;
     }
     public static async Task InstallCable(string role)
     {
         CameraInstallation.RequireReceiver(role);
-        if(Outputs().Count>1)throw new IOException("Виртуальный кабель уже найден. Выберите его в списке; повторная установка не нужна.");
+        if(DiscordDevices.Endpoints().Any(DiscordDevices.IsCable))throw new IOException("VB-CABLE уже найден. Выберите его в списке; повторная установка не нужна.");
         using var http=new HttpClient{Timeout=TimeSpan.FromSeconds(60)};
         byte[] zip=await http.GetByteArrayAsync(PackageUrl);
         VerifyPackage(zip);
