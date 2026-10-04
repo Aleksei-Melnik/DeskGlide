@@ -27,7 +27,7 @@ internal static class NdiNative
             candidates.Add(Path.Combine(AppContext.BaseDirectory,Dll));
             foreach(string file in candidates.Distinct())
                 if(File.Exists(file) && NativeLibrary.TryLoad(file,out var library)){RuntimePath=file;return library;}
-            throw new DllNotFoundException("Не найдена библиотека NDI x64. Установите NDI Tools/Runtime на игровом ПК.");
+            throw new DllNotFoundException("Не найдена библиотека NDI x64. Установите NDI Tools/Runtime на этом ПК.");
         });
     }
     public static void EnsureInitialized()

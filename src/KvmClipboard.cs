@@ -104,6 +104,8 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         foreach(var peer in service.Peers.Where(p=>onlyPeer==null||p.Id==onlyPeer))
         {
             string id=dragId??Guid.NewGuid().ToString("N");
+            try
+            {
             await service.SendBulk(peer.Id,new(){Type="file-begin",Id=id,Flags=dragId==null?0:1,Files=items.Select(i=>i.Entry).ToArray()},token);
             foreach(var item in items.Where(i=>!i.Entry.Directory))
             {
@@ -121,6 +123,8 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 await service.SendBulk(peer.Id,new(){Type="file-close",Id=id,Data=hash.GetHashAndReset()},token);
             }
             await service.SendBulk(peer.Id,new(){Type="file-done",Id=id},token);
+            }
+            catch{service.Send(peer.Id,new(){Type="file-abort",Id=id});throw;}
         }
         }
         finally{sendGate.Release();}
@@ -138,7 +142,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             try{incoming.Writer.WriteAsync((peer,message),stop.Token).AsTask().GetAwaiter().GetResult();}catch(OperationCanceledException){}
         }
     }
-    void OnDisconnected(string peer){try{incoming.Writer.TryWrite((peer,new(){Type="file-peer-disconnect"}));}catch{}}
+    async void OnDisconnected(string peer){try{await incoming.Writer.WriteAsync((peer,new(){Type="file-peer-disconnect"}),stop.Token);}catch(OperationCanceledException){}catch(ChannelClosedException){}}
     internal static void ValidateManifest(KvmFileEntry[] entries)
     {
         if(entries.Length is <1 or >10000)throw new IOException("Invalid clipboard manifest.");

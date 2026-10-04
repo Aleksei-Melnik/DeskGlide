@@ -6,7 +6,7 @@ namespace SdrCapture;
 // Only this application's marked cache directories expire. Explorer copies are outside this root.
 static class KvmFileCache
 {
-    public static void Mark(string root,string folder){Directory.CreateDirectory(root+".leases");File.WriteAllText(Path.Combine(root+".leases",Path.GetFileName(folder)+".json"),JsonSerializer.Serialize(DateTimeOffset.UtcNow));}
+    public static void Mark(string root,string folder){Directory.CreateDirectory(root+".leases");string path=Path.Combine(root+".leases",Path.GetFileName(folder)+".json");File.WriteAllText(path+".tmp",JsonSerializer.Serialize(DateTimeOffset.UtcNow));File.Move(path+".tmp",path,true);}
     public static void Clean(string root,TimeSpan age,ISet<string>? pinned=null)
     {
         string leases=root+".leases";if(!Directory.Exists(leases))return;
