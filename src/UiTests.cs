@@ -10,6 +10,7 @@ static class UiTests
     public static void Run()
     {
         Application.EnableVisualStyles();
+        long settingsOpenMs=SettingsLoading();
         string folder=Path.Combine(AppContext.BaseDirectory,"ui-preview");Directory.CreateDirectory(folder);
         foreach(string role in new[]{"Off","Host","Client"})
         {
@@ -67,7 +68,42 @@ static class UiTests
         }
         using(var window=new Form{Opacity=0,ShowInTaskbar=false})
         {window.Show();window.Hide();WindowActivation.Show(window);Require(window.Visible,"Hidden window not shown");window.WindowState=FormWindowState.Minimized;WindowActivation.Show(window);Require(window.WindowState!=FormWindowState.Minimized,"Minimized window not restored");window.Location=new(-90000,-90000);WindowActivation.Show(window);Require(Screen.AllScreens.Any(s=>s.WorkingArea.IntersectsWith(window.Bounds)),"Offscreen window not recovered");window.Close();}
-        Program.Write("ui-tests.json",new{Pass=true,RolesRendered=3,VisiblePeerCards=true,FixedWindows=true,RemoteOnlyLayoutRoundtrip=true,ViewerKeyboardFocus=true,KeyReleasesPreserved=true,FullscreenRepeatGuard=true,WindowRestored=true});
+        Program.Write("ui-tests.json",new{Pass=true,RolesRendered=3,VisiblePeerCards=true,FixedWindows=true,RemoteOnlyLayoutRoundtrip=true,ViewerKeyboardFocus=true,KeyReleasesPreserved=true,FullscreenRepeatGuard=true,WindowRestored=true,SettingsOpenMs=settingsOpenMs,SettingsResponsiveDuringDiscovery=true,SettingsSelectionPreserved=true,SettingsCloseDuringDiscovery=true});
+    }
+    static long SettingsLoading()
+    {
+        var pending=new TaskCompletionSource<DiscordDevices.Endpoint[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settings=new Settings{NdiAudioDevice="ndi",Replay=new(){GameAudio="game",Microphone="mic",ExtraAudio="extra"},Discord=new(){AudioDevice="cable",CaptureDevice="input"}};
+        int loads=0,diagnostics=0;
+        var watch=System.Diagnostics.Stopwatch.StartNew();
+        using var form=new AppSettingsForm(settings,diagnostics:()=>{diagnostics++;return "OK";},discoverAudio:()=>{loads++;return pending.Task;}){Opacity=0,ShowInTaskbar=false};
+        Require(loads==0&&diagnostics==0,"Settings constructor waits for device discovery/diagnostics");
+        WindowActivation.Show(form);
+        long opened=watch.ElapsedMilliseconds;
+        bool dispatched=false;form.BeginInvoke(()=>dispatched=true);Application.DoEvents();
+        Require(form.Visible&&dispatched&&!pending.Task.IsCompleted&&loads==1,"Settings UI blocked by unfinished audio discovery");
+        var read=typeof(AppSettingsForm).GetMethod("ReadSettings",BindingFlags.Instance|BindingFlags.NonPublic)!;
+        var before=(Settings)read.Invoke(form,null)!;
+        Require(before.NdiAudioDevice=="ndi"&&before.Replay.GameAudio=="game"&&before.Replay.Microphone=="mic"&&before.Replay.ExtraAudio=="extra"&&before.Discord.AudioDevice=="cable"&&before.Discord.CaptureDevice=="input","Save while loading lost configured devices");
+        var game=(ComboBox)typeof(AppSettingsForm).GetField("game",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(form)!;
+        game.SelectedIndex=0; // User selects Silent before the driver's response.
+        for(int i=0;i<3;i++)WindowActivation.Show(form);
+        Require(loads==1,"Repeated activation restarted discovery");
+        pending.SetResult([new("game",NAudio.CoreAudioApi.DataFlow.Render,"Game speakers","Speakers"),new("mic",NAudio.CoreAudioApi.DataFlow.Capture,"Microphone","Mic")]);
+        var status=(Label)typeof(AppSettingsForm).GetField("deviceStatus",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(form)!;
+        watch.Restart();while(status.Text!="Аудиоустройства обновлены."&&watch.ElapsedMilliseconds<3000){Application.DoEvents();Thread.Sleep(5);}
+        Require(status.Text=="Аудиоустройства обновлены.","Audio discovery did not complete");
+        var after=(Settings)read.Invoke(form,null)!;
+        Require(after.Replay.GameAudio==""&&after.Replay.Microphone=="mic"&&after.NdiAudioDevice=="ndi"&&after.Discord.CaptureDevice=="input","Background refresh changed user edits or missing device selection");
+        form.Close();
+        var late=new TaskCompletionSource<DiscordDevices.Endpoint[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using(var closed=new AppSettingsForm(settings,discoverAudio:()=>late.Task){Opacity=0,ShowInTaskbar=false})
+        {closed.Show();Application.DoEvents();closed.Close();}
+        late.SetResult([]);Application.DoEvents();
+        using var failed=new AppSettingsForm(settings,discoverAudio:()=>Task.FromException<DiscordDevices.Endpoint[]>(new IOException("Simulated driver failure"))){Opacity=0,ShowInTaskbar=false};
+        failed.Show();Application.DoEvents();
+        Require(failed.Visible&&((Settings)read.Invoke(failed,null)!).NdiAudioDevice=="ndi","Driver failure closed settings or reset the saved device");
+        failed.Close();return opened;
     }
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
 }

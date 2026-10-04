@@ -34,8 +34,9 @@ partial class AppSettingsForm:Form
     public Settings ResultSettings {get;private set;}
     public ConfigurationProfile? ImportedProfile {get;private set;}
     public bool StartWithWindows=>startup.Checked;
-    public AppSettingsForm(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action<KvmPeerInfo>? view=null,Action? openUpdates=null,int startPage=0)
+    public AppSettingsForm(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action<KvmPeerInfo>? view=null,Action? openUpdates=null,int startPage=0,Func<Task<DiscordDevices.Endpoint[]>>? discoverAudio=null)
     {
+        loadAudio=discoverAudio??SettingsAudioDiscovery.Load;
         initial=value.Copy();ResultSettings=value.Copy();this.service=service;
         kvmOpen=new(value.Kvm.OpenHotkeyModifiers,value.Kvm.OpenHotkeyKey);kvmToggle=new(value.Kvm.ToggleHotkeyModifiers,value.Kvm.ToggleHotkeyKey);
         Text=$"ScreenCapture {Updates.VersionText} · Настройки";Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(1020,760);MinimumSize=new(940,700);Font=new Font("Segoe UI",10);StartPosition=FormStartPosition.CenterScreen;AutoScaleMode=AutoScaleMode.Dpi;BackColor=Color.White;
@@ -56,7 +57,7 @@ partial class AppSettingsForm:Form
 
         var general=Page("Передача экрана","Из HDR и SDR — всегда SDR");
         ndi.Checked=value.SendOnLaunch;Row(general,"NDI → OBS / Discord",ndi);
-        try{foreach(var d in DisplayInfo.All())display.Items.Add(new DisplayChoice(d.Device,$"{d.Device} · {d.Width} × {d.Height}"));}catch{}
+        foreach(var d in Screen.AllScreens)display.Items.Add(new DisplayChoice(d.DeviceName,$"{d.DeviceName} · {d.Bounds.Width} × {d.Bounds.Height}"));
         if(!display.Items.Cast<DisplayChoice>().Any(d=>d.Id==value.Device))display.Items.Add(new DisplayChoice(value.Device,value.Device+" (недоступен)"));
         display.SelectedItem=display.Items.Cast<DisplayChoice>().First(d=>d.Id==value.Device);Row(general,"Монитор",display);
         cursor.Checked=value.CaptureCursor;Row(general,"Курсор",cursor);
@@ -64,6 +65,8 @@ partial class AppSettingsForm:Form
         preventSleep.Checked=value.PreventIdleSleep;Row(general,"При бездействии",preventSleep);
         help.SetToolTip(preventSleep,"Работает, пока ScreenCapture запущен, даже при выключенных NDI и записи. После отключения опции или выхода снова действуют таймеры Windows. Ручной сон остаётся доступен.");
         PopulateAudio(ndiAudio,value.NdiAudioDevice);Row(general,"Звук NDI / Discord",ndiAudio);
+        var refreshDevices=new Button{Text="Обновить устройства",AutoSize=true};refreshDevices.Click+=async(_,_)=>await RefreshAudioDevices();
+        Row(general,"",deviceStatus,52);Row(general,"",refreshDevices);
         ndiVolume.Value=Math.Clamp(value.NdiAudioVolume,0,100);
         var volumeLabel=new Label{Text=ndiVolume.Value+"%",AutoSize=true,Dock=DockStyle.Right,TextAlign=ContentAlignment.MiddleCenter};
         var volumePanel=new Panel();ndiVolume.Dock=DockStyle.Fill;volumePanel.Controls.Add(ndiVolume);volumePanel.Controls.Add(volumeLabel);
@@ -144,9 +147,20 @@ partial class AppSettingsForm:Form
         updateButton.Click+=(_,_)=>{if(openUpdates!=null){Close();openUpdates();}};updateButton.Enabled=openUpdates!=null;Row(updates,"",updateButton);
         Note(updates,"Обновление всех подключённых ПК запускается с управляющего ПК KVM. Пакеты проверяются по цифровой подписи. Перед перезапуском сохраняется текущий повтор; настройки и код сопряжения остаются. Старые сборки до 0.6 необходимо обновить вручную один раз.");
         var statePage=Page("Состояние","Захват, запись и подключения");
-        var state=new TextBox{Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,Font=new Font("Consolas",10),BackColor=Color.White,Text=diagnostics?.Invoke()??"Предпросмотр настроек"};
+        var state=new TextBox{Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,Font=new Font("Consolas",10),BackColor=Color.White,Text="Нажмите «Обновить» для диагностики."};
         statePage.Controls.Add(state,0,statePage.RowCount);statePage.SetColumnSpan(state,2);statePage.RowStyles.Add(new(SizeType.Absolute,390));statePage.RowCount++;
-        var refresh=new Button{Text="Обновить",AutoSize=true};refresh.Click+=(_,_)=>state.Text=diagnostics?.Invoke()??"";Row(statePage,"",refresh);
+        var refresh=new Button{Text="Обновить",AutoSize=true};
+        async Task RefreshState()
+        {
+            if(!refresh.Enabled||diagnostics==null)return;
+            refresh.Enabled=false;
+            try{var text=await Task.Run(diagnostics).WaitAsync(TimeSpan.FromSeconds(5),deviceLifetime.Token);if(!IsDisposed)state.Text=text;}
+            catch(OperationCanceledException){}
+            catch(Exception e){if(!IsDisposed)state.Text="Диагностика недоступна: "+e.Message;}
+            finally{if(!IsDisposed)refresh.Enabled=true;}
+        }
+        refresh.Click+=async(_,_)=>await RefreshState();Row(statePage,"",refresh);
+        navigation.SelectedIndexChanged+=async(_,_)=>{if(navigation.SelectedIndex==6&&Visible)await RefreshState();};
         var logs=new Button{Text="Открыть журнал",AutoSize=true};logs.Click+=(_,_)=>Process.Start(new ProcessStartInfo(Log.Folder){UseShellExecute=true});Row(statePage,"",logs);
         var pending=new Button{Text="Повторы, ожидающие копирования",AutoSize=true};pending.Click+=(_,_)=>{string path=Path.Combine(ReplayTools.Root,"saved");Directory.CreateDirectory(path);Process.Start(new ProcessStartInfo(path){UseShellExecute=true});};Row(statePage,"",pending);
         var profilePage=Page("Мой профиль","Настройки после переустановки Windows");
@@ -159,6 +173,9 @@ partial class AppSettingsForm:Form
         foreach(var page in pages.Cast<TableLayoutPanel>()){page.RowCount++;page.RowStyles.Add(new(SizeType.Percent,100));}
         navigation.SelectedIndex=Math.Clamp(startPage,0,pages.Count-1);
         save.Click+=(_,_)=>Save();
+        Shown+=async(_,_)=>{await RefreshAudioDevices();};
+        Shown+=async(_,_)=>{if(navigation.SelectedIndex==6)await RefreshState();};
+        Disposed+=(_,_)=>{if(devicesDisposed)return;devicesDisposed=true;deviceLifetime.Cancel();deviceLifetime.Dispose();};
     }
     static ComboBox Choice()=>new(){DropDownStyle=ComboBoxStyle.DropDownList,IntegralHeight=false,DropDownHeight=280};
     public void RenderPreviews(string folder)
@@ -202,9 +219,9 @@ partial class AppSettingsForm:Form
     }
     void PopulateAudio(ComboBox box,string id,bool includeRemote=false)
     {
-        List<AudioChoice> devices;try{devices=AudioChoice.All();}catch{devices=[new("","Silent — без звука")];}
+        var devices=DefaultAudioChoices();
         if(includeRemote)foreach(var peer in service?.Peers??[])devices.Add(new("kvm:"+peer.Id,peer.Name+" · звук по KVM"));
-        if(!devices.Any(d=>d.Id==id))devices.Add(new(id,id.StartsWith("kvm:")?"KVM · ранее выбранный ПК (не подключён)":"Недоступное устройство"));
+        if(!devices.Any(d=>d.Id==id))devices.Add(new(id,"Сохранённое устройство · загружается…"));
         box.Items.AddRange(devices.ToArray());box.SelectedItem=devices.First(d=>d.Id==id);
     }
     Settings ReadSettings()

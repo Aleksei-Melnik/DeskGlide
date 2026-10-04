@@ -20,18 +20,11 @@ partial class AppSettingsForm
         var volumeRow=new TableLayoutPanel{ColumnCount=2};volumeRow.ColumnStyles.Add(new(SizeType.Percent,100));volumeRow.ColumnStyles.Add(new(SizeType.Absolute,50));
         var percent=new Label{Text=discordVolume.Value+"%",AutoSize=true,Anchor=AnchorStyles.Right};discordVolume.Dock=DockStyle.Fill;volumeRow.Controls.Add(discordVolume);volumeRow.Controls.Add(percent);discordVolume.ValueChanged+=(_,_)=>percent.Text=discordVolume.Value+"%";Row(page,"Громкость передачи",volumeRow,46);
         var hint=Note(page,"");
-        void RefreshAudio()
-        {
-            string output=(discordOutput.SelectedItem as AudioChoice)?.Id??value.Discord.AudioDevice,input=(discordInput.SelectedItem as AudioChoice)?.Id??value.Discord.CaptureDevice;
-            var outputs=DiscordSetup.Outputs();if(!outputs.Any(x=>x.Id==output))outputs.Add(new(output,"Выбранный выход недоступен"));discordOutput.Items.Clear();discordOutput.Items.AddRange(outputs.ToArray());discordOutput.SelectedItem=outputs.First(x=>x.Id==output);
-            var inputs=DiscordDevices.Endpoints().Where(e=>e.Flow==DataFlow.Capture).Select(e=>new AudioChoice(e.Id,e.Name)).Prepend(new AudioChoice("","Выберите вход для Discord…")).ToList();
-            if(input.Length==0&&output.Length>0)try{input=DiscordDevices.Pair(output,DiscordDevices.Endpoints()).Capture.Id;}catch(IOException){}
-            if(!inputs.Any(x=>x.Id==input))inputs.Add(new(input,"Выбранный вход недоступен"));discordInput.Items.Clear();discordInput.Items.AddRange(inputs.ToArray());discordInput.SelectedItem=inputs.First(x=>x.Id==input);
-        }
-        RefreshAudio();
-        discordOutput.SelectedIndexChanged+=(_,_)=>{if(discordMode.SelectedIndex==0&&discordOutput.SelectedItem is AudioChoice output)try{string input=DiscordDevices.Pair(output.Id,DiscordDevices.Endpoints()).Capture.Id;discordInput.SelectedItem=discordInput.Items.Cast<AudioChoice>().FirstOrDefault(x=>x.Id==input);}catch(IOException){}};
+        ReplaceChoices(discordOutput,[new("","Silent — без звука")],value.Discord.AudioDevice,"Сохранённый выход · загружается…");
+        ReplaceChoices(discordInput,[new("","Выберите вход для Discord…")],value.Discord.CaptureDevice,"Сохранённый вход · загружается…");
+        discordOutput.SelectedIndexChanged+=(_,_)=>{if(!updatingAudioChoices&&discordMode.SelectedIndex==0&&discordOutput.SelectedItem is AudioChoice output)try{string input=DiscordDevices.Pair(output.Id,audioEndpoints).Capture.Id;discordInput.SelectedItem=discordInput.Items.Cast<AudioChoice>().FirstOrDefault(x=>x.Id==input);}catch(IOException){}};
         var pair=new Button{Text="Настроить устройства…",AutoSize=true,Height=34};
-        var refreshAudio=new Button{Text="Обновить список",AutoSize=true,Height=34};refreshAudio.Click+=(_,_)=>{try{RefreshAudio();}catch(Exception e){MessageBox.Show(this,e.Message,"Звук");}};
+        var refreshAudio=new Button{Text="Обновить список",AutoSize=true,Height=34};refreshAudio.Click+=async(_,_)=>{refreshAudio.Enabled=false;try{await RefreshAudioDevices();}finally{if(!IsDisposed)refreshAudio.Enabled=role.SelectedIndex!=1;}};
         var actions=new FlowLayoutPanel{WrapContents=false};actions.Controls.AddRange([pair,refreshAudio]);Row(page,"Подготовка Discord",actions,46);
         pair.Click+=async(_,_)=>
         {
@@ -41,7 +34,8 @@ partial class AppSettingsForm
             {
                 CameraInstallation.Install(receiverRole,name);
                 if(discordMode.SelectedIndex!=2&&input.Length>0)await DiscordDevices.PairInput(receiverRole,input,name);
-                if(!IsDisposed){RefreshAudio();MessageBox.Show(this,"Камера готова. Полностью закройте Discord через значок в трее и откройте снова.\n\nВыберите нашу камеру во вкладке «Устройства» и 60 FPS. Если Discord запомнил другой звук, выберите указанный аудиовход вручную.\n\nУстройства Windows по умолчанию не менялись.","Discord");}
+                await RefreshAudioDevices();
+                if(!IsDisposed){MessageBox.Show(this,"Камера готова. Полностью закройте Discord через значок в трее и откройте снова.\n\nВыберите нашу камеру во вкладке «Устройства» и 60 FPS. Если Discord запомнил другой звук, выберите указанный аудиовход вручную.\n\nУстройства Windows по умолчанию не менялись.","Discord");}
             }
             catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Настройка устройств");}
             finally{if(!IsDisposed)pair.Enabled=role.SelectedIndex!=1;}
@@ -52,7 +46,7 @@ partial class AppSettingsForm
             if(role.SelectedIndex==1)return;
             if(MessageBox.Show(this,"Установить подписанный драйвер VB-CABLE на этом ПК?\n\nWindows запросит права администратора. В установщике нажмите Install Driver. Может потребоваться перезагрузка. Прежние устройства по умолчанию будут восстановлены.\n\nVB-CABLE — donationware VB-Audio.","Звук для Discord",MessageBoxButtons.OKCancel,MessageBoxIcon.Information)!=DialogResult.OK)return;
             installAudio.Enabled=false;
-            try{await DiscordSetup.InstallCable("Client");if(!IsDisposed){RefreshAudio();var cable=DiscordDevices.Endpoints().FirstOrDefault(e=>e.Flow==DataFlow.Render&&DiscordDevices.IsCable(e));if(cable!=null)discordOutput.SelectedItem=discordOutput.Items.Cast<AudioChoice>().FirstOrDefault(c=>c.Id==cable.Id);MessageBox.Show(this,"Драйвер установлен. При необходимости перезагрузите ПК, затем нажмите «Настроить устройства» и «Сохранить».","VB-CABLE");}}
+            try{await DiscordSetup.InstallCable("Client");await RefreshAudioDevices();if(!IsDisposed){var cable=audioEndpoints.FirstOrDefault(e=>e.Flow==DataFlow.Render&&DiscordDevices.IsCable(e));if(cable!=null)discordOutput.SelectedItem=discordOutput.Items.Cast<AudioChoice>().FirstOrDefault(c=>c.Id==cable.Id);MessageBox.Show(this,"Драйвер установлен. При необходимости перезагрузите ПК, затем нажмите «Настроить устройства» и «Сохранить».","VB-CABLE");}}
             catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Установка кабеля");}finally{if(!IsDisposed)installAudio.Enabled=role.SelectedIndex!=1;}
         };
         var installerRow=new FlowLayoutPanel{WrapContents=false};installerRow.Controls.Add(installAudio);installerRow.Controls.Add(UiStyle.Button("Условия VB-Audio",()=>Process.Start(new ProcessStartInfo("https://vb-audio.com/Services/licensing.htm"){UseShellExecute=true})));Row(page,"Если нет кабеля",installerRow,46);

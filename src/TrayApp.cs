@@ -45,6 +45,7 @@ sealed class TrayApp:ApplicationContext
     readonly UpdateCoordinator updater;
     UpdatesForm? updatesForm;
     KvmHub? kvmHub;
+    bool settingsOpenQueued;
     readonly Dictionary<string,KvmViewer> viewers=[];
     readonly EventWaitHandle kvmEvent=new(false,EventResetMode.AutoReset,"Local\\SdrCapture.OpenKvm");
     readonly RegisteredWaitHandle kvmWait;
@@ -119,14 +120,27 @@ sealed class TrayApp:ApplicationContext
         items.Add("Открыть записи",null,async(_,_)=>{string folder=settings.Replay.Folder;try{await Task.Run(()=>Directory.CreateDirectory(folder));Process.Start(new ProcessStartInfo(folder){UseShellExecute=true});}catch(Exception e){notifications.Enqueue("Не удалось открыть папку записей: "+e.Message);}});
         items.Add(new ToolStripSeparator());items.Add("Выход",null,(_,_)=>ExitThread());
     }
-    void OpenSettings(int page=0)=>Guard(()=>
+    void OpenSettings(int page=0)
     {
+        if(closing||settingsOpenQueued)return;
+        settingsOpenQueued=true;
+        // Let the tray popup finish closing before showing/activating a top-level window.
+        dispatcher.BeginInvoke(()=>
+        {
+            try{if(!closing)ShowSettings(page);}
+            finally{settingsOpenQueued=false;}
+        });
+    }
+    void ShowSettings(int page)=>Guard(()=>
+    {
+        var opening=Stopwatch.StartNew();
         controller?.ReturnLocal();
         var existing=Application.OpenForms.OfType<AppSettingsForm>().FirstOrDefault();
         if(existing!=null){WindowActivation.Show(existing);return;}
         var form=new AppSettingsForm(settings,kvm,IsAutorun(),Diagnostics,OpenViewer,OpenUpdates,page);
         form.FormClosed+=(_,_)=>{try{if(form.DialogResult==DialogResult.OK)Guard(()=>ApplySettings(form));}finally{form.Dispose();}};
         WindowActivation.Show(form);
+        Log.Write($"Settings window shown in {opening.ElapsedMilliseconds} ms");
     });
     void ApplySettings(AppSettingsForm form)
     {

@@ -3,7 +3,7 @@
     <AssemblyName>ScreenCapture</AssemblyName><RootNamespace>SdrCapture</RootNamespace><PathMap>$(MSBuildProjectDirectory)=/_/ScreenCapture/src</PathMap><RepositoryUrl>https://github.com/Aleksei-Melnik/ScreenCapture</RepositoryUrl><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><PlatformTarget>x64</PlatformTarget>
-    <Version>0.7.3</Version><AssemblyVersion>0.7.3.0</AssemblyVersion><FileVersion>0.7.3.0</FileVersion>
+    <Version>0.7.4</Version><AssemblyVersion>0.7.4.0</AssemblyVersion><FileVersion>0.7.4.0</FileVersion>
     <ApplicationIcon>Assets\SdrCapture.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><PackageReference Include="Vortice.Direct3D11" Version="3.8.3" /><PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" /></ItemGroup>

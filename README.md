@@ -26,6 +26,11 @@ existing shortcuts, Stream Deck commands and firewall rules; both launchers run
 the same ScreenCapture application. Existing settings stay in
 `%LOCALAPPDATA%\SdrCapture`, and the NDI source name remains `SdrCapture SDR`.
 
+Settings opens before audio-device discovery finishes. Saved devices remain selected
+while loading, including temporarily unavailable devices. Use **Обновить устройства**
+on the screen-transmission page (or **Обновить список** on the Discord page) to retry
+if a driver does not respond. A refresh preserves edits made while it was loading.
+
 ## NDI and Discord
 
 Enable NDI in the tray. In OBS/DistroAV select `PC-NAME (SdrCapture SDR)`, BT.709,
