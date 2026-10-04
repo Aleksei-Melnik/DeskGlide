@@ -13,6 +13,7 @@ partial class AppSettingsForm:Form
     readonly string[] subtitles=["OBS и Discord","Сохранить последние минуты","Игра, микрофон, второй ПК","Сопряжение компьютеров","Расположение и переходы","Все подключённые ПК","Диагностика и журнал","Резервная копия этого ПК","Своя камера · 1080p60"];
     readonly List<Control> pages=[];
     readonly CheckBox ndi=new(){Text="Передавать SDR-картинку по NDI"},cursor=new(){Text="Показывать курсор"},replay=new(){Text="Записывать последние минуты в фоне"},startup=new(){Text="Запускать вместе с Windows"};
+    readonly CheckBox preventSleep=new(){Text="Не усыплять ПК и не выключать экран"};
     readonly ComboBox ndiAudio=Choice(),display=Choice(),quality=Choice(),codec=Choice(),fps=Choice(),resolution=Choice(),audioMode=Choice(),mic=Choice(),game=Choice(),extra=Choice(),role=Choice(),remoteAudio=Choice();
     readonly TrackBar ndiVolume=new(){Minimum=0,Maximum=100,TickFrequency=10,SmallChange=1,LargeChange=10};
     readonly CheckBox checkUpdates=new(){Text="Проверять новые версии при запуске"},remoteUpdates=new(){Text="Разрешить обновление с сопряжённого управляющего ПК"};
@@ -60,6 +61,8 @@ partial class AppSettingsForm:Form
         display.SelectedItem=display.Items.Cast<DisplayChoice>().First(d=>d.Id==value.Device);Row(general,"Монитор",display);
         cursor.Checked=value.CaptureCursor;Row(general,"Курсор",cursor);
         startup.Checked=autorun;Row(general,"Запуск",startup);
+        preventSleep.Checked=value.PreventIdleSleep;Row(general,"При бездействии",preventSleep);
+        help.SetToolTip(preventSleep,"Работает, пока ScreenCapture запущен, даже при выключенных NDI и записи. После отключения опции или выхода снова действуют таймеры Windows. Ручной сон остаётся доступен.");
         PopulateAudio(ndiAudio,value.NdiAudioDevice);Row(general,"Звук NDI / Discord",ndiAudio);
         ndiVolume.Value=Math.Clamp(value.NdiAudioVolume,0,100);
         var volumeLabel=new Label{Text=ndiVolume.Value+"%",AutoSize=true,Dock=DockStyle.Right,TextAlign=ContentAlignment.MiddleCenter};
@@ -208,6 +211,7 @@ partial class AppSettingsForm:Form
     {
             var size=resolution.SelectedIndex switch{1=>(1920,1080),2=>(2560,1440),3=>(3840,2160),_=>(0,0)};
             var result=initial.Copy();
+            result.PreventIdleSleep=preventSleep.Checked;
             result.NdiAudioVolume=ndiVolume.Value;result.Updates=new(){CheckOnStartup=checkUpdates.Checked,AllowFromHost=remoteUpdates.Checked};result.NdiAudioDevice=((AudioChoice)ndiAudio.SelectedItem!).Id;result.SendOnLaunch=ndi.Checked;result.CaptureCursor=cursor.Checked;result.Device=((DisplayChoice)display.SelectedItem!).Id;
             result.Replay=initial.Replay with{Enabled=replay.Checked,Minutes=(int)minutes.Value,Codec=(string)codec.SelectedItem!,Quality=(string)quality.SelectedItem!,Fps=fps.SelectedIndex==1?120:60,Width=size.Item1,Height=size.Item2,Folder=folder.Text.Trim(),GroupByApp=true,Silent=false,AudioMode=audioMode.SelectedIndex switch{1=>"Separate",2=>"Silent",_=>"Mixed"},Microphone=((AudioChoice)mic.SelectedItem!).Id,GameAudio=((AudioChoice)game.SelectedItem!).Id,ExtraAudio=((AudioChoice)extra.SelectedItem!).Id,HotkeyModifiers=(uint)((ctrl.Checked?2:0)|(alt.Checked?1:0)|(shift.Checked?4:0)),HotkeyKey=(uint)Enum.Parse<Keys>((string)hotkey.SelectedItem!)};
             if(result.Replay.HotkeyModifiers==0)throw new ArgumentException("Для сохранения повтора выберите Ctrl, Alt или Shift.");

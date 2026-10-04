@@ -79,6 +79,12 @@ No cable or camera is installed automatically, through updates or through KVM
 pairing. Installation is blocked on the controlling/gaming PC. Camera binaries
 are kept in a versioned user directory so a running Discord cannot block updates.
 
+Settings → **Передача экрана → При бездействии** includes **Не усыплять ПК и не
+выключать экран**, enabled by default (including after upgrade). While the app
+is running it requests that Windows keep the system and display awake, even
+with NDI/replay disabled. Disabling the option or exiting releases the request;
+Windows power-plan timers are never edited. Manual sleep remains available.
+
 ## Replay and paired PCs
 
 - Replay can be enabled independently of NDI. Duration: 5–20 minutes.

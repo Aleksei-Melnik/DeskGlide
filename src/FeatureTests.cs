@@ -9,6 +9,15 @@ static class FeatureTests
     static void Require(bool value,string message){if(!value)throw new Exception(message);}
     public static void Run()
     {
+        Require(JsonSerializer.Deserialize<Settings>("{}")!.PreventIdleSleep,"Existing settings did not enable idle-sleep protection by default");
+        var sleepSettings=new Settings{PreventIdleSleep=false};Require(!sleepSettings.Copy().PreventIdleSleep&&!JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(sleepSettings))!.PreventIdleSleep,"Explicit idle-sleep preference lost");
+        using(var awake=new KeepAwake())
+        {
+            awake.Set(true);Require((KeepAwake.Request(KeepAwake.Continuous|KeepAwake.System|KeepAwake.Display)&3)==3,"System/display power request not applied");
+            awake.Set(false);Require((KeepAwake.Request(KeepAwake.Continuous)&3)==0,"Power request not released");
+        }
+        using(var awake=new KeepAwake())awake.Set(true);
+        Require((KeepAwake.Request(KeepAwake.Continuous)&3)==0,"Disposing idle-sleep protection left a power request");
         DiscordDeviceTests.Rules();
         var buttons=new KvmMouseButtons();Require(buttons.Release().Length==0,"Idle release must not synthesize clicks");
         buttons.Track(8,0);buttons.Track(16,0);Require(buttons.Release().Length==0,"Released right button repeated");

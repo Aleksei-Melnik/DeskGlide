@@ -8,6 +8,7 @@ sealed class Settings
     public string Device {get;set;}="";
     public bool Compensate {get;set;}=true;
     public bool CaptureCursor {get;set;}=true;
+    public bool PreventIdleSleep {get;set;}=true;
     public int NdiAudioVolume {get;set;}=50;
     public UpdateOptions Updates {get;set;}=new();
     public string NdiAudioDevice {get;set;}="";
@@ -18,7 +19,7 @@ sealed class Settings
     public static string PathName=>Path.Combine(Log.Folder,"settings.json");
     public static Settings Load(){try{return JsonSerializer.Deserialize<Settings>(File.ReadAllText(PathName))??new();}catch{return new();}}
     public void Save(){Directory.CreateDirectory(Log.Folder);File.WriteAllText(PathName+".tmp",JsonSerializer.Serialize(this));File.Move(PathName+".tmp",PathName,true);}
-    public Settings Copy()=>new(){Device=Device,Compensate=Compensate,CaptureCursor=CaptureCursor,SendOnLaunch=SendOnLaunch,NdiAudioDevice=NdiAudioDevice,NdiAudioVolume=NdiAudioVolume,Updates=Updates with{},Replay=Replay with{},Kvm=Kvm.Copy(),Discord=Discord with{}};
+    public Settings Copy()=>new(){Device=Device,Compensate=Compensate,CaptureCursor=CaptureCursor,PreventIdleSleep=PreventIdleSleep,SendOnLaunch=SendOnLaunch,NdiAudioDevice=NdiAudioDevice,NdiAudioVolume=NdiAudioVolume,Updates=Updates with{},Replay=Replay with{},Kvm=Kvm.Copy(),Discord=Discord with{}};
     [System.Text.Json.Serialization.JsonIgnore] public CaptureOptions Options=>new(Device,Compensate,CaptureCursor);
 }
 sealed class TrayApp:ApplicationContext
@@ -27,6 +28,7 @@ sealed class TrayApp:ApplicationContext
     readonly Icon appIcon=LoadAppIcon();
     readonly System.Windows.Forms.Timer timer=new(){Interval=1000};
     readonly Settings settings=Settings.Load();
+    readonly KeepAwake keepAwake=new();
     readonly StreamEngine engine=new();
     readonly ReplayRecorder replay;
     readonly ReplayDelivery delivery=new();
@@ -62,6 +64,7 @@ sealed class TrayApp:ApplicationContext
         catch(Exception e){Log.Write("Initial display enumeration will be retried: "+e.Message);}
         if(string.IsNullOrEmpty(settings.Device)) settings.Device=@"\\.\DISPLAY1";
         settings.Save();
+        try{keepAwake.Set(settings.PreventIdleSleep);}catch(Exception e){Log.Write(e.ToString());notifications.Enqueue(e.Message);}
         replay=new ReplayRecorder(settings.Replay);
         engine.FrameAvailable=replay.Offer;engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;engine.ReplayEnabled=settings.Replay.Enabled;engine.ReplayFrameRate=settings.Replay.Fps;
         _=dispatcher.Handle;
@@ -137,6 +140,7 @@ sealed class TrayApp:ApplicationContext
             try{ConfigurationBackup.Restore(form.ImportedProfile,Log.Folder);}
             catch{hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey);throw;}
         }
+        keepAwake.Set(result.PreventIdleSleep);settings.PreventIdleSleep=result.PreventIdleSleep;
         settings.Device=result.Device;settings.Compensate=result.Compensate;settings.CaptureCursor=result.CaptureCursor;settings.SendOnLaunch=result.SendOnLaunch;settings.NdiAudioDevice=result.NdiAudioDevice;settings.NdiAudioVolume=result.NdiAudioVolume;settings.Updates=result.Updates;settings.Replay=result.Replay;settings.Kvm=result.Kvm;settings.Save();
         engine.Update(settings.Options);engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;engine.ReplayEnabled=settings.Replay.Enabled;engine.ReplayFrameRate=settings.Replay.Fps;replay.Update(settings.Replay);
         if(IsAutorun()!=form.StartWithWindows)
@@ -225,5 +229,5 @@ sealed class TrayApp:ApplicationContext
         try{string app=ReplayAppContext.Capture();notifications.Enqueue($"Сохраняю последние {settings.Replay.Minutes} мин…");var result=await replay.SaveAsync(app);delivery.Wake();}
         catch(Exception e){notifications.Enqueue("Повтор не сохранён: "+e.Message);}
     }
-    protected override void ExitThreadCore(){closing=true;timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();dispatcher.Dispose();tray.Visible=false;tray.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
+    protected override void ExitThreadCore(){closing=true;keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();dispatcher.Dispose();tray.Visible=false;tray.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
 }
