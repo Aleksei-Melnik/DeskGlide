@@ -72,6 +72,17 @@ static class KvmPairing
 
 static class KvmLayout
 {
+    public static (MonitorPlacement Target,Point Point)? EdgeCrossing(IEnumerable<MonitorPlacement> monitors,MonitorPlacement local,KvmScreen screen,Point point)
+    {
+        var logical=new Point(local.X+Math.Clamp(point.X-screen.X,0,local.Width-1),local.Y+Math.Clamp(point.Y-screen.Y,0,local.Height-1));
+        var candidates=new List<Point>();
+        if(point.X<=screen.X)candidates.Add(new(local.X-1,logical.Y));
+        else if(point.X>=screen.X+screen.Width-1)candidates.Add(new(local.X+local.Width,logical.Y));
+        if(point.Y<=screen.Y)candidates.Add(new(logical.X,local.Y-1));
+        else if(point.Y>=screen.Y+screen.Height-1)candidates.Add(new(logical.X,local.Y+local.Height));
+        foreach(var position in candidates){var target=At(monitors,position);if(target!=null&&target.Key!=local.Key)return(target,position);}
+        return null;
+    }
     public static List<MonitorPlacement> Merge(KvmOptions options,IEnumerable<KvmPeerInfo> peers)
     {
         var available=peers.ToArray();

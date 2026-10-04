@@ -1,6 +1,7 @@
 /*
 !/.gitignore
 !/src/
+!/native/
 !/scripts/
 !/licenses/
 !/.github/

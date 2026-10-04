@@ -37,9 +37,26 @@ Settings → NDI has an audio device selector and a **0–100% volume slider**.
 The default is 50%; 0% mutes outgoing NDI audio. This slider does not change
 the recording tracks or Windows device volume. Select Silent for no audio.
 
-For Discord without OBS, run NDI Webcam Input on the **receiving/streaming PC**,
-choose this NDI source, and select its virtual video and audio devices in Discord.
-ScreenCapture does not install a virtual camera or audio driver itself.
+For Discord without OBS or NDI Webcam Input, open **Discord · приём** on the
+**receiving/streaming PC**. Install **ScreenCapture Camera**, find/select the
+gaming PC's NDI source, enable reception and save. The native camera offers
+1920×1080 RGB video at 60 FPS. It is registered for the current Windows user;
+restart Discord after first installation. Select it under screen share → Devices
+and select 60 FPS in Discord. Discord's account, streaming settings and network
+can still limit the outgoing stream; the device cannot override those limits.
+
+For sound, use **Установить аудиокабель…** on that same receiving PC. This downloads
+the pinned, signed, original **VB-CABLE** package and opens its administrator
+installer. Click Install Driver and reboot if requested. Select **CABLE Input**
+in ScreenCapture and **CABLE Output (VB-Audio Virtual Cable)** in Discord's
+share-device audio selector. VB-CABLE is donationware by VB-Audio; licensing and
+donation links are in our settings. Existing cables are reused. ScreenCapture
+does not change the default Windows audio device; check it after driver setup.
+Audio can be Silent and has a separate receiver volume slider.
+
+No cable or camera is installed automatically, through updates or through KVM
+pairing. Installation is blocked on the controlling/gaming PC. Camera binaries
+are kept in a versioned user directory so a running Discord cannot block updates.
 
 ## Replay and paired PCs
 
@@ -66,6 +83,27 @@ Alternatively, enable **Режим сервера** on the controlled computer. 
 PC retains its saved monitor positions; disabling the option restores them.
 There is no timed cooldown when crossing monitor edges. Actual input latency
 still depends on Windows scheduling and the network.
+
+The viewer defaults to native-resolution PNG for sharp text, with selectable
+high-quality JPEG and bandwidth-saving 1080p. Large frames fall back to bounded
+JPEG rather than exceeding the transport's packet limit.
+
+Experimental file dragging **from the controlling PC to a controlled PC** needs
+0.7.0 on both ends and the KVM file-sharing option. Drag files/folders to a shared
+screen edge and keep the mouse button held while they transfer. Once ready, the
+cursor crosses and the files follow a normal COPY drag into Explorer/desktop or
+another drop-enabled app. Originals are never moved or deleted. Releasing early
+cancels the handoff; Escape/returning local cancels a remote drag. Large files must
+finish transferring first; this cannot be instantaneous. Temporary app-drop
+copies expire after four hours, while Explorer destination copies remain.
+Reverse drag handoff, virtual shell items and elevated drop targets are not
+supported in this version. Clipboard file copy remains available in both directions.
+
+**Мой профиль** exports an encrypted `.scprofile` for each PC, including pairing
+identity, monitor layout, devices, replay/NDI/Discord settings and autorun. Keep
+the password. Restore that PC's own profile after reinstalling Windows; retain
+the computer name and reselect audio endpoints if Windows changed their IDs.
+Virtual devices still need installation on a fresh receiving PC.
 
 KVM and remote audio need the program on both computers. Secure desktops/UAC,
 headless machines without a usable capture surface, elevated windows, games and
@@ -94,7 +132,8 @@ GitHub access requires an internet connection; no GitHub login is needed to upda
 
 ## Build and test
 
-Requires Windows x64, PowerShell 7 and .NET 10 SDK:
+Requires Windows x64, PowerShell 7, .NET 10 SDK and Visual Studio C++ desktop
+build tools / Windows SDK:
 
 ```powershell
 ./Build.ps1
@@ -102,11 +141,18 @@ Requires Windows x64, PowerShell 7 and .NET 10 SDK:
 ./app/ScreenCapture.exe --audio-timing-test
 ./app/ScreenCapture.exe --kvm-test
 ./app/ScreenCapture.exe --ui-tests
+./app/ScreenCapture.exe --feature-tests
+./scripts/Build-Camera.ps1 -Output ./app/camera -Probe
+./app/ScreenCapture.exe --camera-test
+./app/ScreenCapture.exe --camera-ndi-test
 ```
 
 Tests write JSON reports beside the executable. `--ndi-audio-test` also needs
 the NDI runtime and checks a synthetic signal at 100%, 50% and mute. Hardware
 capture/encoding tests require a real desktop and GPU and are not run in CI.
+The camera probe loads the filter directly without installing devices or drivers.
+It verifies real DirectShow samples, 1080p60 timestamps and changing image data.
+The NDI camera test uses a synthetic 2560×1440 source and also needs the NDI runtime.
 
 To package a release, set the version in `src/ScreenCapture.csproj` and run
 `scripts/New-Release.ps1 -SigningKey <private-key-outside-repo>`. Use

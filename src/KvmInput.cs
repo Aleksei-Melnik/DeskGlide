@@ -6,6 +6,7 @@ static class KvmInput
     internal static readonly UIntPtr Marker=new(0x5344524B);
     static readonly object gate=new();
     static readonly Dictionary<int,KvmMessage> keys=new();
+    static readonly KvmMouseButtons buttons=new();
     [StructLayout(LayoutKind.Sequential)] internal struct PointNative {public int X,Y;}
     [StructLayout(LayoutKind.Sequential)] struct MouseInput {public int X,Y;public uint Data,Flags,Time;public UIntPtr Extra;}
     [StructLayout(LayoutKind.Sequential)] struct KeyInput {public ushort Vk,Scan;public uint Flags,Time;public UIntPtr Extra;}
@@ -28,6 +29,7 @@ static class KvmInput
             {
                 const int allowed=0x2|0x4|0x8|0x10|0x20|0x40|0x80|0x100|0x800|0x1000;
                 if((message.Flags&~allowed)!=0)return;
+                if((message.Flags&(0x80|0x100))!=0&&message.Code is not (1 or 2))return;
                 var bounds=SystemInformation.VirtualScreen;
                 if(bounds.Width<2||bounds.Height<2)return;
                 var input=new Input{Type=0,Data=new(){Mouse=new()
@@ -36,7 +38,7 @@ static class KvmInput
                     Y=(int)((long)(Math.Clamp(message.Y,bounds.Top,bounds.Bottom-1)-bounds.Top)*65535/(bounds.Height-1)),
                     Data=unchecked((uint)message.Code),Flags=0x8000|0x4000|1|(uint)message.Flags,Extra=Marker
                 }}};
-                SendInput(1,[input],Marshal.SizeOf<Input>());
+                if(SendInput(1,[input],Marshal.SizeOf<Input>())==1)buttons.Track(message.Flags,message.Code);
             }
         }
     }
@@ -45,7 +47,7 @@ static class KvmInput
         lock(gate)
         {
             foreach(var key in keys.Values.ToArray())Inject(key with{Flags=key.Flags|2});keys.Clear();
-            foreach(var pair in new[]{(4,0),(16,0),(64,0),(256,1),(256,2)})
+            foreach(var pair in buttons.Release())
             {
                 var input=new Input{Data=new(){Mouse=new(){Flags=(uint)pair.Item1,Data=(uint)pair.Item2,Extra=Marker}}};
                 SendInput(1,[input],Marshal.SizeOf<Input>());
@@ -55,6 +57,23 @@ static class KvmInput
     [DllImport("user32.dll")] static extern uint SendInput(uint count,Input[] inputs,int size);
     [DllImport("user32.dll")] internal static extern bool SetCursorPos(int x,int y);
     [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int key);
+}
+
+// A synthetic right-button UP alone opens a context menu in some applications.
+// Keep only buttons pressed by this KVM session, never release every Windows button.
+sealed class KvmMouseButtons
+{
+    readonly HashSet<(int Up,int Code)> pressed=[];
+    public void Track(int flags,int code)
+    {
+        if((flags&0x1fe)==0)return;
+        foreach(var pair in new[]{(Down:2,Up:4,Code:0),(Down:8,Up:16,Code:0),(Down:32,Up:64,Code:0),(Down:128,Up:256,Code:code)})
+        {
+            if((flags&pair.Down)!=0)pressed.Add((pair.Up,pair.Code));
+            if((flags&pair.Up)!=0)pressed.Remove((pair.Up,pair.Code));
+        }
+    }
+    public (int Up,int Code)[] Release(){var result=pressed.ToArray();pressed.Clear();return result;}
 }
 
 sealed class KvmController:IDisposable
@@ -170,17 +189,13 @@ sealed class KvmController:IDisposable
             {
                 if(message==0x200&&Seamless&&!ViewerActive&&!(Down(1)||Down(2)||Down(4)))
                 {
-                    var screen=localScreens.FirstOrDefault(s=>s.Bounds.Contains(point));
+                    // Low-level hooks can see an unclamped position after a fast edge overshoot.
+                    var screen=localScreens.FirstOrDefault(s=>s.Bounds.Contains(point))??localScreens.FirstOrDefault(s=>s.Bounds.Contains(Cursor.Position));
                     var local=Monitors.FirstOrDefault(m=>m.Peer==options.Id&&m.Device==screen?.Device);
                     if(local!=null&&screen!=null)
                     {
-                        var logicalPoint=new Point(local.X+point.X-screen.Bounds.X,local.Y+point.Y-screen.Bounds.Y);
-                        if(point.X<=screen.Bounds.Left)logicalPoint.X=local.X-1;
-                        else if(point.X>=screen.Bounds.Right-1)logicalPoint.X=local.X+local.Width;
-                        if(point.Y<=screen.Bounds.Top)logicalPoint.Y=local.Y-1;
-                        else if(point.Y>=screen.Bounds.Bottom-1)logicalPoint.Y=local.Y+local.Height;
-                        var target=KvmLayout.At(Monitors,logicalPoint);
-                        if(target!=null&&target.Peer!=options.Id){Activate(target,logicalPoint);return (IntPtr)1;}
+                        var crossing=KvmLayout.EdgeCrossing(Monitors,local,screen,point);
+                        if(crossing is { } edge&&edge.Target.Peer!=options.Id){Activate(edge.Target,edge.Point);return (IntPtr)1;}
                     }
                 }
                 return CallNextHookEx(IntPtr.Zero,code,w,l);

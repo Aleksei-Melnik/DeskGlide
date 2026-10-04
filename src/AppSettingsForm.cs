@@ -10,7 +10,7 @@ class AppSettingsForm:Form
     readonly PageTransition transition=new();
     readonly ToolTip help=new(){AutoPopDelay=14000,InitialDelay=350,ReshowDelay=100};
     bool preview;
-    readonly string[] subtitles=["OBS и Discord","Сохранить последние минуты","Игра, микрофон, второй ПК","Сопряжение компьютеров","Расположение и переходы","Все подключённые ПК","Диагностика и журнал"];
+    readonly string[] subtitles=["OBS и Discord","Сохранить последние минуты","Игра, микрофон, второй ПК","Сопряжение компьютеров","Расположение и переходы","Все подключённые ПК","Диагностика и журнал","Резервная копия этого ПК","Своя камера · 1080p60"];
     readonly List<Control> pages=[];
     readonly CheckBox ndi=new(){Text="Передавать SDR-картинку по NDI"},cursor=new(){Text="Показывать курсор"},replay=new(){Text="Записывать последние минуты в фоне"},startup=new(){Text="Запускать вместе с Windows"};
     readonly ComboBox ndiAudio=Choice(),display=Choice(),quality=Choice(),codec=Choice(),fps=Choice(),resolution=Choice(),audioMode=Choice(),mic=Choice(),game=Choice(),extra=Choice(),role=Choice(),remoteAudio=Choice();
@@ -24,7 +24,11 @@ class AppSettingsForm:Form
     readonly CheckBox ctrl=new(){Text="Ctrl",AutoSize=true},alt=new(){Text="Alt",AutoSize=true},shift=new(){Text="Shift",AutoSize=true};
     readonly ComboBox hotkey=Choice();
     readonly MonitorLayoutEditor monitors;
+    readonly CheckBox discordEnabled=new(){Text="Принимать экран и звук для Discord"};
+    readonly ComboBox discordSource=new(){DropDownStyle=ComboBoxStyle.DropDown},discordOutput=Choice();
+    readonly TrackBar discordVolume=new(){Minimum=0,Maximum=100,TickFrequency=10};
     public Settings ResultSettings {get;private set;}
+    public ConfigurationProfile? ImportedProfile {get;private set;}
     public bool StartWithWindows=>startup.Checked;
     public AppSettingsForm(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action<KvmPeerInfo>? view=null,Action? openUpdates=null,int startPage=0)
     {
@@ -60,7 +64,7 @@ class AppSettingsForm:Form
         Note(general,"NDI High Bandwidth · исходное разрешение · 60 FPS · SDR BT.709. Выберите выход с игрой для звука в Discord; Silent выключает звук NDI независимо от записи.");
         var connectHelp=new FlowLayoutPanel{WrapContents=false};
         connectHelp.Controls.Add(UiStyle.Button("Подключение OBS",()=>MessageBox.Show(this,TrayApp.ConnectionText,"OBS / DistroAV")));
-        connectHelp.Controls.Add(UiStyle.Button("Подключение Discord",()=>MessageBox.Show(this,"На стрим-ПК откройте NDI Webcam Input → выберите «"+Environment.MachineName+" (SdrCapture SDR)».\nВ Discord выберите NDI Webcam Video 1 и NDI Audio / NDI Webcam Audio.\n\nМикрофон и звук стрим-ПК из записи сюда не подмешиваются. Доступные FPS зависят от виртуальной камеры и Discord.","Discord без OBS")));
+        connectHelp.Controls.Add(UiStyle.Button("Подключение Discord",()=>navigation.SelectedIndex=8));
         Row(general,"Инструкция",connectHelp,64);
 
         var recording=Page("Мгновенный повтор","Запись на видеокарте NVIDIA");
@@ -100,6 +104,7 @@ class AppSettingsForm:Form
         var network=Page("KVM / сеть","Клавиатура, мышь, буфер обмена и звук");
         Set(role,["Выключен","Управляющий ПК (клавиатура и мышь)","Управляемый ПК (стрим-ПК / сервер)"],value.Kvm.Role switch{"Host"=>"Управляющий ПК (клавиатура и мышь)","Client"=>"Управляемый ПК (стрим-ПК / сервер)",_=>"Выключен"});Row(network,"Роль этого ПК",role);
         var roleHelp=Note(network,"");
+        Note(network,"Перетаскивание файлов: с управляющего ПК к краю соседнего экрана, удерживая кнопку до завершения передачи. Затем бросьте файл в папку или приложение. Временный кэш — 4 часа, копии в папках сохраняются. Нужна версия 0.7.0 на обоих ПК.");
         var advancedNetwork=new CheckBox{Text="Дополнительные параметры сети"};Row(network,"",advancedNetwork);
         port.Value=value.Kvm.Port;Row(network,"Порт KVM",port);ShowRow(port,false);advancedNetwork.CheckedChanged+=(_,_)=>ShowRow(port,advancedNetwork.Checked);
         host.Text=value.Kvm.Host;Row(network,"Имя / IP управляющего ПК",host);
@@ -133,12 +138,44 @@ class AppSettingsForm:Form
         var refresh=new Button{Text="Обновить",AutoSize=true};refresh.Click+=(_,_)=>state.Text=diagnostics?.Invoke()??"";Row(statePage,"",refresh);
         var logs=new Button{Text="Открыть журнал",AutoSize=true};logs.Click+=(_,_)=>Process.Start(new ProcessStartInfo(Log.Folder){UseShellExecute=true});Row(statePage,"",logs);
         var pending=new Button{Text="Повторы, ожидающие копирования",AutoSize=true};pending.Click+=(_,_)=>{string path=Path.Combine(ReplayTools.Root,"saved");Directory.CreateDirectory(path);Process.Start(new ProcessStartInfo(path){UseShellExecute=true});};Row(statePage,"",pending);
+        var profilePage=Page("Мой профиль","Настройки после переустановки Windows");
+        Note(profilePage,"Сохраните отдельный файл для каждого ПК: экран, запись, звук, раскладка мониторов, горячие клавиши, автозапуск и сопряжение KVM. Ключи доступа защищены вашим паролем.");
+        Row(profilePage,"Экспорт",UiStyle.Button("Сохранить настройки в файл…",ExportProfile),56);
+        Row(profilePage,"Импорт",UiStyle.Button("Восстановить из файла…",ImportProfile),56);
+        Note(profilePage,"Восстанавливайте профиль на том же компьютере. После переустановки сохраните прежние имена ПК в Windows. Аудиоустройства и сетевые папки должны существовать; если их идентификаторы изменятся, выберите устройства заново.");
+        BuildDiscordPage(value);
         // Give spare vertical space to an empty row instead of stretching the final setting.
         foreach(var page in pages.Cast<TableLayoutPanel>()){page.RowCount++;page.RowStyles.Add(new(SizeType.Percent,100));}
         navigation.SelectedIndex=Math.Clamp(startPage,0,pages.Count-1);
         save.Click+=(_,_)=>Save();
     }
     static ComboBox Choice()=>new(){DropDownStyle=ComboBoxStyle.DropDownList,IntegralHeight=false,DropDownHeight=280};
+    void BuildDiscordPage(Settings value)
+    {
+        var page=Page("Discord · приём","ScreenCapture Camera · 1920 × 1080 · 60 FPS");
+        Note(page,"Настраивается на стрим-ПК, где открыт Discord. На игровом ПК включите передачу NDI и выберите звук игры. OBS и NDI Webcam Input для этого не нужны.");
+        discordEnabled.Checked=value.Discord.Enabled;Row(page,"Приём",discordEnabled);
+        discordSource.Text=value.Discord.Source;Row(page,"Источник игрового ПК",discordSource);
+        var refresh=UiStyle.Button("Найти источники",()=>{});
+        refresh.Click+=async(_,_)=>{refresh.Enabled=false;try{var sources=await Task.Run(NdiDiscovery.Sources);if(IsDisposed)return;string selected=discordSource.Text;discordSource.Items.Clear();discordSource.Items.AddRange(sources);discordSource.Text=selected;if(string.IsNullOrEmpty(selected)&&sources.Length==1)discordSource.Text=sources[0];}catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Поиск NDI");}finally{if(!IsDisposed)refresh.Enabled=true;}};
+        Row(page,"",refresh);
+        void RefreshOutputs(){string selected=(discordOutput.SelectedItem as AudioChoice)?.Id??value.Discord.AudioDevice;var choices=DiscordSetup.Outputs();if(!choices.Any(x=>x.Id==selected)&&!string.IsNullOrEmpty(selected))choices.Add(new(selected,"Сохранённый кабель недоступен"));discordOutput.Items.Clear();discordOutput.Items.AddRange(choices.ToArray());discordOutput.SelectedItem=choices.First(x=>x.Id==selected);}
+        RefreshOutputs();Row(page,"Звук → кабель",discordOutput);
+        discordVolume.Value=value.Discord.Volume;Row(page,"Громкость приёма",discordVolume,48);
+        var installCamera=UiStyle.Button(CameraInstallation.Installed?"Обновить камеру":"Установить камеру",()=>{try{CameraInstallation.Install(role.SelectedIndex==1?"Host":"Client");MessageBox.Show(this,"ScreenCapture Camera зарегистрирована. Если Discord был открыт, полностью перезапустите его.","Камера готова");}catch(Exception e){MessageBox.Show(this,e.Message,"Камера");}});
+        var installAudio=UiStyle.Button("Установить аудиокабель…",()=>{});
+        installAudio.Click+=async(_,_)=>
+        {
+            if(role.SelectedIndex==1)return;
+            if(MessageBox.Show(this,"Установить VB-CABLE на ЭТОМ принимающем ПК?\n\nОткроется подписанный установщик VB-Audio с запросом администратора. Нажмите Install Driver; может понадобиться перезагрузка.\n\nVB-CABLE — donationware VB-Audio (vb-cable.com). Условия и поддержка автора доступны по ссылке ниже.","Звук для Discord",MessageBoxButtons.OKCancel,MessageBoxIcon.Information)!=DialogResult.OK)return;
+            installAudio.Enabled=false;try{await DiscordSetup.InstallCable("Client");if(!IsDisposed){RefreshOutputs();var cable=discordOutput.Items.Cast<AudioChoice>().FirstOrDefault(x=>!string.IsNullOrEmpty(x.Id));if(cable!=null)discordOutput.SelectedItem=cable;MessageBox.Show(this,"Установщик завершён. Если кабель ещё не появился, перезагрузите Windows. В Discord выберите CABLE Output (VB-Audio Virtual Cable). Проверьте, что обычным выходом Windows остались ваши наушники/колонки.","VB-CABLE");}}catch(Exception e){if(!IsDisposed)MessageBox.Show(this,e.Message,"Установка аудиокабеля");}finally{if(!IsDisposed)installAudio.Enabled=role.SelectedIndex!=1;}
+        };
+        var installs=new FlowLayoutPanel{WrapContents=false};installs.Controls.AddRange([installCamera,installAudio]);Row(page,"Устройства на этом ПК",installs,52);
+        var links=new FlowLayoutPanel{WrapContents=false};links.Controls.Add(UiStyle.Button("VB-CABLE · условия / донат",()=>Process.Start(new ProcessStartInfo("https://vb-audio.com/Services/licensing.htm"){UseShellExecute=true})));links.Controls.Add(UiStyle.Button("Обновить звук",RefreshOutputs));Row(page,"",links,50);
+        Note(page,"Discord → Демонстрация экрана → Устройства → ScreenCapture Camera. Аудиоустройство: CABLE Output (VB-Audio Virtual Cable). Выберите 60 FPS в Discord. Камера выдаёт 60; частота трансляции зависит также от режима Discord и подключения. Кабель здесь выбран как CABLE Input — это вход в него со стороны программы.");
+        void RoleChanged(){bool receiver=role.SelectedIndex!=1;discordEnabled.Enabled=discordSource.Enabled=discordOutput.Enabled=discordVolume.Enabled=installCamera.Enabled=installAudio.Enabled=receiver;if(!receiver)discordEnabled.Checked=false;}
+        role.SelectedIndexChanged+=(_,_)=>RoleChanged();RoleChanged();
+    }
     public void RenderPreviews(string folder)
     {
         preview=true;transition.Finish();Directory.CreateDirectory(folder);Opacity=0;ShowInTaskbar=false;Show();Application.DoEvents();
@@ -185,10 +222,8 @@ class AppSettingsForm:Form
         if(!devices.Any(d=>d.Id==id))devices.Add(new(id,id.StartsWith("kvm:")?"KVM · ранее выбранный ПК (не подключён)":"Недоступное устройство"));
         box.Items.AddRange(devices.ToArray());box.SelectedItem=devices.First(d=>d.Id==id);
     }
-    void Save()
+    Settings ReadSettings()
     {
-        try
-        {
             var size=resolution.SelectedIndex switch{1=>(1920,1080),2=>(2560,1440),3=>(3840,2160),_=>(0,0)};
             var result=initial.Copy();
             result.NdiAudioVolume=ndiVolume.Value;result.Updates=new(){CheckOnStartup=checkUpdates.Checked,AllowFromHost=remoteUpdates.Checked};result.NdiAudioDevice=((AudioChoice)ndiAudio.SelectedItem!).Id;result.SendOnLaunch=ndi.Checked;result.CaptureCursor=cursor.Checked;result.Device=((DisplayChoice)display.SelectedItem!).Id;
@@ -196,10 +231,39 @@ class AppSettingsForm:Form
             if(result.Replay.HotkeyModifiers==0)throw new ArgumentException("Для сохранения повтора выберите Ctrl, Alt или Shift.");
             result.Kvm=initial.Kvm with{Role=role.SelectedIndex switch{1=>"Host",2=>"Client",_=>"Off"},Port=(int)port.Value,Host=host.Text.Trim(),PairingCode=pairing.Text.Trim(),Seamless=seamless.Checked,ClipboardText=textClipboard.Checked,ClipboardFiles=fileClipboard.Checked,AllowView=allowView.Checked,RemoteViewOnly=remoteViewOnly.Checked,RemoteOnlyPeers=monitors.RemoteOnlyPeers,AudioDevice=((AudioChoice)remoteAudio.SelectedItem!).Id,Layout=monitors.Result};
             result.Replay.Validate();result.Kvm.Validate();
+            result.Discord=new(){Enabled=discordEnabled.Checked&&result.Kvm.Role!="Host",Source=discordSource.Text.Trim(),AudioDevice=(discordOutput.SelectedItem as AudioChoice)?.Id??"",Volume=discordVolume.Value};result.Discord.Validate();
             if(result.Kvm.Layout.Any(m=>m.Hotkey>0&&(int)result.Replay.HotkeyKey==(int)Keys.F1+m.Hotkey-1)&&result.Replay.HotkeyModifiers==3)throw new ArgumentException("Клавиша сохранения повтора совпадает с клавишей переключения монитора.");
-            ResultSettings=result;DialogResult=DialogResult.OK;Close();
-        }
+            return result;
+    }
+    void Save()
+    {
+        try{ResultSettings=ReadSettings();DialogResult=DialogResult.OK;Close();}
         catch(Exception e){MessageBox.Show(this,e.Message,"Проверьте настройки",MessageBoxButtons.OK,MessageBoxIcon.Warning);}
+    }
+    void ExportProfile()
+    {
+        try
+        {
+            var profile=ConfigurationBackup.Capture(ReadSettings(),startup.Checked,Log.Folder);
+            using var dialog=new SaveFileDialog{Filter="Профиль ScreenCapture|*.scprofile",FileName=Environment.MachineName+"-ScreenCapture.scprofile",DefaultExt="scprofile"};
+            if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+            using var password=new ProfilePasswordForm(true);if(password.ShowDialog(this)!=DialogResult.OK)return;
+            File.WriteAllBytes(dialog.FileName,ConfigurationBackup.Encode(profile,password.Password));MessageBox.Show(this,"Резервная копия сохранена. Запомните пароль: без него восстановление невозможно.","ScreenCapture");
+        }
+        catch(Exception e){MessageBox.Show(this,e.Message,"Не удалось сохранить профиль");}
+    }
+    void ImportProfile()
+    {
+        try
+        {
+            using var dialog=new OpenFileDialog{Filter="Профиль ScreenCapture|*.scprofile"};if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+            if(new FileInfo(dialog.FileName).Length>2*1024*1024)throw new IOException("Файл слишком большой.");
+            using var password=new ProfilePasswordForm(false);if(password.ShowDialog(this)!=DialogResult.OK)return;
+            var profile=ConfigurationBackup.Decode(File.ReadAllBytes(dialog.FileName),password.Password);
+            if(MessageBox.Show(this,$"Восстановить профиль {profile.Computer} от {profile.Created.LocalDateTime:g}?\n\nТекущие настройки и сопряжение этого ПК будут заменены. Сохранённые видео останутся на месте.","Восстановление профиля",MessageBoxButtons.YesNo,MessageBoxIcon.Question)!=DialogResult.Yes)return;
+            ImportedProfile=profile;ResultSettings=profile.Settings.Copy();startup.Checked=profile.Autorun;DialogResult=DialogResult.OK;Close();
+        }
+        catch(Exception e){MessageBox.Show(this,e.Message,"Не удалось восстановить профиль");}
     }
     sealed record DisplayChoice(string Id,string Text){public override string ToString()=>Text;}
     sealed record PeerChoice(KvmPeerInfo Peer){public override string ToString()=>Peer.Name;}

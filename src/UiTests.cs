@@ -55,7 +55,7 @@ static class UiTests
             using var image=new Bitmap(640,360);using(var graphics=Graphics.FromImage(image)){graphics.Clear(Color.FromArgb(24,35,54));graphics.DrawString("Remote display · test pattern",viewer.Font,Brushes.White,25,25);}
             using var bytes=new MemoryStream();image.Save(bytes,System.Drawing.Imaging.ImageFormat.Jpeg);
             var receive=typeof(KvmViewer).GetMethod("Receive",BindingFlags.Instance|BindingFlags.NonPublic)!;
-            All(viewer).OfType<ComboBox>().Single().SelectedIndex=1;
+            All(viewer).OfType<ComboBox>().Single(c=>c.Items.Contains("LEFT")).SelectedIndex=1;
             receive.Invoke(viewer,[stream.Id,new KvmMessage{Type="view-frame",Device="LEFT",X=1920,Y=1080,Data=bytes.ToArray()}]);Application.DoEvents();
             Require(picture.Image==null,"Late frame undid monitor selection");
             receive.Invoke(viewer,[stream.Id,new KvmMessage{Type="view-frame",Device="RIGHT",X=1920,Y=1080,Data=bytes.ToArray()}]);Application.DoEvents();

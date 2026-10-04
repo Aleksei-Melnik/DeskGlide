@@ -43,6 +43,11 @@ internal static class NdiNative
     }
     public static void Shutdown(){lock(gate){if(initialized){NDIlib_destroy();initialized=false;}}}
     [StructLayout(LayoutKind.Sequential)] internal struct Source {public IntPtr Name,Url;}
+    [StructLayout(LayoutKind.Sequential)] internal struct FindSettings {[MarshalAs(UnmanagedType.I1)]public bool Local;public IntPtr Groups,ExtraIps;}
+    [DllImport(Dll,CallingConvention=CallingConvention.Cdecl)] internal static extern IntPtr NDIlib_find_create_v2(ref FindSettings settings);
+    [DllImport(Dll,CallingConvention=CallingConvention.Cdecl)] internal static extern void NDIlib_find_destroy(IntPtr finder);
+    [DllImport(Dll,CallingConvention=CallingConvention.Cdecl)] [return:MarshalAs(UnmanagedType.I1)] internal static extern bool NDIlib_find_wait_for_sources(IntPtr finder,uint timeout);
+    [DllImport(Dll,CallingConvention=CallingConvention.Cdecl)] internal static extern IntPtr NDIlib_find_get_current_sources(IntPtr finder,out uint count);
     [StructLayout(LayoutKind.Sequential)] internal struct SendSettings
     {
         public IntPtr Name,Groups;

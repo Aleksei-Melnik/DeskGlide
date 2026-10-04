@@ -126,7 +126,15 @@ sealed class KvmWire:IDisposable
     public void SetScreens(KvmScreen[] screens,bool remoteOnly)=>Peer=Peer with{Screens=screens,RemoteViewOnly=remoteOnly};
     void StartWriter()=>writer=Task.Run(async()=>
     {
-        try{await foreach(var message in queue.Reader.ReadAllAsync(stop.Token))await SendAsync(message,stop.Token);}
+        try{await foreach(var queued in queue.Reader.ReadAllAsync(stop.Token))
+        {
+            var message=queued;
+            // High-polling-rate mice should send the newest absolute position, not a backlog.
+            // Never cross a key/button/wheel boundary: input ordering remains intact.
+            if(message.Type=="mouse"&&message.Flags==0)
+                while(queue.Reader.TryPeek(out var next)&&next.Type=="mouse"&&next.Flags==0&&queue.Reader.TryRead(out var latest))message=latest;
+            await SendAsync(message,stop.Token);
+        }}
         catch(OperationCanceledException){}catch(Exception){Dispose();}
     });
     public bool Post(KvmMessage message)
@@ -140,12 +148,12 @@ sealed class KvmWire:IDisposable
     {
         byte[] data=JsonSerializer.SerializeToUtf8Bytes(message);
         if(data.Length>MaximumPacket)throw new IOException("KVM packet too large.");
-        byte[] header=new byte[4];BinaryPrimitives.WriteInt32LittleEndian(header,data.Length);
+        byte[] packet=new byte[4+data.Length];BinaryPrimitives.WriteInt32LittleEndian(packet,data.Length);data.CopyTo(packet,4);
         await writeGate.WaitAsync(token);
         try
         {
             using var deadline=CancellationTokenSource.CreateLinkedTokenSource(token,stop.Token);deadline.CancelAfter(10000);
-            await stream.WriteAsync(header,deadline.Token);await stream.WriteAsync(data,deadline.Token);
+            await stream.WriteAsync(packet,deadline.Token);
         }
         finally{writeGate.Release();}
     }

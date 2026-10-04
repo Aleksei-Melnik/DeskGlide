@@ -19,6 +19,7 @@ foreach($file in @('README.md','LICENSE','THIRD-PARTY-NOTICES.md','Install-Recor
 # Retain license texts supplied by each managed dependency package.
 $licenses=Join-Path $payload 'dependency-licenses';New-Item -ItemType Directory -Path $licenses -Force | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $repo 'licenses') -File | Copy-Item -Destination $licenses
+Copy-Item -LiteralPath (Join-Path $repo 'native/Camera/baseclasses/LICENSE') -Destination (Join-Path $licenses 'Microsoft-DirectShow-baseclasses-LICENSE')
 $assets=Get-Content -LiteralPath (Join-Path $repo 'src/obj/project.assets.json') -Raw | ConvertFrom-Json -AsHashtable
 foreach($lib in $assets.libraries.GetEnumerator()){
     if($lib.Value.type -ne 'package'){continue}

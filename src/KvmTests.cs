@@ -59,6 +59,13 @@ static class KvmTests
             if(read.Data==null||!read.Data.SequenceEqual(payload)||server.Peer.Id!=client.Id)throw new Exception("Authenticated transfer corrupted");
             await server.SendAsync(new(){Type="clipboard-text",Text="Русский текст 👋"},deadline.Token);
             if((await connection.ReadAsync(deadline.Token)).Text!="Русский текст 👋")throw new Exception("Unicode clipboard protocol");
+            for(int i=0;i<100;i++)connection.Post(new(){Type="mouse",X=i,Y=i});
+            connection.Post(new(){Type="mouse",X=99,Y=99,Flags=2});
+            for(int i=100;i<200;i++)connection.Post(new(){Type="mouse",X=i,Y=i});
+            connection.Post(new(){Type="mouse",X=199,Y=199,Flags=4});connection.Post(new(){Type="key",Code=65});connection.Post(new(){Type="key",Code=65,Flags=2});connection.Post(new(){Type="fixture-end"});
+            var events=new List<KvmMessage>();while(true){var item=await server.ReadAsync(deadline.Token);if(item.Type=="fixture-end")break;events.Add(item);}
+            var boundaries=events.Where(m=>m.Type=="key"||m.Flags!=0).Select(m=>(m.Type,m.Flags)).ToArray();
+            if(!boundaries.SequenceEqual(new[]{("mouse",2),("mouse",4),("key",0),("key",2)})||events.TakeWhile(m=>m.Flags!=2).Last().X!=99||events.TakeWhile(m=>m.Flags!=4).Last().X!=199)throw new Exception("Mouse coalescing crossed a button/key boundary");
             foreach(bool wrongPin in new[]{false,true})
             {
                 var badPin=pin.ToArray();var badKey=key.ToArray();if(wrongPin)badPin[0]^=1;else badKey[0]^=1;

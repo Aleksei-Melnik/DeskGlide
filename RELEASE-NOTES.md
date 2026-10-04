@@ -1,16 +1,11 @@
-# ScreenCapture 0.6.1
+ScreenCapture 0.7.0 adds its own 1080p60 Discord camera on the receiving PC, encrypted configuration backups, sharper KVM viewing and experimental file dragging.
 
-- Убраны искусственные паузы 250–400 мс после переходов между мониторами. Собственные перемещения курсора фильтруются без таймера ожидания.
-- Исправлены пустые карточки подключённых компьютеров в отдельном окне KVM.
-- Новый режим «Только окно KVM»: компьютер остаётся доступным для удалённого просмотра и управления, но исключается из переходов мышью. Его можно включить в карточке ПК на хосте или в настройках управляемого сервера. Сохранённые позиции мониторов восстанавливаются при возвращении ПК в раскладку.
-- Исправлен фокус клавиатуры в удалённом просмотре; Tab и стрелки поступают в удалённое окно. Добавлены освобождение ввода при потере фокуса, защита от повторного F11, обновление списка экранов и фильтрация кликов по чёрным полям.
-- Устранена гонка при подключении дополнительных каналов KVM.
-- Исправлена блокировка, которая могла мешать запуску приложения после обновления.
-- Фиксированные размеры окон, более компактные инструкции в настройках и новая иконка SC во всех размерах от 16 до 256 px.
-- Команда «Открыть записи» создаёт отсутствующую папку и не блокирует интерфейс ожиданием сетевого диска.
+- **Discord → Devices:** select **ScreenCapture Camera**. NDI Webcam Input is no longer needed. Reception, source selection, GPU resizing and audio routing run inside ScreenCapture.
+- On the streaming PC open **Discord · приём**, install the camera, find/select the gaming source and enable reception. For audio, install the optional signed **VB-CABLE** using the settings button, select **CABLE Input** here and **CABLE Output** in Discord. The vendor installer needs administrator approval and may require reboot. Restart Discord after camera registration and choose 60 FPS there. Its outgoing FPS also depends on Discord's streaming mode/account/network.
+- Camera/audio devices are never installed by pairing or updates. Installation is blocked on the controlling gaming PC. VB-CABLE remains identifiable VB-Audio donationware, with licensing/donation links.
+- Fixed unconditional right-button releases that could open a context menu when returning from a remote screen. Edge routing handles fast overshoots/corners; consecutive mouse positions are coalesced without losing key/button boundaries, and packets use one TLS write.
+- KVM viewer: native-resolution PNG for sharp text, high-quality JPEG and a 1080p bandwidth-saving mode. Oversized images fall back within the protocol's size limit. Remote-only servers remain excluded from seamless transitions.
+- **Мой профиль:** password-protected per-PC export/import, including KVM identity, layouts, hotkeys, NDI/replay/Discord settings and autorun. After reinstalling Windows, changed audio IDs may need reselecting and receiving devices need reinstalling.
+- Experimental file drag from the controlling PC to a controlled PC: drag files/folders to a shared edge, keep holding while they transfer, then drop in Explorer/desktop or an accepting application. COPY only. App-drop cache expires after four hours; destination copies remain. Both PCs need 0.7.0. Reverse handoff and virtual shell items are not yet supported; clipboard copy remains bidirectional.
 
-Обновление: трей → «Обновления…» → «Проверить» → «Обновить все подключённые ПК» (на управляющем ПК). Можно обновить только текущий ПК. Версии до 0.6 требуют однократной ручной установки. Настройки, код сопряжения, записи и tools/ сохраняются.
-
-Проверено локально: сборка; целостность подписанного пакета и откат файлов; освобождение блокировки установщика; шифрованный KVM по loopback; исключение серверов из раскладки; отображение подключённых ПК; ввод через сообщения Windows; получение JPEG в окне просмотра; аудиотайминг; GPU SDR/курсор и синтетический NDI. В коротких тестах HEVC 2560×1440 на 60 и 120 FPS с тремя аудиодорожками не обнаружены повторы или пропуски после стартового участка.
-
-Физическую задержку между двумя ПК и обновление всех ПК через реальную сеть нужно проверить на подключённых машинах. Нулевая задержка не гарантируется. Сервер без монитора ещё не проверен: Windows должна предоставлять рабочий дисплей. Подпись пакета проверяется приложением; это не Windows Authenticode.
+Validation: native DirectShow device enumeration in an isolated test registry, 1080p60 format and sample cadence, changing-image IPC, synthetic 2560×1440 NDI → GPU resize → camera, audio normalization and installer signature checks, encrypted-profile rollback/cache cleanup, KVM TLS/input ordering/file checksums and Windows UI regression tests. These tests do not establish viewer-side Discord FPS or real two-PC drag/drop/edge latency. VB-CABLE was verified without installing it on the gaming PC. Existing SDR capture/color processing is unchanged.

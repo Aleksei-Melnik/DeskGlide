@@ -14,7 +14,9 @@ sealed class KvmClipboard:NativeWindow,IDisposable
     readonly CancellationTokenSource stop=new();
     readonly Channel<(string,KvmMessage)> incoming=Channel.CreateBounded<(string,KvmMessage)>(128);
     readonly Dictionary<string,Transfer> transfers=[];
+    readonly Dictionary<string,long> cancelled=[];
     readonly Task worker;
+    readonly SemaphoreSlim sendGate=new(1,1);
     readonly Action<string[]>? testCompleted;
     readonly string storage;
     uint ownSequence;
@@ -27,15 +29,18 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         public FileStream? File;
         public IncrementalHash? Hash;
         public long Received;
+        public long LeaseAt=Environment.TickCount64;
+        public bool Drag;
         public void Dispose(){File?.Dispose();Hash?.Dispose();}
     }
     public event Action<string>? Notification;
+    public event Action<string,string,string[]>? DragFilesReady;
     public KvmClipboard(KvmService service,KvmOptions options,Control dispatcher,Action<string[]>? completed=null,string? storage=null)
     {
         this.service=service;this.options=options.Copy();this.dispatcher=dispatcher;
         testCompleted=completed;this.storage=storage??Path.Combine(Log.Folder,"Kvm","Clipboard");
         CreateHandle(new CreateParams{Caption="SDR Capture Clipboard",Parent=new IntPtr(-3)});
-        AddClipboardFormatListener(Handle);service.Received+=OnMessage;
+        AddClipboardFormatListener(Handle);service.Received+=OnMessage;service.Disconnected+=OnDisconnected;
         worker=Task.Run(ReadLoop);
     }
     protected override void WndProc(ref Message m)
@@ -76,8 +81,18 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         foreach(string child in Directory.EnumerateFileSystemEntries(path))
             foreach(var item in Enumerate(child,relative+"/"+Path.GetFileName(child)))yield return item;
     }
-    async Task SendFiles(string[] paths)
+    public async Task SendDrag(string peer,string id,string[] paths,CancellationToken token)
     {
+        using var linked=CancellationTokenSource.CreateLinkedTokenSource(stop.Token,token);
+        try{await SendFiles(paths,peer,id,linked.Token);}
+        catch{service.Send(peer,new(){Type="file-abort",Id=id});throw;}
+    }
+    async Task SendFiles(string[] paths,string? onlyPeer=null,string? dragId=null,CancellationToken token=default)
+    {
+        using var linked=CancellationTokenSource.CreateLinkedTokenSource(stop.Token,token);token=linked.Token;
+        await sendGate.WaitAsync(token);
+        try
+        {
         var items=new List<(string Source,KvmFileEntry Entry)>();long total=0;
         foreach(string path in paths)
         foreach(var item in Enumerate(path,Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar))))
@@ -86,27 +101,29 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             if(items.Count>10000||total>MaxBytes)throw new IOException("За один раз можно передать до 32 ГБ и 10 000 файлов/папок.");
         }
         ValidateManifest(items.Select(i=>i.Entry).ToArray());
-        foreach(var peer in service.Peers)
+        foreach(var peer in service.Peers.Where(p=>onlyPeer==null||p.Id==onlyPeer))
         {
-            string id=Guid.NewGuid().ToString("N");
-            await service.SendBulk(peer.Id,new(){Type="file-begin",Id=id,Files=items.Select(i=>i.Entry).ToArray()},stop.Token);
+            string id=dragId??Guid.NewGuid().ToString("N");
+            await service.SendBulk(peer.Id,new(){Type="file-begin",Id=id,Flags=dragId==null?0:1,Files=items.Select(i=>i.Entry).ToArray()},token);
             foreach(var item in items.Where(i=>!i.Entry.Directory))
             {
-                await service.SendBulk(peer.Id,new(){Type="file-open",Id=id,Text=item.Entry.Path},stop.Token);
+                await service.SendBulk(peer.Id,new(){Type="file-open",Id=id,Text=item.Entry.Path},token);
                 using var file=new FileStream(item.Source,FileMode.Open,FileAccess.Read,FileShare.Read,65536,true);
                 using var hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
                 byte[] buffer=new byte[65536];long count=0;int n;
-                while((n=await file.ReadAsync(buffer,stop.Token))>0)
+                while((n=await file.ReadAsync(buffer,token))>0)
                 {
                     count+=n;if(count>item.Entry.Length)throw new IOException("Файл изменился во время передачи.");
                     hash.AppendData(buffer,0,n);
-                    await service.SendBulk(peer.Id,new(){Type="file-data",Id=id,Data=buffer.AsSpan(0,n).ToArray()},stop.Token);
+                    await service.SendBulk(peer.Id,new(){Type="file-data",Id=id,Data=buffer.AsSpan(0,n).ToArray()},token);
                 }
                 if(count!=item.Entry.Length)throw new IOException("Файл изменился во время передачи.");
-                await service.SendBulk(peer.Id,new(){Type="file-close",Id=id,Data=hash.GetHashAndReset()},stop.Token);
+                await service.SendBulk(peer.Id,new(){Type="file-close",Id=id,Data=hash.GetHashAndReset()},token);
             }
-            await service.SendBulk(peer.Id,new(){Type="file-done",Id=id},stop.Token);
+            await service.SendBulk(peer.Id,new(){Type="file-done",Id=id},token);
         }
+        }
+        finally{sendGate.Release();}
     }
     void OnMessage(string peer,KvmMessage message)
     {
@@ -121,6 +138,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             try{incoming.Writer.WriteAsync((peer,message),stop.Token).AsTask().GetAwaiter().GetResult();}catch(OperationCanceledException){}
         }
     }
+    void OnDisconnected(string peer){try{incoming.Writer.TryWrite((peer,new(){Type="file-peer-disconnect"}));}catch{}}
     internal static void ValidateManifest(KvmFileEntry[] entries)
     {
         if(entries.Length is <1 or >10000)throw new IOException("Invalid clipboard manifest.");
@@ -157,7 +175,8 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 try{HandleFile(peer,message);}
                 catch(Exception e)
                 {
-                    if(transfers.Remove(peer,out var failed))failed.Dispose();
+                    if(transfers.Remove(peer+"|"+message.Id,out var failed))failed.Dispose();
+                    if(Guid.TryParseExact(message.Id,"N",out _))service.Send(peer,new(){Type="drag-error",Id=message.Id,Text=e.Message});
                     Notification?.Invoke("Передача файлов отклонена: "+e.Message);
                 }
             }
@@ -167,6 +186,11 @@ sealed class KvmClipboard:NativeWindow,IDisposable
     }
     internal void HandleFile(string peer,KvmMessage message)
     {
+        string transferKey=peer+"|"+message.Id;
+        foreach(var key in cancelled.Where(p=>Environment.TickCount64-p.Value>600000).Select(p=>p.Key).ToArray())cancelled.Remove(key);
+        if(message.Type=="file-peer-disconnect"){foreach(var key in transfers.Keys.Where(k=>k.StartsWith(peer+"|",StringComparison.Ordinal)).ToArray()){transfers[key].Dispose();transfers.Remove(key);}return;}
+        if(message.Type=="file-abort"){if(transfers.Remove(transferKey,out var aborted))aborted.Dispose();if(cancelled.Count<256)cancelled[transferKey]=Environment.TickCount64;return;}
+        if(cancelled.ContainsKey(transferKey))return;
         if(message.Type=="file-begin")
         {
             if(!Guid.TryParseExact(message.Id,"N",out _)||message.Files==null)throw new IOException("Invalid transfer.");
@@ -174,13 +198,15 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             string folder=Path.Combine(storage,Guid.NewGuid().ToString("N"));
             if(new DriveInfo(Path.GetPathRoot(folder)!).AvailableFreeSpace<message.Files.Sum(e=>e.Length)+512L*1024*1024)throw new IOException("Недостаточно места для файлов.");
             Directory.CreateDirectory(folder);
-            if(transfers.Remove(peer,out var old))old.Dispose();
+            KvmFileCache.Mark(storage,folder);
+            if(transfers.Count>=16)throw new IOException("Слишком много одновременных передач.");
+            if(transfers.Remove(transferKey,out var old))old.Dispose();
             foreach(var entry in message.Files.Where(e=>e.Directory).OrderBy(e=>e.Path.Length))Directory.CreateDirectory(SafePath(folder,entry.Path));
-            transfers[peer]=new(){Id=message.Id,Folder=folder,Entries=message.Files.Where(e=>!e.Directory).ToArray()};
-            if(testCompleted==null)Ui(()=>{Clipboard.Clear();ownSequence=GetClipboardSequenceNumber();});
+            transfers[transferKey]=new(){Id=message.Id,Folder=folder,Entries=message.Files.Where(e=>!e.Directory).ToArray(),Drag=message.Flags==1};
+            if(message.Flags!=1&&testCompleted==null)Ui(()=>{Clipboard.Clear();ownSequence=GetClipboardSequenceNumber();});
             Notification?.Invoke("Получаю файлы по KVM. Вставка будет доступна после завершения.");return;
         }
-        if(!transfers.TryGetValue(peer,out var state)||state.Id!=message.Id)throw new IOException("Unknown transfer.");
+        if(!transfers.TryGetValue(transferKey,out var state)||state.Id!=message.Id)throw new IOException("Unknown transfer.");
         switch(message.Type)
         {
             case "file-open":
@@ -189,13 +215,14 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 state.File=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None,65536);state.Hash=IncrementalHash.CreateHash(HashAlgorithmName.SHA256);state.Received=0;break;
             case "file-data":
                 if(state.File==null||message.Data is not {Length:>0 and <=65536}||state.Received+message.Data.Length>state.Entries[state.Index].Length)throw new IOException("Invalid file data.");
-                state.File.Write(message.Data);state.Hash!.AppendData(message.Data);state.Received+=message.Data.Length;break;
+                state.File.Write(message.Data);state.Hash!.AppendData(message.Data);state.Received+=message.Data.Length;if(Environment.TickCount64-state.LeaseAt>60000){KvmFileCache.Mark(storage,state.Folder);state.LeaseAt=Environment.TickCount64;}break;
             case "file-close":
                 if(state.File==null||state.Received!=state.Entries[state.Index].Length||message.Data?.Length!=32||!CryptographicOperations.FixedTimeEquals(state.Hash!.GetHashAndReset(),message.Data))throw new IOException("Контрольная сумма файла не совпала.");
                 state.File.Dispose();state.File=null;state.Hash!.Dispose();state.Hash=null;state.Index++;break;
             case "file-done":
                 if(state.File!=null||state.Index!=state.Entries.Length)throw new IOException("Incomplete transfer.");
-                string[] roots=Directory.GetFileSystemEntries(state.Folder);transfers.Remove(peer);state.Dispose();
+                string[] roots=Directory.GetFileSystemEntries(state.Folder);transfers.Remove(transferKey);state.Dispose();
+                if(state.Drag){KvmFileCache.Mark(storage,state.Folder);Ui(()=>DragFilesReady?.Invoke(peer,message.Id,roots));break;}
                 if(testCompleted!=null){testCompleted(roots);break;}
                 Ui(()=>{var list=new StringCollection();list.AddRange(roots);Clipboard.SetFileDropList(list);ownSequence=GetClipboardSequenceNumber();Notification?.Invoke("Файлы получены. Можно вставить их через Ctrl+V.");});break;
             default:throw new IOException("Unknown file operation.");
@@ -208,7 +235,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         return path;
     }
     void Ui(Action action){try{dispatcher.BeginInvoke(()=>{if(stop.IsCancellationRequested)return;try{action();}catch(ExternalException){Notification?.Invoke("Буфер обмена временно занят.");}});}catch(InvalidOperationException){}}
-    public void Dispose(){service.Received-=OnMessage;RemoveClipboardFormatListener(Handle);DestroyHandle();stop.Cancel();incoming.Writer.TryComplete();}
+    public void Dispose(){service.Received-=OnMessage;service.Disconnected-=OnDisconnected;RemoveClipboardFormatListener(Handle);DestroyHandle();stop.Cancel();incoming.Writer.TryComplete();}
     [DllImport("user32.dll")] static extern bool AddClipboardFormatListener(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
     [DllImport("user32.dll")] static extern uint GetClipboardSequenceNumber();

@@ -11,6 +11,17 @@ copyright notices and licenses:
 - SharpGen.Runtime: Alexandre Mutel, Jeremy Koritzinsky, Amer Koleci and contributors, MIT.
   https://github.com/SharpGenTools/SharpGenTools
 - NAudio: Mark Heath and contributors, MIT. https://github.com/naudio/NAudio
+- DirectShow base classes: Microsoft, MIT, Windows-classic-samples commit
+  434f6002bdf9cf9829406c3ff2b33387982d6168. The source, upstream reference and
+  license are retained in native/Camera/baseclasses; the license is also in releases.
+  https://github.com/microsoft/Windows-classic-samples
+
+Optional Discord audio uses the original, signed VB-CABLE installer, downloaded
+on request from VB-Audio. VB-CABLE is donationware by VB-Audio / Vincent Burel,
+not a ScreenCapture driver. It is never installed automatically or on a KVM host.
+Users can identify, license or support the author through the settings page:
+https://www.vb-cable.com/ and https://vb-audio.com/Services/licensing.htm .
+The original package is SHA-256 pinned and its installer signature is verified.
 
 Dependency license texts from the restored NuGet packages are included in the
 release's dependency-licenses directory when available.

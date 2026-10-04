@@ -1,0 +1,4 @@
+LIBRARY ScreenCapture.Camera.dll
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

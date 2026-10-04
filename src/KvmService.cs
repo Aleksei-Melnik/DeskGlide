@@ -111,13 +111,13 @@ sealed class KvmService:IDisposable
                 }
                 if(wire.Channel=="control"&&message.Type is "mouse" or "key" or "release")
                 {
-                    if(options.Role=="Client")KvmInput.Inject(message);
+                    if(options.Role=="Client"&&BeforeInput?.Invoke(wire.Peer.Id,message)!=true)KvmInput.Inject(message);
                     continue;
                 }
                 if(wire.Channel=="bulk"&&message.Type=="view-request"&&options.Role=="Client")
                 {
                     if(!options.AllowView)await wire.SendAsync(new(){Type="view-error",Text="Просмотр экрана выключен на удалённом ПК."},linked.Token);
-                    else await KvmViewerCapture.Reply(wire,message.Device,linked.Token);
+                    else await KvmViewerCapture.Reply(wire,message,linked.Token);
                     continue;
                 }
                 if(message.Type.StartsWith("update-"))
@@ -147,6 +147,7 @@ sealed class KvmService:IDisposable
         }
     }
     public bool Send(string peer,KvmMessage message)=>controls.TryGetValue(peer,out var connection)&&connection.Post(message);
+    public Func<string,KvmMessage,bool>? BeforeInput {get;set;}
     public async Task SendControl(string peer,KvmMessage message)
     {
         if(!controls.TryGetValue(peer,out var connection))throw new IOException("ПК отключился.");
