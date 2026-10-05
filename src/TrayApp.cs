@@ -81,7 +81,7 @@ sealed class TrayApp:ApplicationContext
         hotkey.SaveRequested+=SaveReplay;
         if(!hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey))notifications.Enqueue("The replay shortcut is in use. Choose another in Settings → Instant replay.");
         delivery.Notification+=message=>notifications.Enqueue(message);
-        tray=new NotifyIcon{Icon=appIcon,Text="ScreenCapture · Stream · Replay · KVM",Visible=true,ContextMenuStrip=TrayMenu.Create()};
+        tray=new NotifyIcon{Icon=appIcon,Text="ScreenCapture · Stream · Replay · KVM",Visible=true,ContextMenuStrip=new ContextMenuStrip()};
         tray.ContextMenuStrip.Opening+=(_,_)=>BuildMenu();
         tray.DoubleClick+=(_,_)=>OpenSettings();
         timer.Tick+=(_,_)=>
@@ -108,19 +108,19 @@ sealed class TrayApp:ApplicationContext
     {
         var items=tray.ContextMenuStrip!.Items;
         while(items.Count>0){var item=items[0];items.RemoveAt(0);item.Dispose();}
-        items.Add(new ToolStripMenuItem("ScreenCapture  ·  "+Updates.VersionText){Enabled=false});
-        items.Add("Settings…",null,(_,_)=>OpenSettings());
-        items.Add("Computers · KVM…",null,(_,_)=>dispatcher.BeginInvoke(OpenKvm));
-        items.Add(new ToolStripSeparator());
         var ndiToggle=new ToolStripMenuItem("Screen streaming"){Checked=settings.SendOnLaunch};
         ndiToggle.Click+=(_,_)=>Guard(()=>{settings.SendOnLaunch=!settings.SendOnLaunch;settings.Save();engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;});items.Add(ndiToggle);
         var replayToggle=new ToolStripMenuItem("Instant replay"){Checked=settings.Replay.Enabled};
         replayToggle.Click+=(_,_)=>Guard(()=>ApplyReplay(settings.Replay with{Enabled=!settings.Replay.Enabled}));items.Add(replayToggle);
         var save=new ToolStripMenuItem($"Save last {settings.Replay.Minutes} minutes"){Enabled=replay.BufferedSeconds>0,ShortcutKeyDisplayString=ReplayHotkey.Text(settings.Replay)};
         save.Click+=(_,_)=>SaveReplay();items.Add(save);
+        items.Add("Computers · KVM…",null,(_,_)=>dispatcher.BeginInvoke(OpenKvm));
+        items.Add(new ToolStripSeparator());
+        items.Add("Settings…",null,(_,_)=>OpenSettings());
+        items.Add("Check for updates…",null,(_,_)=>dispatcher.BeginInvoke(OpenUpdates));
         items.Add("Open clips folder",null,async(_,_)=>{string folder=settings.Replay.Folder;try{await Task.Run(()=>Directory.CreateDirectory(folder));Process.Start(new ProcessStartInfo(folder){UseShellExecute=true});}catch(Exception e){notifications.Enqueue("Could not open the clips folder: "+e.Message);}});
-        items.Add(new ToolStripSeparator());items.Add("Check for updates…",null,(_,_)=>dispatcher.BeginInvoke(OpenUpdates));items.Add("Quit ScreenCapture",null,(_,_)=>ExitThread());
-        foreach(ToolStripItem item in items)if(item is ToolStripMenuItem)item.Padding=new Padding(9,6,9,6);
+        items.Add(new ToolStripSeparator());items.Add("Exit",null,(_,_)=>ExitThread());
+
     }
     void OpenSettings(int page=0)
     {
