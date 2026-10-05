@@ -41,7 +41,7 @@ sealed class KvmIdentity:IDisposable
         string path=Path.Combine(folder,"host-identity.json");
         if(File.Exists(path))
         {
-            var data=JsonSerializer.Deserialize<string[]>(File.ReadAllText(path))??throw new IOException("Повреждён ключ KVM.");
+            var data=JsonSerializer.Deserialize<string[]>(File.ReadAllText(path))??throw new IOException("The KVM key is damaged.");
             Key=Convert.FromBase64String(data[1]);
             Certificate=X509CertificateLoader.LoadPkcs12(Convert.FromBase64String(data[0]),"",X509KeyStorageFlags.UserKeySet);
         }
@@ -58,7 +58,7 @@ sealed class KvmIdentity:IDisposable
             File.WriteAllText(path+".tmp",JsonSerializer.Serialize(new[]{Convert.ToBase64String(pfx),Convert.ToBase64String(Key)}));
             File.Move(path+".tmp",path,true);
         }
-        if(Key.Length!=32)throw new IOException("Повреждён ключ KVM.");
+        if(Key.Length!=32)throw new IOException("The KVM key is damaged.");
     }
     public void Dispose()=>Certificate.Dispose();
 }
@@ -89,7 +89,7 @@ sealed class KvmWire:IDisposable
             var hello=await wire.ReadAsync(timeout.Token);
             if(hello.Type!="hello"||!Guid.TryParseExact(hello.Id,"N",out _)||hello.Id==options.Id||hello.Text.Length>100||hello.Device is not ("control" or "bulk" or "audio" or "video"))throw new AuthenticationException("Invalid KVM hello.");
             byte[] expected=HMACSHA256.HashData(identity.Key,nonce.Concat(Encoding.UTF8.GetBytes(hello.Id+"|"+hello.Device)).ToArray());
-            if(hello.Data==null||!CryptographicOperations.FixedTimeEquals(expected,hello.Data))throw new AuthenticationException("Неверный код KVM.");
+            if(hello.Data==null||!CryptographicOperations.FixedTimeEquals(expected,hello.Data))throw new AuthenticationException("Incorrect KVM pairing code.");
             ValidateScreens(hello.Screens);
             wire.Peer=new(hello.Id,hello.Text,hello.Screens!,hello.Version,Math.Clamp(hello.UpdateProtocol,0,1),hello.RemoteViewOnly,Math.Clamp(hello.ViewProtocol,0,1));wire.Channel=hello.Device;
             await wire.SendAsync(new(){Type="welcome",Version=Updates.VersionText,UpdateProtocol=1,ViewProtocol=1,Id=options.Id,Text=Environment.MachineName,Screens=KvmScreen.Local()},timeout.Token);

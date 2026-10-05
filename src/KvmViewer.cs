@@ -11,14 +11,14 @@ static class KvmViewerCapture
         try
         {
             var screen=Screen.AllScreens.FirstOrDefault(s=>s.DeviceName==request.Device)??Screen.PrimaryScreen;
-            if(screen==null||screen.Bounds.Width<1||screen.Bounds.Height<1)throw new IOException("Windows не предоставила рабочий экран. Для этого сервера нужен активный виртуальный дисплей или HDMI-заглушка.");
-            if((long)screen.Bounds.Width*screen.Bounds.Height>40000000)throw new IOException("Разрешение экрана слишком велико для просмотра.");
+            if(screen==null||screen.Bounds.Width<1||screen.Bounds.Height<1)throw new IOException("Windows did not provide a desktop. This server needs an active virtual display or HDMI dummy plug.");
+            if((long)screen.Bounds.Width*screen.Bounds.Height>40000000)throw new IOException("The desktop resolution is too large for remote viewing.");
             using var original=new Bitmap(screen.Bounds.Width,screen.Bounds.Height,PixelFormat.Format32bppRgb);
             using(var graphics=Graphics.FromImage(original))graphics.CopyFromScreen(screen.Bounds.Location,Point.Empty,screen.Bounds.Size);
             var encoded=KvmImageCodec.Encode(original,request.Flags==2?request.Code:-1);
             await wire.SendAsync(new(){Type="view-frame",Id=request.Id,Device=screen.DeviceName,X=screen.Bounds.Width,Y=screen.Bounds.Height,Data=encoded.Data,Text=encoded.Description},token);
         }
-        catch(Exception e)when(e is not OperationCanceledException){await wire.SendAsync(new(){Type="view-error",Text="Не удалось получить рабочий стол: "+e.Message},token);}
+        catch(Exception e)when(e is not OperationCanceledException){await wire.SendAsync(new(){Type="view-error",Text="Could not capture the desktop: "+e.Message},token);}
         finally{gate.Release();}
     }
 }
@@ -39,7 +39,7 @@ static class KvmImageCodec
             if(quality==0)
             {
                 using var png=new MemoryStream();image.Save(png,ImageFormat.Png);
-                if(png.Length<=MaximumBytes)return(png.ToArray(),$"{image.Width} × {image.Height} · PNG без потерь");
+                if(png.Length<=MaximumBytes)return(png.ToArray(),$"{image.Width} × {image.Height} · Lossless PNG");
             }
             var codec=ImageCodecInfo.GetImageEncoders().First(c=>c.FormatID==ImageFormat.Jpeg.Guid);
             foreach(long level in quality<0?new long[]{75}:quality==2?new long[]{85,75}:new long[]{95,90,85,75})
@@ -62,6 +62,18 @@ static class KvmImageCodec
 }
 sealed class KvmViewer:Form
 {
+    internal event Action? FullscreenRequested,ReturnRequested;
+    internal string StatusText=>status.Text;
+    internal string[] Devices=>monitors.Items.Cast<string>().ToArray();
+    internal string? SelectedDevice=>(string?)monitors.SelectedItem;
+    internal void Configure(string? device,int qualityIndex,int fps,bool input){if(device!=null&&monitors.Items.Contains(device))monitors.SelectedItem=device;quality.SelectedIndex=qualityIndex;frameRate.SelectedIndex=fps==30?0:1;control.Checked=input;}
+    internal void ReleaseControl()=>Release();
+    // Preserve the tested native video/input surface; WPF owns all visible chrome.
+    internal void Embed()
+    {
+        TopLevel=false;FormBorderStyle=FormBorderStyle.None;Dock=DockStyle.Fill;
+        foreach(Control child in Controls)if(child!=picture)child.Visible=false;
+    }
     internal sealed class Viewport:PictureBox
     {
         public Viewport(){SetStyle(ControlStyles.Selectable,true);TabStop=true;}
@@ -76,7 +88,7 @@ sealed class KvmViewer:Form
     readonly ComboBox quality=new(){DropDownStyle=ComboBoxStyle.DropDownList,Width=170,Margin=new(4,7,4,0)};
     readonly ComboBox frameRate=new(){DropDownStyle=ComboBoxStyle.DropDownList,Width=82,Margin=new(4,7,4,0)};
     readonly System.Windows.Forms.Timer timer=new(){Interval=100};
-    readonly CheckBox control=new(){Text="Управление",Checked=true,AutoSize=true,Margin=new(8,10,8,0)};
+    readonly CheckBox control=new(){Text="Control",Checked=true,AutoSize=true,Margin=new(8,10,8,0)};
     FormBorderStyle previousBorder;Rectangle previousBounds;bool fullscreen;
     bool waiting,closing,f11Down;long requested;
     volatile string generation="",selectedDevice="";
@@ -92,9 +104,9 @@ sealed class KvmViewer:Form
         UiStyle.FixedWindow(this);
         var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=50,Padding=new(8,5,8,5),WrapContents=false,BackColor=Color.FromArgb(242,246,251)};
         monitors.Dock=DockStyle.None;monitors.Width=160;monitors.Margin=new(0,7,0,0);
-        quality.Items.AddRange(["Чёткий текст · 95","Высокое · 88","Экономный · 1080p"]);quality.SelectedIndex=0;
+        quality.Items.AddRange(["Crisp text · 95","High · 88","Efficient · 1080p"]);quality.SelectedIndex=0;
         frameRate.Items.AddRange(["30 FPS","60 FPS"]);frameRate.SelectedIndex=1;
-        toolbar.Controls.AddRange([monitors,quality,frameRate,control,UiStyle.Button("Полный экран · F11",ToggleFullscreen),UiStyle.Button("Отключиться",Close)]);
+        toolbar.Controls.AddRange([monitors,quality,frameRate,control,UiStyle.Button("Full screen · F11",ToggleFullscreen),UiStyle.Button("Disconnect",Close)]);
         Controls.Add(picture);Controls.Add(status);Controls.Add(toolbar);control.CheckedChanged+=(_,_)=>Release();
         foreach(var item in peer.Screens)monitors.Items.Add(item.Device);
         if(monitors.Items.Count>0)monitors.SelectedIndex=0;
@@ -128,7 +140,7 @@ sealed class KvmViewer:Form
         picture.LostFocus+=(_,_)=>Release();
         Deactivate+=(_,_)=>{f11Down=false;Release();};
         FormClosed+=(_,_)=>{closing=true;service.SendVideo(peer.Id,new(){Type="view-stop",Id=generation});timer.Stop();timer.Dispose();service.Received-=Receive;decodeStop.Cancel();Release();picture.Image?.Dispose();lock(frameGate){pendingDecoded?.Image.Dispose();pendingDecoded=null;pendingEncoded=null;}_=decoder.ContinueWith(_=>{decodeStop.Dispose();decodeReady.Dispose();});};
-        status.Text="Просмотр рабочего стола · для выхода из управления переключитесь на другое окно.";
+        status.Text="Remote desktop · switch to another window to release control.";
     }
     void RestartStream()
     {
@@ -166,7 +178,7 @@ sealed class KvmViewer:Form
                 {
                     Bitmap image;
                     if(peer.ViewProtocol>=1)image=jpeg.Decode(message.Data!);
-                    else{using var stream=new MemoryStream(message.Data!);using var decoded=Image.FromStream(stream);if((long)decoded.Width*decoded.Height>40000000)throw new IOException("Кадр слишком большой.");image=new Bitmap(decoded);}
+                    else{using var stream=new MemoryStream(message.Data!);using var decoded=Image.FromStream(stream);if((long)decoded.Width*decoded.Height>40000000)throw new IOException("The frame is too large.");image=new Bitmap(decoded);}
                     lock(frameGate)
                     {
                         if(closing){image.Dispose();return;}pendingDecoded?.Image.Dispose();pendingDecoded=(image,message);
@@ -185,8 +197,8 @@ sealed class KvmViewer:Form
         waiting=false;lastFrame=Environment.TickCount64;displayed++;
         var old=picture.Image;picture.Image=current.Image;old?.Dispose();
         screen=CurrentScreens.FirstOrDefault(s=>s.Device==current.Message.Device)??new(current.Message.Device,0,0,current.Message.X,current.Message.Y,true);
-        string frequency=peer.ViewProtocol>=1?$"{actualFps:F1} FPS / {(frameRate.SelectedIndex==0?30:60)}":"Старый режим: обновите оба ПК до 0.7.2";
-        status.Text=$"{peer.Name} · {current.Message.Text} · {frequency} · Ctrl+Alt+Esc — вернуть управление";
+        string frequency=peer.ViewProtocol>=1?$"{actualFps:F1} FPS / {(frameRate.SelectedIndex==0?30:60)}":"Legacy mode: update both PCs to 0.7.2 or later";
+        status.Text=$"{peer.Name} · {current.Message.Text} · {frequency} · Ctrl+Alt+Esc to return control";
     }
     void Mouse(MouseEventArgs e,int flags)
     {
@@ -211,10 +223,11 @@ sealed class KvmViewer:Form
     void ToggleFullscreen()
     {
         Release();
+        if(FullscreenRequested!=null){FullscreenRequested();return;}
         if(!fullscreen){previousBounds=Bounds;previousBorder=FormBorderStyle;WindowState=FormWindowState.Normal;FormBorderStyle=FormBorderStyle.None;Bounds=Screen.FromControl(this).Bounds;}
         else{FormBorderStyle=previousBorder;Bounds=previousBounds;}
         fullscreen=!fullscreen;
     }
-    public void ReturnControl(){Release();WindowState=FormWindowState.Minimized;}
+    public void ReturnControl(){Release();if(ReturnRequested!=null)ReturnRequested();else WindowState=FormWindowState.Minimized;}
     [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code,uint type);
 }

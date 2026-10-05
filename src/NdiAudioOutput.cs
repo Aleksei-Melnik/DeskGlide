@@ -37,7 +37,7 @@ sealed class NdiAudioOutput:IDisposable
                         sender.SendAudio(stereo,sample,Math.Clamp(volume(),0,100)/100f);sample+=480;Status=capture.Status;
                     }
                 }
-                catch(Exception e){Status="Ошибка звука NDI: "+e.Message;Log.Write(Status);if(stop.Token.WaitHandle.WaitOne(1500))break;}
+                catch(Exception e){Status="NDI audio error: "+e.Message;Log.Write(Status);if(stop.Token.WaitHandle.WaitOne(1500))break;}
             }
         },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
     }

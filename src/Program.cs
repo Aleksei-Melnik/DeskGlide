@@ -14,6 +14,7 @@ internal static class Program
             if(args.Contains("--kvm")&&EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var openKvm)){WindowActivation.AllowExisting();using(openKvm)openKvm.Set();return 0;}
             if(args.Contains("--update-tests")){UpdateTests.Run();return 0;}
             if(args.Contains("--ui-tests")){UiTests.Run();return 0;}
+            if(args.Contains("--wpf-ui-tests")){Ui.WpfUiTests.Run();return 0;}
             if(args.Contains("--feature-tests")){FeatureTests.Run();return 0;}
             if(args.Contains("--camera-test")){FeatureTests.Camera();return 0;}
             if(args.Contains("--camera-ndi-test")){FeatureTests.NdiCamera();return 0;}

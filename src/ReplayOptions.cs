@@ -24,15 +24,15 @@ public sealed record ReplayOptions
     public uint HotkeyKey {get;set;}=(uint)Keys.F10;
     public void Validate()
     {
-        if(Minutes<5||Minutes>20) throw new ArgumentException("Длина повтора: от 5 до 20 минут.");
-        if(Codec is not ("HEVC" or "H264" or "AV1"))throw new ArgumentException("Неизвестный видеокодек.");
-        if(AudioMode is not ("Mixed" or "Separate" or "Silent"))throw new ArgumentException("Неизвестный режим аудио.");
-        if(Fps is not (60 or 120)) throw new ArgumentException("Выберите 60 или 120 FPS.");
-        if(Quality is not ("Ultra" or "High" or "Medium" or "Low")) throw new ArgumentException("Неизвестное качество записи.");
-        if(string.IsNullOrWhiteSpace(Folder)||!Path.IsPathFullyQualified(Folder)) throw new ArgumentException(@"Укажите полный путь, например C:\Clips или \\STREAM-PC\Clips.");
-        if(Width!=0 && (Width<320||Width>7680||Height<240||Height>4320||(Width&1)!=0||(Height&1)!=0)) throw new ArgumentException("Недопустимое разрешение записи.");
+        if(Minutes<5||Minutes>20) throw new ArgumentException("Replay duration must be between 5 and 20 minutes.");
+        if(Codec is not ("HEVC" or "H264" or "AV1"))throw new ArgumentException("Unknown video codec.");
+        if(AudioMode is not ("Mixed" or "Separate" or "Silent"))throw new ArgumentException("Unknown audio mode.");
+        if(Fps is not (60 or 120)) throw new ArgumentException("Choose 60 or 120 FPS.");
+        if(Quality is not ("Ultra" or "High" or "Medium" or "Low")) throw new ArgumentException("Unknown recording quality.");
+        if(string.IsNullOrWhiteSpace(Folder)||!Path.IsPathFullyQualified(Folder)) throw new ArgumentException(@"Enter an absolute path, such as C:\Clips or \\STREAM-PC\Clips.");
+        if(Width!=0 && (Width<320||Width>7680||Height<240||Height>4320||(Width&1)!=0||(Height&1)!=0)) throw new ArgumentException("Invalid recording resolution.");
         var chosen=new[]{Microphone,GameAudio,ExtraAudio}.Where(s=>s.Length>0).ToArray();
-        if(chosen.Distinct().Count()!=chosen.Length) throw new ArgumentException("Один источник звука выбран дважды — это создаст эхо.");
+        if(chosen.Distinct().Count()!=chosen.Length) throw new ArgumentException("An audio source is selected twice. Choose different sources to avoid echo.");
     }
 }
 
@@ -50,7 +50,7 @@ static class ReplayTools
     }
     public static async Task<string> RunAsync(string executable,IEnumerable<string> arguments,CancellationToken token)
     {
-        using var process=Process.Start(StartInfo(executable,arguments))??throw new IOException("Не удалось запустить FFmpeg.");
+        using var process=Process.Start(StartInfo(executable,arguments))??throw new IOException("Could not start FFmpeg.");
         using var registration=token.Register(()=>{try{if(!process.HasExited)process.Kill(true);}catch{}});
         var error=process.StandardError.ReadToEndAsync();var output=process.StandardOutput.ReadToEndAsync();
         await process.WaitForExitAsync(token);

@@ -1,10 +1,11 @@
-ScreenCapture 0.7.4 fixes delayed or unresponsive Settings opening from the tray.
+ScreenCapture 0.8.0 — SDR streaming, instant replay and KVM in a new English WPF interface.
 
-- Settings appears before audio-device discovery. A single background enumeration populates all audio selectors, including Discord, instead of repeatedly calling audio drivers on the UI thread.
-- Slow or unavailable audio devices no longer block the window. Saved selections remain available while loading or after a timeout, and an explicit refresh retries discovery.
-- Background results preserve edits made while devices are loading. Closing Settings safely cancels its wait; reopening reuses an in-progress driver query.
-- Tray activation is queued until the popup closes. Repeated clicks restore the same window.
-- Display selection uses the existing Windows monitor list; diagnostics loads only when requested, outside the UI thread.
-- Sleep protection from 0.7.3 remains enabled by default. Capture, NDI, recording, KVM transport and camera formats are unchanged.
+- Settings, the computer chooser, remote-viewer controls, update manager and profile password dialogs now use WPF.
+- NeuralMea-inspired dark surfaces, pink/purple accents, rounded controls and short page/hover animations. Motion respects Windows animation preferences.
+- Settings navigation groups capture/replay, computers and application preferences. The tray menu puts Settings and KVM first, followed by streaming/replay toggles and clip actions.
+- English labels, instructions, notifications and application-generated error messages throughout. Device names and user content retain their original language.
+- The existing native KVM video/input surface is hosted inside WPF. NDI, SDR conversion, recording, network protocols, camera formats and existing settings remain compatible.
+- Device discovery remains asynchronous. Missing-device selections and edits made while loading are preserved. Windows remain fixed-size and can be minimized.
+- The self-contained package includes the WPF runtime. No additional UI runtime installation is required.
 
-Validation: UI tests exercised pending/failed device discovery, saving during loading, preserving edits after completion, closing before completion, and repeated activation. Local Settings opening took 565 ms with discovery deliberately unfinished. UI, feature and update tests passed. The reported intermittent failure still needs confirmation on the affected PC after updating.
+Validation: rendered 27 settings views across Off/Host/Client roles; exercised delayed device discovery, selection persistence, close/reopen, monitor placement and remote-only layout preservation. Tested native keyboard down/up and F11 repeat handling inside the WPF viewer. Feature, update integrity, KVM protocol/video and audio timing checks passed locally. End-to-end behaviour on the user's other PCs still needs confirmation after updating.

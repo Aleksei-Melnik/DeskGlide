@@ -76,7 +76,7 @@ sealed class KvmDragDrop:IDisposable
             {
                 var portal=new EdgePortal(bounds);portal.DragEnter+=(s,e)=>Enter(portal,local,screen,e);portal.DragOver+=(_,e)=>e.Effect=pending?.Portal==portal?DragDropEffects.Copy:DragDropEffects.None;
                 portal.DragLeave+=(_,_)=>{if(pending?.Portal==portal&&!pending.HandedOff)CancelPending();};
-                portal.DragDrop+=(_,_)=>{if(pending?.Portal==portal&&!pending.HandedOff){Notification?.Invoke("Передача ещё идёт. Держите кнопку мыши у края до перехода на другой ПК.");CancelPending();}};
+                portal.DragDrop+=(_,_)=>{if(pending?.Portal==portal&&!pending.HandedOff){Notification?.Invoke("Transfer is in progress. Hold the mouse at the edge until control moves to the other PC.");CancelPending();}};
                 portals.Add(portal);portal.Show();
             }
         }
@@ -101,10 +101,10 @@ sealed class KvmDragDrop:IDisposable
         if(portal.Width==2)position.X=portal.Left==screen.X?screen.X:screen.Bounds.Right-1;
         else position.Y=portal.Top==screen.Y?screen.Y:screen.Bounds.Bottom-1;
         var crossing=KvmLayout.EdgeCrossing(controller.Monitors,local,screen,position);if(crossing is not {} edge||edge.Target.Peer==options.Id)return;
-        var peer=service.Peers.FirstOrDefault(p=>p.Id==edge.Target.Peer);if(peer==null||!Version.TryParse(peer.Version,out var version)||version<new Version(0,7,0)){Notification?.Invoke("Для перетаскивания обновите оба ПК до 0.7.0.");return;}
+        var peer=service.Peers.FirstOrDefault(p=>p.Id==edge.Target.Peer);if(peer==null||!Version.TryParse(peer.Version,out var version)||version<new Version(0,7,0)){Notification?.Invoke("Update both PCs to 0.7.0 or later for drag and drop.");return;}
         var transfer=new Pending(peer.Id,Guid.NewGuid().ToString("N"),edge.Target,edge.Point,portal);pending=transfer;args.Effect=DragDropEffects.Copy;
 
-        _=Task.Run(async()=>{try{await files.SendDrag(transfer.Peer,transfer.Id,paths,transfer.Stop.Token);}catch(Exception e){Ui(()=>{if(pending==transfer){Notification?.Invoke("Перетаскивание отменено: "+e.Message);CancelPending();}});}});
+        _=Task.Run(async()=>{try{await files.SendDrag(transfer.Peer,transfer.Id,paths,transfer.Stop.Token);}catch(Exception e){Ui(()=>{if(pending==transfer){Notification?.Invoke("Drag and drop cancelled: "+e.Message);CancelPending();}});}});
     }
     void CancelPending(){var prior=pending;pending=null;if(prior!=null){prior.Dispose();if(!prior.HandedOff)service.Send(prior.Peer,new(){Type="drag-cancel",Id=prior.Id});}}
     void FilesReady(string peer,string id,string[] paths)
@@ -138,7 +138,7 @@ sealed class KvmDragDrop:IDisposable
                     KvmInput.Inject(new(){Type="key",Code=27});KvmInput.Inject(new(){Type="key",Code=27,Flags=2});
                     service.Send(peer,new(){Type="drag-start",Id=message.Id});controller.Activate(transfer.Monitor,transfer.Point);pending=null;transfer.Dispose();break;
                 case "drag-error":
-                    if(pending?.Peer==peer&&pending.Id==message.Id){Notification?.Invoke("Перетаскивание: "+message.Text);CancelPending();}break;
+                    if(pending?.Peer==peer&&pending.Id==message.Id){Notification?.Invoke("Drag and drop: "+message.Text);CancelPending();}break;
             }
         });
     }
@@ -161,7 +161,7 @@ sealed class KvmDragDrop:IDisposable
         // OLE polls the drop source on mouse messages. Wake it on cancellation/disconnect too.
         using var wake=new System.Windows.Forms.Timer{Interval=20};wake.Tick+=(_,_)=>{if(drag.Cancel||drag.Drop)PostMessage(source.Handle,0x200,IntPtr.Zero,IntPtr.Zero);};wake.Start();
         try{var data=new DataObject(DataFormats.FileDrop,drag.Paths);var effect=source.DoDragDrop(data,DragDropEffects.Copy);}
-        catch(Exception e){Notification?.Invoke("Перетаскивание: "+e.Message);}
+        catch(Exception e){Notification?.Invoke("Drag and drop: "+e.Message);}
         finally{wake.Stop();active=null;service.Send(drag.Peer,new(){Type="drag-finished",Id=drag.Id});}
     }
     void Disconnected(string peer){if(active?.Peer==peer)active.Cancel=true;Ui(()=>{if(pending?.Peer==peer)CancelPending();});}

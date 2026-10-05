@@ -7,10 +7,7 @@ static class ReplayTests
 {
     public static void Preview()
     {
-        Application.EnableVisualStyles();using var form=new ReplaySettingsForm(new ReplayOptions());
-        form.RenderPreviews(Path.Combine(AppContext.BaseDirectory,"ui-preview"));
-        using var hub=new KvmHub(()=>null,()=>false,_=>{},()=>{},_=>{},_=>{});
-        hub.RenderPreview(Path.Combine(AppContext.BaseDirectory,"ui-preview","kvm-hub.png"));
+        Application.EnableVisualStyles();Ui.WpfUiTests.Run();
     }
     public static void Live(int seconds,int fps=60)=>LiveAsync(seconds,fps).GetAwaiter().GetResult();
     public static void LiveLocal(int seconds,int fps=120)=>LiveAsync(seconds,fps,true).GetAwaiter().GetResult();

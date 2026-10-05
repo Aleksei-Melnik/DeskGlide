@@ -63,7 +63,7 @@ sealed class KvmVideoSession:IDisposable
         if(request.Type!="view-start")return;
         await Stop();
         if(!Guid.TryParseExact(request.Id,"N",out _)||request.Code is not(30 or 60)||request.Flags is <0 or >2||request.Device.Length>128)throw new IOException("Invalid KVM video settings.");
-        if(!allowed){await wire.SendAsync(new(){Type="view-error",Id=request.Id,Text="Просмотр экрана выключен на удалённом ПК."},token);return;}
+        if(!allowed){await wire.SendAsync(new(){Type="view-error",Id=request.Id,Text="Desktop viewing is disabled on the remote PC."},token);return;}
         id=request.Id;stop=CancellationTokenSource.CreateLinkedTokenSource(token,wire.Token);credits=new(2,2);
         var cancellation=stop.Token;var window=credits;
         worker=Task.Factory.StartNew(()=>Stream(request,window,cancellation),cancellation,TaskCreationOptions.LongRunning,TaskScheduler.Default);
@@ -75,9 +75,9 @@ sealed class KvmVideoSession:IDisposable
         {
             using var codec=new KvmJpeg();using var pacer=new Pacer();pacer.SetRate(request.Code);
             var screen=Screen.AllScreens.FirstOrDefault(s=>s.DeviceName==request.Device);
-            if(screen==null)throw new IOException("Монитор недоступен. Выберите активный экран на удалённом ПК.");
+            if(screen==null)throw new IOException("The monitor is unavailable. Select an active display on the remote PC.");
             var bounds=screen.Bounds;
-            if(bounds.Width<1||bounds.Height<1||(long)bounds.Width*bounds.Height>40000000)throw new IOException("Недопустимый размер экрана.");
+            if(bounds.Width<1||bounds.Height<1||(long)bounds.Width*bounds.Height>40000000)throw new IOException("Invalid display size.");
             double scale=request.Flags==2?Math.Min(1,Math.Min(1920d/bounds.Width,1080d/bounds.Height)):1;
             using var image=new Bitmap(Math.Max(1,(int)(bounds.Width*scale)),Math.Max(1,(int)(bounds.Height*scale)),PixelFormat.Format32bppRgb);
             KvmGpuCapture? gpu=null;try{var display=DisplayInfo.All().First(d=>d.Device==request.Device);gpu=new(display,image.Width,image.Height);}catch(Exception e){Log.Write("KVM GPU fallback: "+e.Message);}
@@ -91,14 +91,14 @@ sealed class KvmVideoSession:IDisposable
             while(!token.IsCancellationRequested)
             {
                 pacer.Wait(token);token.ThrowIfCancellationRequested();
-                if(!window.Wait(3000,token))throw new IOException("Нет подтверждения видеокадров. Проверьте соединение.");
+                if(!window.Wait(3000,token))throw new IOException("Video frames are not being acknowledged. Check the connection.");
                 long stamp=Stopwatch.GetTimestamp();bool fresh;
                 if(gpu!=null)fresh=gpu.Read(image);
                 else{graphics!.CopyFromScreen(bounds.Location,Point.Empty,bounds.Size,CopyPixelOperation.SourceCopy);resized!.DrawImage(original!,new Rectangle(0,0,image.Width,image.Height));fresh=true;}
                 captureMs+=Stopwatch.GetElapsedTime(stamp).TotalMilliseconds;stamp=Stopwatch.GetTimestamp();
                 if(fresh){level=request.Flags==0?95:request.Flags==1?88:80;bytes=codec.Encode(image,level);while(bytes.Length>2800000&&level>45){level-=10;bytes=codec.Encode(image,level);}}
                 if(bytes==null){window.Release();continue;}
-                if(bytes.Length>2800000)throw new IOException("Кадр слишком большой. Выберите режим 1080p.");
+                if(bytes.Length>2800000)throw new IOException("The frame is too large. Choose 1080p mode.");
                 encodeMs+=Stopwatch.GetElapsedTime(stamp).TotalMilliseconds;stamp=Stopwatch.GetTimestamp();
                 wire.SendAsync(new(){Type="view-frame",Id=request.Id,Size=++frame,Device=request.Device,X=bounds.Width,Y=bounds.Height,Data=bytes,Text=$"{image.Width} × {image.Height} · JPEG {level} · 4:4:4 · {(gpu==null?"GDI":"GPU")}"},token).GetAwaiter().GetResult();
                 sendMs+=Stopwatch.GetElapsedTime(stamp).TotalMilliseconds;count++;

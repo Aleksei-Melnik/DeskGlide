@@ -14,8 +14,8 @@ public sealed class StreamEngine:IDisposable
     VideoBuffer? pending;
     Task? captureTask,sendTask;
     int restartVersion;
-    public string Status {get;private set;}="Остановлено";
-    public string CaptureStatus {get;private set;}="Подготовка";
+    public string Status {get;private set;}="Stopped";
+    public string CaptureStatus {get;private set;}="Preparing";
     public string? Error {get;private set;}
     public string SourceName {get;private set;}="SdrCapture SDR";
     public long Frames {get;private set;}
@@ -65,7 +65,7 @@ public sealed class StreamEngine:IDisposable
                 var config=Volatile.Read(ref options);
                 if(!NdiEnabled&&!ReplayEnabled)
                 {
-                    capture?.Dispose();capture=null;CaptureStatus="Захват выключен";
+                    capture?.Dispose();capture=null;CaptureStatus="Capture is off";
                     Thread.Sleep(100);continue;
                 }
                 if(capture!=null && (activeVersion!=Volatile.Read(ref restartVersion)||activeDevice!=config.Device))
@@ -77,10 +77,10 @@ public sealed class StreamEngine:IDisposable
                     {
                         var displays=DisplayInfo.All();
                         var display=displays.FirstOrDefault(d=>d.Device==config.Device);
-                        if(display==null) throw new InvalidOperationException("Выбранный монитор временно недоступен");
+                        if(display==null) throw new InvalidOperationException("The selected monitor is temporarily unavailable");
                         capture=new DesktopCapture(display,config.Compensate);
                         activeDevice=config.Device;activeVersion=Volatile.Read(ref restartVersion);
-                        Recoveries++;CaptureStatus="Захват";
+                        Recoveries++;CaptureStatus="Capturing";
                         Log.Write($"Capture opened: {display.Device}, {display.Width}x{display.Height}, HDR={display.Hdr}");
                     }
                     capture.CompensateSdr=config.Compensate;capture.CaptureCursor=config.Cursor;
@@ -95,13 +95,13 @@ public sealed class StreamEngine:IDisposable
                         try{FrameAvailable?.Invoke(fresh);}catch(Exception e){Log.Write("Replay frame observer: "+e.Message);}
                         var displaced=Interlocked.Exchange(ref pending,fresh);
                         if(displaced!=null){displaced.Dispose();ReplacedFrames++;}
-                        CapturedFrames++;Error=null;CaptureStatus="Захват";
+                        CapturedFrames++;Error=null;CaptureStatus="Capturing";
                     }
                 }
                 catch(Exception e)
                 {
                     capture?.Dispose();capture=null;
-                    Error=e.Message;CaptureStatus="Восстановление захвата";
+                    Error=e.Message;CaptureStatus="Recovering capture";
                     long now=Stopwatch.GetTimestamp();
                     if(now>=logAt){Log.Write(e.ToString());logAt=now+Stopwatch.Frequency*2;}
                     nextRetry=e.HResult==unchecked((int)0x887A0026)||e is CaptureResetException?now:now+Stopwatch.Frequency/10;
@@ -128,7 +128,7 @@ public sealed class StreamEngine:IDisposable
                 if(fresh!=null){current?.Dispose();current=fresh;}
                 if(!NdiEnabled)
                 {
-                    sender?.Dispose();sender=null;Connections=0;Status="NDI выключен";
+                    sender?.Dispose();sender=null;Connections=0;Status="NDI is off";
                     if(!ReplayEnabled){current?.Dispose();current=null;}
                     continue;
                 }
@@ -137,7 +137,7 @@ public sealed class StreamEngine:IDisposable
                     sender=new NdiSender(name,()=>NdiAudioDevice,()=>NdiAudioVolume);SourceName=sender.SourceName;
                     Log.Write($"NDI source created: {SourceName}; runtime={NdiNative.RuntimePath}");
                 }
-                if(current==null){Status="Ожидание первого SDR-кадра";continue;}
+                if(current==null){Status="Waiting for the first SDR frame";continue;}
                 long begin=Stopwatch.GetTimestamp();
                 sender.Send(current);
                 SendMs=Stopwatch.GetElapsedTime(begin).TotalMilliseconds;MaxSendMs=Math.Max(MaxSendMs,SendMs);
@@ -149,12 +149,12 @@ public sealed class StreamEngine:IDisposable
                     Fps=(Frames-reportFrames)/(double)(now-reportAt)*Stopwatch.Frequency;
                     reportFrames=Frames;reportAt=now;Connections=sender.Connections;
                 }
-                Status=CaptureStatus=="Восстановление захвата"?"NDI · последний SDR-кадр · восстановление":$"NDI · SDR · {Fps:F1} FPS · подключений {Connections}";
+                Status=CaptureStatus=="Recovering capture"?"NDI · last SDR frame · recovering":$"NDI · SDR · {Fps:F1} FPS · {Connections} connections";
             }
             }
             finally{sender?.Dispose();}
         }
-        catch(Exception e){Error=e.Message;Status="Ошибка NDI";Log.Write(e.ToString());stop.Cancel();}
+        catch(Exception e){Error=e.Message;Status="NDI error";Log.Write(e.ToString());stop.Cancel();}
         finally{current?.Dispose();}
     }
     public void Dispose()

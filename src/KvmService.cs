@@ -13,7 +13,7 @@ sealed class KvmService:IDisposable
     KvmIdentity? identity;
     TcpListener? listener;
     public KvmOptions Options=>options.Copy();
-    public string Status {get;private set;}="KVM выключен";
+    public string Status {get;private set;}="KVM is off";
     public string PairingCode=>identity?.Code??"";
     public event Action? PeersChanged;
     public event Action<string,KvmMessage>? Received;
@@ -32,7 +32,7 @@ sealed class KvmService:IDisposable
         try
         {
             listener=new TcpListener(IPAddress.Any,options.Port);listener.Start(8);
-            Status=$"Ожидаю подключения · {Environment.MachineName}:{options.Port}";
+            Status=$"Waiting for clients · {Environment.MachineName}:{options.Port}";
             while(!stop.IsCancellationRequested)
             {
                 var tcp=await listener.AcceptTcpClientAsync(stop.Token);
@@ -56,7 +56,7 @@ sealed class KvmService:IDisposable
             KvmWire? control=null,files=null,sound=null,picture=null;
             try
             {
-                Status="Подключаюсь к "+options.Host;
+                Status="Connecting to "+options.Host;
                 control=await KvmWire.Connect(options,"control",stop.Token);
                 var controlTask=Serve(control);
                 files=await KvmWire.Connect(options,"bulk",stop.Token);
@@ -65,10 +65,10 @@ sealed class KvmService:IDisposable
                 var audioTask=Serve(sound);
                 var tasks=new List<Task>{controlTask,bulkTask,audioTask};
                 if(control.Peer.ViewProtocol>=1){picture=await KvmWire.Connect(options,"video",stop.Token);tasks.Add(Serve(picture));}
-                Status="Подключено к "+control.Peer.Name;
+                Status="Connected to "+control.Peer.Name;
                 await Task.WhenAny(tasks);
             }
-            catch(OperationCanceledException){}catch(Exception e){Status="Нет подключения: "+e.Message;}
+            catch(OperationCanceledException){}catch(Exception e){Status="Not connected: "+e.Message;}
             finally{control?.Dispose();files?.Dispose();sound?.Dispose();picture?.Dispose();}
             try{await Task.Delay(3000,stop.Token);}catch(OperationCanceledException){break;}
         }
@@ -91,7 +91,7 @@ sealed class KvmService:IDisposable
             try{while(!linked.IsCancellationRequested){await Task.Delay(2000,linked.Token);wire.Post(new(){Type="ping"});}}
             catch(OperationCanceledException){}
         });
-        if(wire.Channel=="control"){Status="Подключений: "+controls.Count;PeersChanged?.Invoke();}
+        if(wire.Channel=="control"){Status="Connected computers: "+controls.Count;PeersChanged?.Invoke();}
         if(wire.Channel=="audio"&&options.Role=="Host"){KvmAudioBus.Remove(wire.Peer.Id);wire.Post(new(){Type="audio-subscribe",Flags=wire.Peer.Id==ActiveAudioPeer?1:0});}
         using var audioSender=wire.Channel=="audio"&&options.Role=="Client"?new KvmAudioSender(options.AudioDevice,wire):null;
         using var videoSender=wire.Channel=="video"&&options.Role=="Client"?new KvmVideoSession(wire,options.AllowView):null;
@@ -126,7 +126,7 @@ sealed class KvmService:IDisposable
                 }
                 if(wire.Channel=="bulk"&&message.Type=="view-request"&&options.Role=="Client")
                 {
-                    if(!options.AllowView)await wire.SendAsync(new(){Type="view-error",Text="Просмотр экрана выключен на удалённом ПК."},linked.Token);
+                    if(!options.AllowView)await wire.SendAsync(new(){Type="view-error",Text="Desktop viewing is disabled on the remote PC."},linked.Token);
                     else await KvmViewerCapture.Reply(wire,message,linked.Token);
                     continue;
                 }
@@ -162,12 +162,12 @@ sealed class KvmService:IDisposable
     public Func<string,KvmMessage,bool>? BeforeInput {get;set;}
     public async Task SendControl(string peer,KvmMessage message)
     {
-        if(!controls.TryGetValue(peer,out var connection))throw new IOException("ПК отключился.");
+        if(!controls.TryGetValue(peer,out var connection))throw new IOException("The computer disconnected.");
         await connection.SendAsync(message,stop.Token);
     }
     public async Task SendBulk(string peer,KvmMessage message,CancellationToken token=default)
     {
-        if(!bulk.TryGetValue(peer,out var connection))throw new IOException("Канал передачи ещё не подключён.");
+        if(!bulk.TryGetValue(peer,out var connection))throw new IOException("The transfer channel is not connected yet.");
         await connection.SendAsync(message,token);
     }
     public void SelectAudio(string? peer)

@@ -35,9 +35,9 @@ public sealed class ReplayRecorder:IDisposable
     ReplayAudio? audio;
     int version,disposed;
     long warmupUntil;
-    public string Status {get;private set;}="Подготовка буфера";
+    public string Status {get;private set;}="Preparing replay buffer";
     public string? Error {get;private set;}
-    public string AudioStatus=>audio?.Status??"Звук не запущен";
+    public string AudioStatus=>audio?.Status??"Audio has not started";
     public int Width {get;private set;}
     public int Height {get;private set;}
     public long EncodedFrames {get;private set;}
@@ -118,9 +118,9 @@ public sealed class ReplayRecorder:IDisposable
             try
             {
                 var config=Volatile.Read(ref options);int currentVersion=Volatile.Read(ref version);
-                if(!config.Enabled){Status="Буфер выключен";await Task.Delay(200,stop.Token);continue;}
+                if(!config.Enabled){Status="Replay buffer is off";await Task.Delay(200,stop.Token);continue;}
                 using var first=GetFrame();
-                if(first==null){Status="Ожидание SDR-кадра";await Task.Delay(100,stop.Token);continue;}
+                if(first==null){Status="Waiting for an SDR frame";await Task.Delay(100,stop.Token);continue;}
                 if(activeVersion!=currentVersion)
                 {
                     lock(chunksGate)foreach(var chunk in chunks.Where(c=>c.Pins==0).ToArray()){TryDelete(chunk.Path);chunks.Remove(chunk);}
@@ -128,7 +128,7 @@ public sealed class ReplayRecorder:IDisposable
                     Width=config.Width==0?first.Width:config.Width;Height=config.Width==0?(first.Height&~1):config.Height;
                 }
                 config.Validate();
-                if(!File.Exists(ReplayTools.Ffmpeg))throw new FileNotFoundException("Не найден tools\\ffmpeg.exe для записи.");
+                if(!File.Exists(ReplayTools.Ffmpeg))throw new FileNotFoundException("Recording requires tools\\ffmpeg.exe.");
                 using var captureAudio=new ReplayAudio(config,syntheticAudio);audio=captureAudio;
                 await RecordSession(config,currentVersion,captureAudio);
                 audio=null;
@@ -136,7 +136,7 @@ public sealed class ReplayRecorder:IDisposable
             catch(OperationCanceledException) when(stop.IsCancellationRequested){break;}
             catch(Exception e)
             {
-                Error=e.Message;Status="Запись восстанавливается: "+e.Message;Log.Write("Replay: "+e);
+                Error=e.Message;Status="Recovering recording: "+e.Message;Log.Write("Replay: "+e);
                 try{await Task.Delay(2000,stop.Token);}catch(OperationCanceledException){break;}
             }
         }
@@ -171,7 +171,7 @@ public sealed class ReplayRecorder:IDisposable
             "-color_range","tv","-colorspace","bt709","-color_primaries","bt709","-color_trc","bt709",
             "-c:a","aac","-b:a","192k","-ar","48000",
             "-f","segment","-segment_format","matroska","-segment_time","2","-reset_timestamps","1","-segment_list_size","8","-segment_list_type","csv","-segment_list",Path.Combine(folder,"chunks.csv"),Path.Combine(folder,"seg-%06d.mkv")]);
-        using var process=Process.Start(ReplayTools.StartInfo(ReplayTools.Ffmpeg,args))??throw new IOException("FFmpeg не запущен.");
+        using var process=Process.Start(ReplayTools.StartInfo(ReplayTools.Ffmpeg,args))??throw new IOException("FFmpeg is not running.");
         EncoderStarts++;
         var errors=new Queue<string>();
         var stderr=Task.Run(async()=>{while(await process.StandardError.ReadLineAsync() is string line){lock(errors){errors.Enqueue(line);while(errors.Count>12)errors.Dequeue();}}});
@@ -216,7 +216,7 @@ public sealed class ReplayRecorder:IDisposable
                     pacing.WaitUntil((long)((due+playout)*Stopwatch.Frequency),token);
                     token.ThrowIfCancellationRequested();
                     MaxWriterLateMs=Math.Max(MaxWriterLateMs,(Now-due)*1000);
-                    if(Now-due>1)throw new IOException($"NVENC не успевает за {config.Fps} FPS. Уменьшите разрешение или FPS записи.");
+                    if(Now-due>1)throw new IOException($"NVENC cannot keep up with {config.Fps} FPS. Reduce recording resolution or frame rate.");
                     using var frame=GetFrame((long)(due*Stopwatch.Frequency));if(frame==null){Thread.Sleep(1);continue;}
                     if(frame.CapturedAt==previousCapture)RepeatedInputFrames++;previousCapture=frame.CapturedAt;
                     byte[] data=frame.Data;
@@ -254,8 +254,8 @@ public sealed class ReplayRecorder:IDisposable
                 if(process.HasExited){lock(errors)throw new IOException(config.Codec+": "+string.Join(" ",errors));}
                 if(videoTask.IsCompleted)await videoTask;
                 if(!config.IsSilent&&audioTask.IsCompleted)await audioTask;
-                if(Now-lastVideo>4)throw new IOException("Кодировщик записи не отвечает.");
-                Error=null;Status=$"{config.Codec} NVENC · {Width}×{Height} · {config.Fps} FPS · буфер {TimeSpan.FromSeconds(BufferedSeconds):mm\\:ss} / {Volatile.Read(ref options).Minutes}:00";
+                if(Now-lastVideo>4)throw new IOException("The recording encoder is not responding.");
+                Error=null;Status=$"{config.Codec} NVENC · {Width}×{Height} · {config.Fps} FPS · buffer {TimeSpan.FromSeconds(BufferedSeconds):mm\\:ss} / {Volatile.Read(ref options).Minutes}:00";
             }
         }
         catch(OperationCanceledException) when(stop.IsCancellationRequested){}
@@ -283,11 +283,11 @@ public sealed class ReplayRecorder:IDisposable
             }
         }
         var drive=new DriveInfo(Path.GetPathRoot(runFolder)!);
-        if(drive.AvailableFreeSpace<512L*1024*1024)throw new IOException("Для буфера повтора осталось менее 512 МБ. Освободите место на локальном диске.");
+        if(drive.AvailableFreeSpace<512L*1024*1024)throw new IOException("Less than 512 MB is available for replay buffering. Free up local disk space.");
     }
     public async Task<ReplayResult> SaveAsync(string appFolder="Desktop")
     {
-        if(!await saveGate.WaitAsync(0))throw new InvalidOperationException("Предыдущий повтор ещё сохраняется.");
+        if(!await saveGate.WaitAsync(0))throw new InvalidOperationException("The previous replay is still being saved.");
         ReplayChunk[] selected=[];
         string? listPath=null;
         try
@@ -303,7 +303,7 @@ public sealed class ReplayRecorder:IDisposable
             {
                 int generation=chunks.Count>0?chunks[^1].Generation:-1;
                 selected=chunks.Where(c=>c.Generation==generation&&c.Start>=pressed-WindowSeconds&&c.Start<pressed).ToArray();
-                if(selected.Length==0)throw new InvalidOperationException("Буфер ещё пуст. Подождите несколько секунд после включения записи.");
+                if(selected.Length==0)throw new InvalidOperationException("The buffer is empty. Wait a few seconds after enabling replay.");
                 foreach(var chunk in selected)chunk.Pins++;
             }
             string exports=Path.Combine(ReplayTools.Root,"saved");Directory.CreateDirectory(exports);
@@ -318,12 +318,12 @@ public sealed class ReplayRecorder:IDisposable
             if(config.IsSilent)exportArgs.Add("-an");
             exportArgs.AddRange(["-f","mp4",partial]);
             await ReplayTools.RunAsync(ReplayTools.Ffmpeg,exportArgs,timeout.Token);
-            if(new FileInfo(partial).Length<1024)throw new IOException("Пустой файл повтора.");
+            if(new FileInfo(partial).Length<1024)throw new IOException("The replay file is empty.");
             File.Move(partial,output);
             string destination=Path.Combine(config.Folder,ReplayAppContext.SafeName(appFolder),name);
             File.WriteAllText(output+".delivery.tmp",JsonSerializer.Serialize(new DeliveryJob(output,destination,duration)));
             File.Move(output+".delivery.tmp",output+".delivery.json");
-            return new ReplayResult(output,destination,duration,"Повтор готов; сохранение в выбранную папку.");
+            return new ReplayResult(output,destination,duration,"Replay ready; copying to your selected folder.");
         }
         finally
         {

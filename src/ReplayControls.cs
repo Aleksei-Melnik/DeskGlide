@@ -13,9 +13,3 @@ sealed class ReplayHotkey:NativeWindow,IDisposable
     [DllImport("user32.dll")] [return:MarshalAs(UnmanagedType.Bool)] static extern bool RegisterHotKey(IntPtr handle,int id,uint modifiers,uint key);
     [DllImport("user32.dll")] [return:MarshalAs(UnmanagedType.Bool)] static extern bool UnregisterHotKey(IntPtr handle,int id);
 }
-
-sealed class ReplaySettingsForm : AppSettingsForm
-{
-    public ReplayOptions Result=>ResultSettings.Replay;
-    public ReplaySettingsForm(ReplayOptions value):base(new Settings{Replay=value}){}
-}

@@ -25,19 +25,19 @@ sealed class ReplayDelivery:IDisposable
                 if(stop.IsCancellationRequested)break;
                 try
                 {
-                    var job=JsonSerializer.Deserialize<DeliveryJob>(await File.ReadAllTextAsync(manifest,stop.Token))??throw new IOException("Повреждена задача сохранения");
+                    var job=JsonSerializer.Deserialize<DeliveryJob>(await File.ReadAllTextAsync(manifest,stop.Token))??throw new IOException("The clip delivery task is damaged");
                     string source=Path.GetFullPath(job.Source);
-                    if(!source.StartsWith(Path.GetFullPath(folder)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||!source.EndsWith(".mp4",StringComparison.OrdinalIgnoreCase))throw new IOException("Неверный локальный путь клипа");
-                    Status="Копирование: "+job.Destination;
+                    if(!source.StartsWith(Path.GetFullPath(folder)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||!source.EndsWith(".mp4",StringComparison.OrdinalIgnoreCase))throw new IOException("Invalid local clip path");
+                    Status="Copying: "+job.Destination;
                     using var timeout=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);timeout.CancelAfter(TimeSpan.FromSeconds(60));
                     await CopyAsync(job,timeout.Token);
                     File.Delete(manifest);File.Delete(source);warned.Remove(manifest);
-                    Status=$"Последние {TimeSpan.FromSeconds(job.Seconds):mm\\:ss} сохранены.\n{job.Destination}";Notification?.Invoke(Status);
+                    Status=$"Saved the last {TimeSpan.FromSeconds(job.Seconds):mm\\:ss}.\n{job.Destination}";Notification?.Invoke(Status);
                 }
                 catch(OperationCanceledException) when(stop.IsCancellationRequested){break;}
                 catch(Exception e)
                 {
-                    Status="Клип сохранён локально; повтор копирования через 30 с. "+e.Message;
+                    Status="Clip saved locally; retrying delivery in 30 seconds. "+e.Message;
                     if(warned.Add(manifest))Notification?.Invoke(Status+"\n"+folder);
                 }
             }
@@ -57,7 +57,7 @@ sealed class ReplayDelivery:IDisposable
                 var hashA=await System.Security.Cryptography.SHA256.HashDataAsync(a,token);var hashB=await System.Security.Cryptography.SHA256.HashDataAsync(b,token);
                 if(hashA.AsSpan().SequenceEqual(hashB))return;
             }
-            throw new IOException("Файл с таким именем уже существует: "+destination);
+            throw new IOException("A file with this name already exists: "+destination);
         }
         string partial=destination+".uploading";
         try
@@ -65,7 +65,7 @@ sealed class ReplayDelivery:IDisposable
             await using(var input=new FileStream(job.Source,FileMode.Open,FileAccess.Read,FileShare.Read,1024*1024,FileOptions.Asynchronous|FileOptions.SequentialScan))
             await using(var output=new FileStream(partial,FileMode.Create,FileAccess.Write,FileShare.None,1024*1024,FileOptions.Asynchronous|FileOptions.SequentialScan))
             {await input.CopyToAsync(output,1024*1024,token);await output.FlushAsync(token);}
-            if(new FileInfo(partial).Length!=new FileInfo(job.Source).Length)throw new IOException("Не совпал размер скопированного клипа");
+            if(new FileInfo(partial).Length!=new FileInfo(job.Source).Length)throw new IOException("The copied clip size did not match");
             File.Move(partial,destination);
         }
         catch{try{File.Delete(partial);}catch{}throw;}

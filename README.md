@@ -4,6 +4,13 @@ Windows 11 x64 tray application for a gaming PC and a streaming PC. Captures
 the desktop, converts it to SDR and sends it to OBS/DistroAV over NDI High
 Bandwidth. Includes GPU instant replay, audio capture and paired-PC controls.
 
+The English WPF interface uses NeuralMea's dark palette with pink/purple accents.
+Settings are grouped into capture/replay, computers and application preferences.
+Page and hover animations respect Windows' animation setting. The native video
+surface remains inside the WPF KVM viewer to preserve its rendering and keyboard
+handling. Windows Forms is retained for the tray, input hooks and that video surface.
+The self-contained release includes the WPF runtime; no separate installation is needed.
+
 **Download:** [latest release](https://github.com/Aleksei-Melnik/ScreenCapture/releases/latest).
 
 ## First run
@@ -27,8 +34,8 @@ the same ScreenCapture application. Existing settings stay in
 `%LOCALAPPDATA%\SdrCapture`, and the NDI source name remains `SdrCapture SDR`.
 
 Settings opens before audio-device discovery finishes. Saved devices remain selected
-while loading, including temporarily unavailable devices. Use **Обновить устройства**
-on the screen-transmission page (or **Обновить список** on the Discord page) to retry
+while loading, including temporarily unavailable devices. Use **Refresh devices**
+on the screen-transmission page (or **Refresh devices** on the Discord page) to retry
 if a driver does not respond. A refresh preserves edits made while it was loading.
 
 ## NDI and Discord
@@ -38,11 +45,11 @@ Limited range, Highest bandwidth and Low latency. Leave OBS output in SDR Rec.70
 NDI transmission uses High Bandwidth, not HX/HEVC. Recording has its own hardware
 encoder and quality settings.
 
-Settings → NDI has an audio device selector and a **0–100% volume slider**.
+Settings → Screen streaming has an audio device selector and a **0–100% volume slider**.
 The default is 50%; 0% mutes outgoing NDI audio. This slider does not change
 the recording tracks or Windows device volume. Select Silent for no audio.
 
-For Discord without OBS or NDI Webcam Input, open **Discord · приём** on the
+For Discord without OBS or NDI Webcam Input, open **Discord camera** on the
 **receiving/streaming PC**. Install **ScreenCapture Camera**, find/select the
 gaming PC's NDI source, enable reception and save. The native camera offers
 1920×1080 RGB24/RGB32 video at 60 FPS, with 30 FPS negotiation for clients that
@@ -52,10 +59,10 @@ restart Discord after first installation. Select it under screen share → Devic
 and select 60 FPS in Discord. Discord's account, streaming settings and network
 can still limit the outgoing stream; the device cannot override those limits.
 
-For network sound, use **Установить VB-CABLE…** on that same receiving PC. This downloads
+For network sound, use **Install VB-CABLE…** on that same receiving PC. This downloads
 the pinned, signed, original **VB-CABLE** package and opens its administrator
 installer. Click Install Driver and reboot if requested. Select the cable output
-and its paired recording input in ScreenCapture, then use **Настроить устройства…**.
+and its paired recording input in ScreenCapture, then use **Set up devices**.
 Renaming requests administrator permission separately; the main app stays unelevated.
 The recording endpoint becomes
 **ScreenCapture Camera Audio (VB-CABLE)**, matching the complete camera name.
@@ -72,7 +79,7 @@ non-cable device is preserved. Previous defaults from installations before 0.7.1
 cannot be reconstructed: restore those once in Windows sound settings if needed.
 Audio can be Silent and has a separate receiver volume slider.
 
-Choose **Вход этого ПК / микшер** to pair the camera with a local audio input,
+Choose **Local input or mixer** to pair the camera with a local audio input,
 such as RØDECaster. Discord captures that endpoint directly; network audio is
 not played through a cable in this mode. Other cables can be used by selecting
 their playback and recording endpoints manually. Renaming only changes the
@@ -84,8 +91,8 @@ No cable or camera is installed automatically, through updates or through KVM
 pairing. Installation is blocked on the controlling/gaming PC. Camera binaries
 are kept in a versioned user directory so a running Discord cannot block updates.
 
-Settings → **Передача экрана → При бездействии** includes **Не усыплять ПК и не
-выключать экран**, enabled by default (including after upgrade). While the app
+Settings → **Screen streaming → Everyday use** includes **Keep this PC and its
+displays awake**, enabled by default (including after upgrade). While the app
 is running it requests that Windows keep the system and display awake, even
 with NDI/replay disabled. Disabling the option or exiting releases the request;
 Windows power-plan timers are never edited. Manual sleep remains available.
@@ -102,20 +109,20 @@ Windows power-plan timers are never edited. Manual sleep remains available.
   remote PC on opposite sides of the local monitor. Clipboard, file transfer,
   optional remote audio for replay and remote viewing are included.
 
-Tray → **KVM · управление компьютерами…** opens an independent computer chooser.
+Tray → **Computers · KVM…** opens an independent computer chooser.
 `ScreenCapture.exe --kvm` can be assigned to a shortcut or Stream Deck button.
-The same chooser has a configurable hotkey under **KVM / сеть**, initially
+The same chooser has a configurable hotkey under **KVM & pairing**, initially
 **Ctrl+Alt+K**. **Ctrl+Alt+Pause** toggles mouse transitions (also configurable)
 and returns control locally when locking them. Monitor shortcuts are set in
-**Мониторы**. Stream Deck software keystrokes are supported; save edited settings.
+**Monitor layout**. Stream Deck software keystrokes are supported; save edited settings.
 Each remote viewer has monitor selection, fullscreen (F11), a view-only toggle
 and Disconnect; closing it does not stop capture or recording. Reopening the
 same PC activates its existing window. Settings have contextual descriptions,
 role-specific fields and a short transition that follows Windows animation settings.
 
-In a connected computer's KVM card, enable **Только окно KVM** to exclude it
+In a connected computer's KVM card, enable **Remote view only** to exclude it
 from physical monitor transitions while keeping remote viewing/control available.
-Alternatively, enable **Режим сервера** on the controlled computer. Excluding a
+Alternatively, enable **Server mode** on the controlled computer. Excluding a
 PC retains its saved monitor positions; disabling the option restores them.
 There is no timed cooldown when crossing monitor edges. Actual input latency
 still depends on Windows scheduling and the network.
@@ -135,7 +142,7 @@ for file transfer in either direction. The current experimental implementation
 only attempts controlling-PC → controlled-PC handoff; reverse drag is not
 implemented. This update does not fix drag/drop.
 
-**Мой профиль** exports an encrypted `.scprofile` for each PC, including pairing
+**Backup & restore** exports an encrypted `.scprofile` for each PC, including pairing
 identity, monitor layout, devices, replay/NDI/Discord settings and autorun. Keep
 the password. Restore that PC's own profile after reinstalling Windows; retain
 the computer name and reselect audio endpoints if Windows changed their IDs.
@@ -150,7 +157,7 @@ not promised.
 
 ## Updates
 
-Tray → **Обновления…** → **Обновить все подключённые ПК** on the controlling PC.
+Tray → **Check for updates…** → **Update all PCs** on the controlling PC.
 Each PC downloads the same release and checks its RSA signature and file hashes.
 Only then does it save its replay, restart and retain settings/pairing/recordings.
 The host waits for clients to reconnect before updating itself. Failed file

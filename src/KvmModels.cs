@@ -25,19 +25,19 @@ public sealed record KvmOptions
     public KvmOptions Copy()=>this with{Layout=Layout.Select(m=>m with{}).ToList(),RemoteOnlyPeers=RemoteOnlyPeers.ToList()};
     public void Validate()
     {
-        if(Role is not ("Off" or "Host" or "Client"))throw new ArgumentException("Неизвестная роль KVM.");
-        if(Port<1024||Port>65535)throw new ArgumentException("Порт KVM: 1024–65535.");
-        if(!Guid.TryParseExact(Id,"N",out _))throw new ArgumentException("Повреждён идентификатор KVM.");
-        if(RemoteOnlyPeers.Count>64||RemoteOnlyPeers.Any(id=>!Guid.TryParseExact(id,"N",out _)||id==Id))throw new ArgumentException("Недопустимый список серверов KVM.");
-        if(Role=="Client"){if(string.IsNullOrWhiteSpace(Host))throw new ArgumentException("Введите имя или IP управляющего ПК.");KvmPairing.Decode(PairingCode);}
-        if(Layout.Count>32||Layout.GroupBy(m=>m.Key).Any(g=>g.Count()>1))throw new ArgumentException("Недопустимая схема мониторов.");
+        if(Role is not ("Off" or "Host" or "Client"))throw new ArgumentException("Unknown KVM role.");
+        if(Port<1024||Port>65535)throw new ArgumentException("The KVM port must be between 1024 and 65535.");
+        if(!Guid.TryParseExact(Id,"N",out _))throw new ArgumentException("The KVM identity is invalid.");
+        if(RemoteOnlyPeers.Count>64||RemoteOnlyPeers.Any(id=>!Guid.TryParseExact(id,"N",out _)||id==Id))throw new ArgumentException("Invalid KVM server list.");
+        if(Role=="Client"){if(string.IsNullOrWhiteSpace(Host))throw new ArgumentException("Enter the host computer name or IP address.");KvmPairing.Decode(PairingCode);}
+        if(Layout.Count>32||Layout.GroupBy(m=>m.Key).Any(g=>g.Count()>1))throw new ArgumentException("Invalid monitor layout.");
         foreach(var m in Layout)
             if(Math.Abs((long)m.X)>100000||Math.Abs((long)m.Y)>100000||m.Width<1||m.Width>16384||m.Height<1||m.Height>16384||m.Hotkey<0||m.Hotkey>12)
-                throw new ArgumentException("Недопустимое положение или размер монитора.");
-        if(Layout.Where(m=>m.Hotkey>0).GroupBy(m=>m.Hotkey).Any(g=>g.Count()>1))throw new ArgumentException("Горячая клавиша назначена двум мониторам.");
+                throw new ArgumentException("Invalid monitor position or size.");
+        if(Layout.Where(m=>m.Hotkey>0).GroupBy(m=>m.Hotkey).Any(g=>g.Count()>1))throw new ArgumentException("A shortcut is assigned to two monitors.");
         KvmShortcut.Validate(OpenHotkeyModifiers,OpenHotkeyKey);KvmShortcut.Validate(ToggleHotkeyModifiers,ToggleHotkeyKey);
         var shortcuts=Layout.Where(m=>m.Hotkey>0).Select(m=>(3u,(uint)Keys.F1+(uint)m.Hotkey-1)).Append((OpenHotkeyModifiers,OpenHotkeyKey)).Append((ToggleHotkeyModifiers,ToggleHotkeyKey)).Where(k=>k.Item2!=0).ToArray();
-        if(shortcuts.Distinct().Count()!=shortcuts.Length||shortcuts.Contains((3u,(uint)Keys.Escape)))throw new ArgumentException("Горячие клавиши KVM должны отличаться друг от друга и от Ctrl+Alt+Esc.");
+        if(shortcuts.Distinct().Count()!=shortcuts.Length||shortcuts.Contains((3u,(uint)Keys.Escape)))throw new ArgumentException("KVM shortcuts must be unique and cannot use Ctrl+Alt+Esc.");
     }
 }
 
@@ -73,7 +73,7 @@ static class KvmPairing
             if(bytes.Length!=64)throw new FormatException();
             return(bytes[..32],bytes[32..]);
         }
-        catch{throw new ArgumentException("Код подключения неполный. Скопируйте весь код с управляющего ПК.");}
+        catch{throw new ArgumentException("The pairing code is incomplete. Copy the full code from the host.");}
     }
 }
 
