@@ -1,4 +1,6 @@
-ScreenCapture 0.8.2
+ScreenCapture 0.8.1
 
-- Restored the compact standard Windows tray menu, with default font, spacing, colours and checkmarks.
-- Removed the version heading and restored the previous grouping of actions.
+- Removed persistent drag-and-drop edge windows during ordinary mouse use. Drop targets are active only while the left mouse button is held.
+- Added Corner protection in Settings > KVM & pairing. Enabled by default: 32-pixel corner areas stay on the current monitor, including fast overshoots and remote returns. Monitor shortcuts remain available.
+
+Physical multi-PC behavior requires confirmation after updating.
