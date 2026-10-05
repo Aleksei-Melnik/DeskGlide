@@ -11,6 +11,7 @@ public sealed record KvmOptions
     public string PairingCode {get;set;}="";
     public string Id {get;set;}=Guid.NewGuid().ToString("N");
     public bool Seamless {get;set;}=true;
+    public bool ProtectCorners {get;set;}=true;
     public uint OpenHotkeyModifiers {get;set;}=3;
     public uint OpenHotkeyKey {get;set;}=(uint)Keys.K;
     public uint ToggleHotkeyModifiers {get;set;}=3;
@@ -79,8 +80,15 @@ static class KvmPairing
 
 static class KvmLayout
 {
-    public static (MonitorPlacement Target,Point Point)? EdgeCrossing(IEnumerable<MonitorPlacement> monitors,MonitorPlacement local,KvmScreen screen,Point point)
+    internal static bool InCorner(Rectangle bounds,Point point)
     {
+        int x=Math.Clamp(point.X-bounds.X,0,bounds.Width-1),y=Math.Clamp(point.Y-bounds.Y,0,bounds.Height-1);
+        int margin=Math.Min(32,Math.Min(bounds.Width,bounds.Height)/2);
+        return (x<margin||x>=bounds.Width-margin)&&(y<margin||y>=bounds.Height-margin);
+    }
+    public static (MonitorPlacement Target,Point Point)? EdgeCrossing(IEnumerable<MonitorPlacement> monitors,MonitorPlacement local,KvmScreen screen,Point point,bool protectCorners=false)
+    {
+        if(protectCorners&&InCorner(screen.Bounds,point))return null;
         var logical=new Point(local.X+Math.Clamp(point.X-screen.X,0,local.Width-1),local.Y+Math.Clamp(point.Y-screen.Y,0,local.Height-1));
         var candidates=new List<Point>();
         if(point.X<=screen.X)candidates.Add(new(local.X-1,logical.Y));

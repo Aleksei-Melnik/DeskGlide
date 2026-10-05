@@ -40,8 +40,9 @@ sealed class KvmDragDrop:IDisposable
     readonly Control ui;
     readonly List<EdgePortal> portals=[];
     readonly System.Collections.Concurrent.ConcurrentDictionary<string,(string Peer,string[] Paths,DateTimeOffset Time)> ready=new();
-    readonly System.Windows.Forms.Timer timer=new(){Interval=1000};
+    readonly System.Windows.Forms.Timer timer=new(){Interval=50};
     string topology="";
+    DateTime nextCleanup=DateTime.MinValue;
     Pending? pending;
     RemoteDrag? active;
     bool disposed;
@@ -65,15 +66,21 @@ sealed class KvmDragDrop:IDisposable
     {
         foreach(var item in ready.Where(p=>DateTimeOffset.UtcNow-p.Value.Time>TimeSpan.FromMinutes(5)).ToArray())ready.TryRemove(item.Key,out _);
         string root=Path.Combine(Log.Folder,"Kvm","Clipboard");var pinned=ready.Values.SelectMany(v=>v.Paths).Concat(active?.Paths??[]).Select(Path.GetDirectoryName).Where(p=>p!=null).Select(p=>p!).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if(DateTime.UtcNow.Second%30==0)_=Task.Run(()=>KvmFileCache.Clean(root,TimeSpan.FromHours(4),pinned));
-        string signature=options.Role=="Host"&&options.ClipboardFiles&&controller.Seamless&&!controller.ViewerActive?JsonSerializer.Serialize(controller.Monitors):"";
+        if(DateTime.UtcNow>=nextCleanup){nextCleanup=DateTime.UtcNow.AddSeconds(30);_=Task.Run(()=>KvmFileCache.Clean(root,TimeSpan.FromHours(4),pinned));}
+        string signature=options.Role=="Host"&&options.ClipboardFiles&&controller.Seamless&&!controller.ViewerActive&&(GetAsyncKeyState(1)&0x8000)!=0?JsonSerializer.Serialize(controller.Monitors):"";
         if(signature==topology)return;topology=signature;CancelPending();foreach(var portal in portals)portal.Dispose();portals.Clear();
         if(signature.Length==0)return;
         foreach(var screen in KvmScreen.Local())
         {
             var local=controller.Monitors.FirstOrDefault(m=>m.Peer==options.Id&&m.Device==screen.Device);if(local==null)continue;
-            foreach(var bounds in SharedEdges(controller.Monitors,local,screen))
+            foreach(var shared in SharedEdges(controller.Monitors,local,screen))
             {
+                var bounds=shared;
+                if(options.ProtectCorners)
+                {
+                    var safe=shared.Width==2?new Rectangle(screen.X,screen.Y+32,screen.Width,Math.Max(0,screen.Height-64)):new Rectangle(screen.X+32,screen.Y,Math.Max(0,screen.Width-64),screen.Height);
+                    bounds=Rectangle.Intersect(shared,safe);if(bounds.Width==0||bounds.Height==0)continue;
+                }
                 var portal=new EdgePortal(bounds);portal.DragEnter+=(s,e)=>Enter(portal,local,screen,e);portal.DragOver+=(_,e)=>e.Effect=pending?.Portal==portal?DragDropEffects.Copy:DragDropEffects.None;
                 portal.DragLeave+=(_,_)=>{if(pending?.Portal==portal&&!pending.HandedOff)CancelPending();};
                 portal.DragDrop+=(_,_)=>{if(pending?.Portal==portal&&!pending.HandedOff){Notification?.Invoke("Transfer is in progress. Hold the mouse at the edge until control moves to the other PC.");CancelPending();}};
@@ -100,7 +107,7 @@ sealed class KvmDragDrop:IDisposable
         // Portal is two pixels wide; project it onto the actual outer boundary.
         if(portal.Width==2)position.X=portal.Left==screen.X?screen.X:screen.Bounds.Right-1;
         else position.Y=portal.Top==screen.Y?screen.Y:screen.Bounds.Bottom-1;
-        var crossing=KvmLayout.EdgeCrossing(controller.Monitors,local,screen,position);if(crossing is not {} edge||edge.Target.Peer==options.Id)return;
+        var crossing=KvmLayout.EdgeCrossing(controller.Monitors,local,screen,position,options.ProtectCorners);if(crossing is not {} edge||edge.Target.Peer==options.Id)return;
         var peer=service.Peers.FirstOrDefault(p=>p.Id==edge.Target.Peer);if(peer==null||!Version.TryParse(peer.Version,out var version)||version<new Version(0,7,0)){Notification?.Invoke("Update both PCs to 0.7.0 or later for drag and drop.");return;}
         var transfer=new Pending(peer.Id,Guid.NewGuid().ToString("N"),edge.Target,edge.Point,portal);pending=transfer;args.Effect=DragDropEffects.Copy;
 
@@ -167,10 +174,11 @@ sealed class KvmDragDrop:IDisposable
     void Disconnected(string peer){if(active?.Peer==peer)active.Cancel=true;Ui(()=>{if(pending?.Peer==peer)CancelPending();});}
     void Ui(Action action){if(disposed)return;try{ui.BeginInvoke(()=>{if(!disposed)action();});}catch(InvalidOperationException){}}
     public void Dispose(){disposed=true;timer.Stop();timer.Dispose();CancelPending();if(active!=null)active.Cancel=true;foreach(var portal in portals)portal.Dispose();files.DragFilesReady-=FilesReady;service.Received-=Receive;service.Disconnected-=Disconnected;service.BeforeInput=null;}
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd,uint msg,IntPtr w,IntPtr l);
     sealed class EdgePortal:Form
     {
-        public EdgePortal(Rectangle bounds){FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;ShowInTaskbar=false;TopMost=true;AllowDrop=true;Opacity=.004;BackColor=Color.FromArgb(33,105,211);}
+        public EdgePortal(Rectangle bounds){FormBorderStyle=FormBorderStyle.None;StartPosition=FormStartPosition.Manual;Bounds=bounds;ShowInTaskbar=false;TopMost=true;AllowDrop=true;Opacity=.004;BackColor=Color.Black;}
         protected override bool ShowWithoutActivation=>true;
         protected override CreateParams CreateParams{get{var p=base.CreateParams;p.ExStyle|=0x08000000|0x80;return p;}}
     }
