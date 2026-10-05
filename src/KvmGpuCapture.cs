@@ -28,7 +28,7 @@ sealed class KvmGpuCapture:IDisposable
     public bool Read(Bitmap target)
     {
         var current=output.Description1;
-        if(!current.AttachedToDesktop||current.Rotation!=rotation||(current.ColorSpace==ColorSpaceType.RgbFullG2084NoneP2020)!=display.Hdr||current.DesktopCoordinates.Right-current.DesktopCoordinates.Left!=display.Width||current.DesktopCoordinates.Bottom-current.DesktopCoordinates.Top!=display.Height)throw new CaptureResetException("The display size or mode changed. Reconnecting the viewer.");
+        if(!current.AttachedToDesktop||current.Rotation!=rotation||(current.ColorSpace==ColorSpaceType.RgbFullG2084NoneP2020)!=display.Hdr||current.DesktopCoordinates.Right-current.DesktopCoordinates.Left!=display.Width||current.DesktopCoordinates.Bottom-current.DesktopCoordinates.Top!=display.Height)throw new CaptureResetException("Размер или режим экрана изменился. Переподключаю просмотр.");
         var result=duplication.AcquireNextFrame(0,out _,out var resource);if(result.Code==unchecked((int)0x887A0027))return false;result.CheckError();
         try{using(resource)using(var texture=resource.QueryInterface<ID3D11Texture2D>())readback.Read(texture,target,(int)rotation,display.Hdr?(float)(80/WhiteLevel.Read(display.Device)):1);return true;}
         finally{duplication.ReleaseFrame().CheckError();}

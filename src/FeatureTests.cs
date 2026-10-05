@@ -30,11 +30,6 @@ static class FeatureTests
         foreach(var point in new[]{new Point(-120,20),new Point(0,0)})Require(KvmLayout.EdgeCrossing([local,left,right],local,screen,point)?.Target==left,"Fast left / corner crossing");
         Require(KvmLayout.EdgeCrossing([local,left,right],local,screen,new(2800,30))?.Target==right,"Fast right crossing");
         Require(KvmLayout.EdgeCrossing([local,left,right],local,screen,new(100,100))==null,"Interior must stay local");
-        Require(JsonSerializer.Deserialize<KvmOptions>("{}")!.ProtectCorners,"Corner protection should default on");
-        Require(!JsonSerializer.Deserialize<KvmOptions>(JsonSerializer.Serialize(new KvmOptions{ProtectCorners=false}))!.ProtectCorners,"Corner preference did not round trip");
-        foreach(var point in new[]{new Point(-120,20),new Point(0,0),new Point(2800,1439)})Require(KvmLayout.EdgeCrossing([local,left,right],local,screen,point,true)==null,"Protected corner escaped");
-        Require(KvmLayout.EdgeCrossing([local,left,right],local,screen,new(2800,500),true)?.Target==right,"Corner protection blocked mid-edge crossing");
-        Require(KvmLayout.InCorner(right.Bounds,new(right.X-100,right.Y+right.Height+100)),"Remote fast corner overshoot escaped protection");
         var edges=KvmDragDrop.SharedEdges([local,left,right],local,screen).ToArray();Require(edges.Length==2&&edges.All(r=>r.Width==2)&&edges.Single(r=>r.X==0).Height==1080,"Drag portals overlap unshared/taskbar edges");
         using(var image=new Bitmap(2560,1440))
         {

@@ -60,7 +60,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 _=Task.Run(async()=>
                 {
                     try{await SendFiles(files);}
-                    catch(Exception e){Notification?.Invoke("Files could not be sent: "+e.Message);}
+                    catch(Exception e){Notification?.Invoke("Файлы не переданы: "+e.Message);}
                     finally{Interlocked.Exchange(ref sending,0);}
                 });
             }
@@ -75,7 +75,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
     static IEnumerable<(string Source,KvmFileEntry Entry)> Enumerate(string path,string relative)
     {
         var attributes=File.GetAttributes(path);
-        if((attributes&FileAttributes.ReparsePoint)!=0)throw new IOException("Links and junction folders cannot be transferred through the clipboard.");
+        if((attributes&FileAttributes.ReparsePoint)!=0)throw new IOException("Ссылки и junction-папки нельзя передавать через буфер обмена.");
         if((attributes&FileAttributes.Directory)==0){yield return(path,new(relative,new FileInfo(path).Length,false));yield break;}
         yield return(path,new(relative,0,true));
         foreach(string child in Directory.EnumerateFileSystemEntries(path))
@@ -98,7 +98,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         foreach(var item in Enumerate(path,Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar))))
         {
             total=checked(total+item.Entry.Length);items.Add(item);
-            if(items.Count>10000||total>MaxBytes)throw new IOException("A transfer can contain up to 32 GB and 10,000 files or folders.");
+            if(items.Count>10000||total>MaxBytes)throw new IOException("За один раз можно передать до 32 ГБ и 10 000 файлов/папок.");
         }
         ValidateManifest(items.Select(i=>i.Entry).ToArray());
         foreach(var peer in service.Peers.Where(p=>onlyPeer==null||p.Id==onlyPeer))
@@ -115,11 +115,11 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 byte[] buffer=new byte[65536];long count=0;int n;
                 while((n=await file.ReadAsync(buffer,token))>0)
                 {
-                    count+=n;if(count>item.Entry.Length)throw new IOException("The file changed during transfer.");
+                    count+=n;if(count>item.Entry.Length)throw new IOException("Файл изменился во время передачи.");
                     hash.AppendData(buffer,0,n);
                     await service.SendBulk(peer.Id,new(){Type="file-data",Id=id,Data=buffer.AsSpan(0,n).ToArray()},token);
                 }
-                if(count!=item.Entry.Length)throw new IOException("The file changed during transfer.");
+                if(count!=item.Entry.Length)throw new IOException("Файл изменился во время передачи.");
                 await service.SendBulk(peer.Id,new(){Type="file-close",Id=id,Data=hash.GetHashAndReset()},token);
             }
             await service.SendBulk(peer.Id,new(){Type="file-done",Id=id},token);
@@ -156,9 +156,9 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 string name=part.Split('.')[0].ToUpperInvariant();
                 if(part.Length==0||part is "." or ".."||part.EndsWith(' ')||part.EndsWith('.')||part.IndexOfAny(Path.GetInvalidFileNameChars())>=0||part.Contains('\\')||
                    name is "CON" or "PRN" or "AUX" or "NUL"||System.Text.RegularExpressions.Regex.IsMatch(name,@"^(COM|LPT)[0-9]$"))
-                    throw new IOException("Invalid file name in transfer.");
+                    throw new IOException("Недопустимое имя файла в передаче.");
             }
-            size=checked(size+entry.Length);if(size>MaxBytes)throw new IOException("The transfer exceeds 32 GB.");
+            size=checked(size+entry.Length);if(size>MaxBytes)throw new IOException("Передача превышает 32 ГБ.");
         }
         foreach(var entry in entries)
         {
@@ -181,7 +181,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 {
                     if(transfers.Remove(peer+"|"+message.Id,out var failed))failed.Dispose();
                     if(Guid.TryParseExact(message.Id,"N",out _))service.Send(peer,new(){Type="drag-error",Id=message.Id,Text=e.Message});
-                    Notification?.Invoke("File transfer rejected: "+e.Message);
+                    Notification?.Invoke("Передача файлов отклонена: "+e.Message);
                 }
             }
         }
@@ -200,10 +200,10 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             if(!Guid.TryParseExact(message.Id,"N",out _)||message.Files==null)throw new IOException("Invalid transfer.");
             ValidateManifest(message.Files);
             string folder=Path.Combine(storage,Guid.NewGuid().ToString("N"));
-            if(new DriveInfo(Path.GetPathRoot(folder)!).AvailableFreeSpace<message.Files.Sum(e=>e.Length)+512L*1024*1024)throw new IOException("Not enough space for the files.");
+            if(new DriveInfo(Path.GetPathRoot(folder)!).AvailableFreeSpace<message.Files.Sum(e=>e.Length)+512L*1024*1024)throw new IOException("Недостаточно места для файлов.");
             Directory.CreateDirectory(folder);
             KvmFileCache.Mark(storage,folder);
-            if(transfers.Count>=16)throw new IOException("Too many simultaneous transfers.");
+            if(transfers.Count>=16)throw new IOException("Слишком много одновременных передач.");
             if(transfers.Remove(transferKey,out var old))old.Dispose();
             foreach(var entry in message.Files.Where(e=>e.Directory).OrderBy(e=>e.Path.Length))Directory.CreateDirectory(SafePath(folder,entry.Path));
             transfers[transferKey]=new(){Id=message.Id,Folder=folder,Entries=message.Files.Where(e=>!e.Directory).ToArray(),Drag=message.Flags==1};
@@ -221,7 +221,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 if(state.File==null||message.Data is not {Length:>0 and <=65536}||state.Received+message.Data.Length>state.Entries[state.Index].Length)throw new IOException("Invalid file data.");
                 state.File.Write(message.Data);state.Hash!.AppendData(message.Data);state.Received+=message.Data.Length;if(Environment.TickCount64-state.LeaseAt>60000){KvmFileCache.Mark(storage,state.Folder);state.LeaseAt=Environment.TickCount64;}break;
             case "file-close":
-                if(state.File==null||state.Received!=state.Entries[state.Index].Length||message.Data?.Length!=32||!CryptographicOperations.FixedTimeEquals(state.Hash!.GetHashAndReset(),message.Data))throw new IOException("The file checksum did not match.");
+                if(state.File==null||state.Received!=state.Entries[state.Index].Length||message.Data?.Length!=32||!CryptographicOperations.FixedTimeEquals(state.Hash!.GetHashAndReset(),message.Data))throw new IOException("Контрольная сумма файла не совпала.");
                 state.File.Dispose();state.File=null;state.Hash!.Dispose();state.Hash=null;state.Index++;break;
             case "file-done":
                 if(state.File!=null||state.Index!=state.Entries.Length)throw new IOException("Incomplete transfer.");

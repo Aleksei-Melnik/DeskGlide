@@ -11,7 +11,6 @@ public sealed record KvmOptions
     public string PairingCode {get;set;}="";
     public string Id {get;set;}=Guid.NewGuid().ToString("N");
     public bool Seamless {get;set;}=true;
-    public bool ProtectCorners {get;set;}=true;
     public uint OpenHotkeyModifiers {get;set;}=3;
     public uint OpenHotkeyKey {get;set;}=(uint)Keys.K;
     public uint ToggleHotkeyModifiers {get;set;}=3;
@@ -26,19 +25,19 @@ public sealed record KvmOptions
     public KvmOptions Copy()=>this with{Layout=Layout.Select(m=>m with{}).ToList(),RemoteOnlyPeers=RemoteOnlyPeers.ToList()};
     public void Validate()
     {
-        if(Role is not ("Off" or "Host" or "Client"))throw new ArgumentException("Unknown KVM role.");
-        if(Port<1024||Port>65535)throw new ArgumentException("The KVM port must be between 1024 and 65535.");
-        if(!Guid.TryParseExact(Id,"N",out _))throw new ArgumentException("The KVM identity is invalid.");
-        if(RemoteOnlyPeers.Count>64||RemoteOnlyPeers.Any(id=>!Guid.TryParseExact(id,"N",out _)||id==Id))throw new ArgumentException("Invalid KVM server list.");
-        if(Role=="Client"){if(string.IsNullOrWhiteSpace(Host))throw new ArgumentException("Enter the host computer name or IP address.");KvmPairing.Decode(PairingCode);}
-        if(Layout.Count>32||Layout.GroupBy(m=>m.Key).Any(g=>g.Count()>1))throw new ArgumentException("Invalid monitor layout.");
+        if(Role is not ("Off" or "Host" or "Client"))throw new ArgumentException("Неизвестная роль KVM.");
+        if(Port<1024||Port>65535)throw new ArgumentException("Порт KVM: 1024–65535.");
+        if(!Guid.TryParseExact(Id,"N",out _))throw new ArgumentException("Повреждён идентификатор KVM.");
+        if(RemoteOnlyPeers.Count>64||RemoteOnlyPeers.Any(id=>!Guid.TryParseExact(id,"N",out _)||id==Id))throw new ArgumentException("Недопустимый список серверов KVM.");
+        if(Role=="Client"){if(string.IsNullOrWhiteSpace(Host))throw new ArgumentException("Введите имя или IP управляющего ПК.");KvmPairing.Decode(PairingCode);}
+        if(Layout.Count>32||Layout.GroupBy(m=>m.Key).Any(g=>g.Count()>1))throw new ArgumentException("Недопустимая схема мониторов.");
         foreach(var m in Layout)
             if(Math.Abs((long)m.X)>100000||Math.Abs((long)m.Y)>100000||m.Width<1||m.Width>16384||m.Height<1||m.Height>16384||m.Hotkey<0||m.Hotkey>12)
-                throw new ArgumentException("Invalid monitor position or size.");
-        if(Layout.Where(m=>m.Hotkey>0).GroupBy(m=>m.Hotkey).Any(g=>g.Count()>1))throw new ArgumentException("A shortcut is assigned to two monitors.");
+                throw new ArgumentException("Недопустимое положение или размер монитора.");
+        if(Layout.Where(m=>m.Hotkey>0).GroupBy(m=>m.Hotkey).Any(g=>g.Count()>1))throw new ArgumentException("Горячая клавиша назначена двум мониторам.");
         KvmShortcut.Validate(OpenHotkeyModifiers,OpenHotkeyKey);KvmShortcut.Validate(ToggleHotkeyModifiers,ToggleHotkeyKey);
         var shortcuts=Layout.Where(m=>m.Hotkey>0).Select(m=>(3u,(uint)Keys.F1+(uint)m.Hotkey-1)).Append((OpenHotkeyModifiers,OpenHotkeyKey)).Append((ToggleHotkeyModifiers,ToggleHotkeyKey)).Where(k=>k.Item2!=0).ToArray();
-        if(shortcuts.Distinct().Count()!=shortcuts.Length||shortcuts.Contains((3u,(uint)Keys.Escape)))throw new ArgumentException("KVM shortcuts must be unique and cannot use Ctrl+Alt+Esc.");
+        if(shortcuts.Distinct().Count()!=shortcuts.Length||shortcuts.Contains((3u,(uint)Keys.Escape)))throw new ArgumentException("Горячие клавиши KVM должны отличаться друг от друга и от Ctrl+Alt+Esc.");
     }
 }
 
@@ -74,21 +73,14 @@ static class KvmPairing
             if(bytes.Length!=64)throw new FormatException();
             return(bytes[..32],bytes[32..]);
         }
-        catch{throw new ArgumentException("The pairing code is incomplete. Copy the full code from the host.");}
+        catch{throw new ArgumentException("Код подключения неполный. Скопируйте весь код с управляющего ПК.");}
     }
 }
 
 static class KvmLayout
 {
-    internal static bool InCorner(Rectangle bounds,Point point)
+    public static (MonitorPlacement Target,Point Point)? EdgeCrossing(IEnumerable<MonitorPlacement> monitors,MonitorPlacement local,KvmScreen screen,Point point)
     {
-        int x=Math.Clamp(point.X-bounds.X,0,bounds.Width-1),y=Math.Clamp(point.Y-bounds.Y,0,bounds.Height-1);
-        int margin=Math.Min(32,Math.Min(bounds.Width,bounds.Height)/2);
-        return (x<margin||x>=bounds.Width-margin)&&(y<margin||y>=bounds.Height-margin);
-    }
-    public static (MonitorPlacement Target,Point Point)? EdgeCrossing(IEnumerable<MonitorPlacement> monitors,MonitorPlacement local,KvmScreen screen,Point point,bool protectCorners=false)
-    {
-        if(protectCorners&&InCorner(screen.Bounds,point))return null;
         var logical=new Point(local.X+Math.Clamp(point.X-screen.X,0,local.Width-1),local.Y+Math.Clamp(point.Y-screen.Y,0,local.Height-1));
         var candidates=new List<Point>();
         if(point.X<=screen.X)candidates.Add(new(local.X-1,logical.Y));

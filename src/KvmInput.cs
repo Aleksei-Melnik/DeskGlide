@@ -203,7 +203,7 @@ sealed class KvmController:IDisposable
                     var local=Monitors.FirstOrDefault(m=>m.Peer==options.Id&&m.Device==screen?.Device);
                     if(local!=null&&screen!=null)
                     {
-                        var crossing=KvmLayout.EdgeCrossing(Monitors,local,screen,point,options.ProtectCorners);
+                        var crossing=KvmLayout.EdgeCrossing(Monitors,local,screen,point);
                         if(crossing is { } edge&&edge.Target.Peer!=options.Id){Activate(edge.Target,edge.Point);return (IntPtr)1;}
                     }
                 }
@@ -214,7 +214,7 @@ sealed class KvmController:IDisposable
                 if(point==anchor)return (IntPtr)1;
                 var candidate=new Point(logical.X+point.X-anchor.X,logical.Y+point.Y-anchor.Y);
                 var target=Seamless?KvmLayout.At(Monitors,candidate):null;
-                if(target!=null&&target.Key!=remote.Key&&!(options.ProtectCorners&&KvmLayout.InCorner(remote.Bounds,candidate))){Activate(target,candidate);return (IntPtr)1;}
+                if(target!=null&&target.Key!=remote.Key){Activate(target,candidate);return (IntPtr)1;}
                 logical=KvmLayout.Clamp(remote,candidate);Warp(anchor);
             }
             if(!TryPhysical(remote,logical,out var physical)){ReturnLocal();return (IntPtr)1;}

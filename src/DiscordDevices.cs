@@ -72,7 +72,7 @@ static class DiscordDevices
         lock(recoveryGate)
         {
             if(!File.Exists(Pending))return;
-            var snapshot=JsonSerializer.Deserialize<InstallSnapshot>(File.ReadAllText(Pending))??throw new IOException("Could not read the audio device backup.");
+            var snapshot=JsonSerializer.Deserialize<InstallSnapshot>(File.ReadAllText(Pending))??throw new IOException("Не удалось прочитать резервную копию аудиоустройств.");
             if(DateTimeOffset.UtcNow-snapshot.Created>TimeSpan.FromDays(7)){File.Delete(Pending);return;}
             bool rebooted=Math.Abs(BootMilliseconds-snapshot.BootMilliseconds)>10000;
             if(startup&&snapshot.Completed&&!rebooted)return;
@@ -87,24 +87,24 @@ static class DiscordDevices
     public static async Task PairInput(string role,string captureId,string cameraName)
     {
         CameraInstallation.RequireReceiver(role);CameraInstallation.ValidateName(cameraName);
-        var endpoint=Endpoints().SingleOrDefault(e=>e.Id==captureId&&e.Flow==DataFlow.Capture)??throw new IOException("Choose an available recording input for Discord.");
+        var endpoint=Endpoints().SingleOrDefault(e=>e.Id==captureId&&e.Flow==DataFlow.Capture)??throw new IOException("Выберите доступный аудиовход Discord.");
         string name=PairedName(cameraName,endpoint);if(endpoint.Name==name)return;
         var start=new ProcessStartInfo(Environment.ProcessPath!){UseShellExecute=true,Verb="runas",WorkingDirectory=AppContext.BaseDirectory};
         foreach(string arg in new[]{"--pair-discord-input",role,captureId,cameraName})start.ArgumentList.Add(arg);
         try
         {
-            using var process=Process.Start(start)??throw new IOException("Could not start audio setup.");
+            using var process=Process.Start(start)??throw new IOException("Не удалось запустить настройку звука.");
             await process.WaitForExitAsync();
-            if(process.ExitCode!=0)throw new IOException("Windows did not allow renaming the recording input. The camera still works; select audio manually in Discord.");
+            if(process.ExitCode!=0)throw new IOException("Windows не разрешила переименование аудиовхода. Камера продолжает работать; звук можно выбрать вручную в Discord.");
         }
-        catch(System.ComponentModel.Win32Exception e)when(e.NativeErrorCode==1223){throw new IOException("Administrator request cancelled. The audio input name is unchanged.");}
-        if(Endpoints().FirstOrDefault(e=>e.Id==captureId)?.Name!=name)throw new IOException("Windows did not save the audio input name.");
+        catch(System.ComponentModel.Win32Exception e)when(e.NativeErrorCode==1223){throw new IOException("Запрос администратора отменён. Имя аудиовхода не изменено.");}
+        if(Endpoints().FirstOrDefault(e=>e.Id==captureId)?.Name!=name)throw new IOException("Windows не сохранила имя аудиовхода.");
     }
     public static void RenameInput(string role,string captureId,string cameraName)
     {
         CameraInstallation.RequireReceiver(role);CameraInstallation.ValidateName(cameraName);
-        if(captureId.Length>512)throw new ArgumentException("Invalid recording input ID.");
-        var endpoint=Endpoints().SingleOrDefault(e=>e.Id==captureId&&e.Flow==DataFlow.Capture)??throw new IOException("The recording input is unavailable.");
+        if(captureId.Length>512)throw new ArgumentException("Недопустимый идентификатор аудиовхода.");
+        var endpoint=Endpoints().SingleOrDefault(e=>e.Id==captureId&&e.Flow==DataFlow.Capture)??throw new IOException("Аудиовход недоступен.");
         RenameEndpoint(endpoint.Id,PairedName(cameraName,endpoint));
     }
     static void RenameEndpoint(string id,string name)
@@ -118,9 +118,9 @@ static class DiscordDevices
     internal static (Endpoint Render,Endpoint Capture) Pair(string renderId,IEnumerable<Endpoint> endpoints)
     {
         var cable=endpoints.Where(IsCable).ToArray();
-        var render=cable.SingleOrDefault(e=>e.Flow==DataFlow.Render&&e.Id==renderId)??throw new IOException("The selected VB-CABLE output is unavailable.");
+        var render=cable.SingleOrDefault(e=>e.Flow==DataFlow.Render&&e.Id==renderId)??throw new IOException("Выбранный выход VB-CABLE недоступен.");
         var inputs=cable.Where(e=>e.Flow==DataFlow.Capture).ToArray();
-        if(inputs.Length!=1)throw new IOException("Could not find a unique matching VB-CABLE input. Check your connected devices.");
+        if(inputs.Length!=1)throw new IOException("Не удалось однозначно найти аудиовход VB-CABLE. Проверьте подключённые устройства.");
         return(render,inputs[0]);
     }
     public static void PairAudio(string role,string renderId,string cameraName)
@@ -134,7 +134,7 @@ static class DiscordDevices
         string renderName=cameraName+" Send (VB-CABLE)";
         if(pair.Render.Name!=renderName)RenameEndpoint(pair.Render.Id,renderName);
         var updated=Endpoints();
-        if(updated.Single(e=>e.Id==pair.Capture.Id).Name!=CaptureName(cameraName))throw new IOException("Windows did not save the audio input name. Run Set up devices again.");
+        if(updated.Single(e=>e.Id==pair.Capture.Id).Name!=CaptureName(cameraName))throw new IOException("Windows не сохранила имя аудиовхода. Нажмите «Связать устройства» ещё раз.");
     }
 }
 

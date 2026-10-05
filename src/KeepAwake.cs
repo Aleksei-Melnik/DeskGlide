@@ -10,7 +10,7 @@ sealed class KeepAwake:IDisposable
     public void Set(bool enabled)
     {
         if(Environment.CurrentManagedThreadId!=thread)throw new InvalidOperationException("Power request must be changed on its owning thread.");
-        if(Request(Continuous|(enabled?System|Display:0))==0)throw new InvalidOperationException("Windows could not enable idle-sleep protection.");
+        if(Request(Continuous|(enabled?System|Display:0))==0)throw new InvalidOperationException("Windows не разрешила запрет автоматического сна.");
         Enabled=enabled;
     }
     public void Dispose()

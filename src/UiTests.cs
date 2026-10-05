@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 namespace SdrCapture;
 
+// Render real WinForms controls using synthetic peers; no desktop capture or input injection.
 static class UiTests
 {
     static void Require(bool value,string message){if(!value)throw new Exception(message);}
@@ -9,9 +10,31 @@ static class UiTests
     public static void Run()
     {
         Application.EnableVisualStyles();
-        Ui.WpfUiTests.Run();
-        string folder=Path.Combine(AppContext.BaseDirectory,"wpf-preview");
-        var stream=new KvmPeerInfo(Guid.NewGuid().ToString("N"),"STREAM-PC",[new("LEFT",0,0,1920,1080,true),new("RIGHT",1920,0,1920,1080,false)],"0.8.0",1);
+        long settingsOpenMs=SettingsLoading();
+        string folder=Path.Combine(AppContext.BaseDirectory,"ui-preview");Directory.CreateDirectory(folder);
+        foreach(string role in new[]{"Off","Host","Client"})
+        {
+            using var form=new AppSettingsForm(new Settings{Kvm=new(){Role=role,Host="GAMING-PC"}});
+            Require(form.FormBorderStyle==FormBorderStyle.FixedSingle&&!form.MaximizeBox,"Settings resizable");
+            form.RenderPreviews(Path.Combine(folder,role));
+        }
+        var stream=new KvmPeerInfo(Guid.NewGuid().ToString("N"),"STREAM-PC",[new("LEFT",0,0,1920,1080,true),new("RIGHT",1920,0,1920,1080,false)],"0.6.1",1);
+        var server=new KvmPeerInfo(Guid.NewGuid().ToString("N"),"SERVER",[new("DISPLAY",0,0,1920,1080,true)],"0.6.1",1,true);
+        using(var hub=new KvmHub(()=>null,()=>true,_=>{},()=>{},_=>{},_=>{}))hub.RenderPreview(Path.Combine(folder,"kvm-connected.png"),[stream,server]);
+        using(var hub=new KvmHub(()=>null,()=>false,_=>{},()=>{},_=>{},_=>{}))hub.RenderPreview(Path.Combine(folder,"kvm-empty.png"));
+        var options=new KvmOptions();
+        var layout=new List<MonitorPlacement>{new(){Peer=options.Id,Device="LOCAL",Width=2560,Height=1440},new(){Peer=stream.Id,Device="LEFT",X=-1920,Width=1920,Height=1080},new(){Peer=stream.Id,Device="RIGHT",X=2560,Width=1920,Height=1080}};
+        using(var editor=new MonitorLayoutEditor(options,layout))
+        {
+            using var host=new Form{Opacity=0,ShowInTaskbar=false};host.Controls.Add(editor);host.Show();
+            var field=typeof(MonitorLayoutEditor).GetField("monitors",BindingFlags.Instance|BindingFlags.NonPublic)!;
+            var actual=(List<MonitorPlacement>)field.GetValue(editor)!;
+            actual[1].X=-1900;
+            typeof(MonitorLayoutEditor).GetField("selected",BindingFlags.Instance|BindingFlags.NonPublic)!.SetValue(editor,actual[1]);
+            All(editor).OfType<Button>().Single(b=>b.Text=="Только KVM").PerformClick();
+            Require(actual.Count==1&&editor.RemoteOnlyPeers.Contains(stream.Id),"Remove peer did not update displayed layout");
+            Require(editor.Result.Single(m=>m.Device=="LEFT").X==-1900,"Excluded monitor position lost");host.Close();
+        }
         using var service=new KvmService(new KvmOptions());
         using(var viewer=new KvmViewer(service,stream){Opacity=0,ShowInTaskbar=false})
         {
@@ -43,7 +66,44 @@ static class UiTests
             Require(current?.X==1920,"Remote image lost second monitor origin");
             using var rendered=new Bitmap(viewer.Width,viewer.Height);viewer.DrawToBitmap(rendered,new(0,0,viewer.Width,viewer.Height));rendered.Save(Path.Combine(folder,"kvm-viewer.png"));viewer.Close();
         }
-        Program.Write("ui-tests.json",new{Pass=true,WpfInterface=true,NativeViewportKeyboardFocus=true,KeyReleasesPreserved=true,FullscreenRepeatGuard=true});
+        using(var window=new Form{Opacity=0,ShowInTaskbar=false})
+        {window.Show();window.Hide();WindowActivation.Show(window);Require(window.Visible,"Hidden window not shown");window.WindowState=FormWindowState.Minimized;WindowActivation.Show(window);Require(window.WindowState!=FormWindowState.Minimized,"Minimized window not restored");window.Location=new(-90000,-90000);WindowActivation.Show(window);Require(Screen.AllScreens.Any(s=>s.WorkingArea.IntersectsWith(window.Bounds)),"Offscreen window not recovered");window.Close();}
+        Program.Write("ui-tests.json",new{Pass=true,RolesRendered=3,VisiblePeerCards=true,FixedWindows=true,RemoteOnlyLayoutRoundtrip=true,ViewerKeyboardFocus=true,KeyReleasesPreserved=true,FullscreenRepeatGuard=true,WindowRestored=true,SettingsOpenMs=settingsOpenMs,SettingsResponsiveDuringDiscovery=true,SettingsSelectionPreserved=true,SettingsCloseDuringDiscovery=true});
+    }
+    static long SettingsLoading()
+    {
+        var pending=new TaskCompletionSource<DiscordDevices.Endpoint[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settings=new Settings{NdiAudioDevice="ndi",Replay=new(){GameAudio="game",Microphone="mic",ExtraAudio="extra"},Discord=new(){AudioDevice="cable",CaptureDevice="input"}};
+        int loads=0,diagnostics=0;
+        var watch=System.Diagnostics.Stopwatch.StartNew();
+        using var form=new AppSettingsForm(settings,diagnostics:()=>{diagnostics++;return "OK";},discoverAudio:()=>{loads++;return pending.Task;}){Opacity=0,ShowInTaskbar=false};
+        Require(loads==0&&diagnostics==0,"Settings constructor waits for device discovery/diagnostics");
+        WindowActivation.Show(form);
+        long opened=watch.ElapsedMilliseconds;
+        bool dispatched=false;form.BeginInvoke(()=>dispatched=true);Application.DoEvents();
+        Require(form.Visible&&dispatched&&!pending.Task.IsCompleted&&loads==1,"Settings UI blocked by unfinished audio discovery");
+        var read=typeof(AppSettingsForm).GetMethod("ReadSettings",BindingFlags.Instance|BindingFlags.NonPublic)!;
+        var before=(Settings)read.Invoke(form,null)!;
+        Require(before.NdiAudioDevice=="ndi"&&before.Replay.GameAudio=="game"&&before.Replay.Microphone=="mic"&&before.Replay.ExtraAudio=="extra"&&before.Discord.AudioDevice=="cable"&&before.Discord.CaptureDevice=="input","Save while loading lost configured devices");
+        var game=(ComboBox)typeof(AppSettingsForm).GetField("game",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(form)!;
+        game.SelectedIndex=0; // User selects Silent before the driver's response.
+        for(int i=0;i<3;i++)WindowActivation.Show(form);
+        Require(loads==1,"Repeated activation restarted discovery");
+        pending.SetResult([new("game",NAudio.CoreAudioApi.DataFlow.Render,"Game speakers","Speakers"),new("mic",NAudio.CoreAudioApi.DataFlow.Capture,"Microphone","Mic")]);
+        var status=(Label)typeof(AppSettingsForm).GetField("deviceStatus",BindingFlags.Instance|BindingFlags.NonPublic)!.GetValue(form)!;
+        watch.Restart();while(status.Text!="Аудиоустройства обновлены."&&watch.ElapsedMilliseconds<3000){Application.DoEvents();Thread.Sleep(5);}
+        Require(status.Text=="Аудиоустройства обновлены.","Audio discovery did not complete");
+        var after=(Settings)read.Invoke(form,null)!;
+        Require(after.Replay.GameAudio==""&&after.Replay.Microphone=="mic"&&after.NdiAudioDevice=="ndi"&&after.Discord.CaptureDevice=="input","Background refresh changed user edits or missing device selection");
+        form.Close();
+        var late=new TaskCompletionSource<DiscordDevices.Endpoint[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using(var closed=new AppSettingsForm(settings,discoverAudio:()=>late.Task){Opacity=0,ShowInTaskbar=false})
+        {closed.Show();Application.DoEvents();closed.Close();}
+        late.SetResult([]);Application.DoEvents();
+        using var failed=new AppSettingsForm(settings,discoverAudio:()=>Task.FromException<DiscordDevices.Endpoint[]>(new IOException("Simulated driver failure"))){Opacity=0,ShowInTaskbar=false};
+        failed.Show();Application.DoEvents();
+        Require(failed.Visible&&((Settings)read.Invoke(failed,null)!).NdiAudioDevice=="ndi","Driver failure closed settings or reset the saved device");
+        failed.Close();return opened;
     }
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
 }

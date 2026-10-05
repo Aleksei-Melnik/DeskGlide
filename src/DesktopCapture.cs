@@ -29,7 +29,7 @@ public sealed class DesktopCapture:IDisposable
             adapter.EnumOutputs(display.Output,out var raw).CheckError();
             using(raw) output=raw.QueryInterface<IDXGIOutput6>();
             if(output.Description1.Rotation!=ModeRotation.Identity && output.Description1.Rotation!=ModeRotation.Unspecified)
-                throw new NotSupportedException("Monitor rotation is not supported on this capture path.");
+                throw new NotSupportedException("Поворот монитора пока не поддерживается");
             D3D11.D3D11CreateDevice(adapter,DriverType.Unknown,DeviceCreationFlags.BgraSupport,
                 [FeatureLevel.Level_11_0],out device,out context).CheckError();
             using var output5=output.QueryInterface<IDXGIOutput5>();

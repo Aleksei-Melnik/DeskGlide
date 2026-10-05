@@ -10,11 +10,11 @@ public sealed record AudioChoice(string Id,string Label)
     public override string ToString()=>Label;
     public static List<AudioChoice> All()
     {
-        var choices=new List<AudioChoice>{new("","Silent — no audio"),new("default:capture","Default Windows microphone"),new("default:render","Default Windows playback (PC audio)")};
+        var choices=new List<AudioChoice>{new("","Silent — без звука"),new("default:capture","Микрофон Windows по умолчанию"),new("default:render","Выход Windows по умолчанию (звук ПК)")};
         using var devices=new MMDeviceEnumerator();
         foreach(var flow in new[]{DataFlow.Capture,DataFlow.Render})
             foreach(var device in devices.EnumerateAudioEndPoints(flow,DeviceState.Active))
-                using(device) choices.Add(new(device.ID,$"{(flow==DataFlow.Capture?"Input":"Output")}: {device.FriendlyName}"));
+                using(device) choices.Add(new(device.ID,$"{(flow==DataFlow.Capture?"Вход":"Выход")}: {device.FriendlyName}"));
         return choices;
     }
 }
@@ -51,10 +51,10 @@ sealed class ReplayAudio:IDisposable
     readonly CancellationTokenSource stop=new();
     readonly AudioTimeline[] tracks=[new(),new(),new()];
     readonly Task[] workers;
-    readonly string[] status=["Off","Off","Off"];
+    readonly string[] status=["Отключён","Отключён","Отключён"];
     readonly bool synthetic;
     readonly string[] remote=["","",""];
-    public string Status=>string.Join("\n",new[]{"Microphone: "+status[0],"Game: "+status[1],"Extra audio: "+status[2]});
+    public string Status=>string.Join("\n",new[]{"Микрофон: "+status[0],"Игра: "+status[1],"Доп. звук: "+status[2]});
     public ReplayAudio(ReplayOptions options,bool synthetic=false)
     {
         this.synthetic=synthetic;
@@ -69,7 +69,7 @@ sealed class ReplayAudio:IDisposable
         {
             try{TimedAudioCapture.Run(id,stop.Token,(start,data,frames)=>tracks[index].Put(start,data.AsSpan(0,frames*2)),text=>status[index]=text);}
             catch(OperationCanceledException){break;}
-            catch(Exception e){status[index]="Unavailable: "+e.Message;Log.Write("Replay audio: "+e.Message);}
+            catch(Exception e){status[index]="Недоступен: "+e.Message;Log.Write("Replay audio: "+e.Message);}
             if(stop.Token.WaitHandle.WaitOne(1500))break;
         }
     }
@@ -85,7 +85,7 @@ sealed class ReplayAudio:IDisposable
         }
         else for(int i=0;i<3;i++)
         {
-            if(remote[i].Length>0){KvmAudioBus.Read(remote[i],start,target,i*2);status[i]=KvmAudioBus.Active(remote[i])?"KVM audio":"Waiting for KVM audio";}
+            if(remote[i].Length>0){KvmAudioBus.Read(remote[i],start,target,i*2);status[i]=KvmAudioBus.Active(remote[i])?"Звук по KVM":"Ожидание звука по KVM";}
             else tracks[i].Read(start,target,i*2,6);
         }
     }

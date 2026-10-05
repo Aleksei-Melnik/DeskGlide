@@ -4,7 +4,7 @@ ScreenCapture source is MIT licensed. The following components keep their own
 copyright notices and licenses:
 
 - .NET runtime and Windows Desktop runtime: Microsoft and contributors, MIT.
-  https://github.com/dotnet/runtime, https://github.com/dotnet/winforms and https://github.com/dotnet/wpf
+  https://github.com/dotnet/runtime and https://github.com/dotnet/winforms
   Runtime packages include their license and third-party notice files.
 - Vortice.Windows / Vortice.Mathematics: Amer Koleci and contributors, MIT.
   https://github.com/amerkoleci/Vortice.Windows
