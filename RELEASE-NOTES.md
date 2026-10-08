@@ -1,9 +1,13 @@
-DeskGlide 0.7.7 is the new name for ScreenCapture: KVM, screen and audio sharing, and instant replay for Windows.
+DeskGlide 0.7.8 refreshes the window frame and settings navigation.
 
-- DeskGlide branding across settings, KVM, updates, the tray and application metadata, in English and Russian.
-- A new DG logo, rendered at every supported tray and Explorer icon size.
-- New installs launch DeskGlide.exe. Existing ScreenCapture.exe and SdrCapture.exe launchers continue working, including updates and old shortcuts.
-- Existing settings, pairing, monitor layout, recording tools and encrypted .scprofile backups are preserved. NDI source identities and configured camera/audio names stay the same, so receivers do not need to be set up again.
-- Updates move to the renamed DeskGlide repository. Previous repository URLs redirect; the signed update archive keeps its legacy filename for older clients. Download DeskGlide-0.7.7-win-x64.zip for a new install.
+- The native Windows title bar is replaced with integrated minimize and close controls. Drag the app header to move a window. Settings keep their fixed size.
+- Rounded window corners and the existing dark glass palette are shared by Settings, KVM, Updates and backup dialogs.
+- Monitor removal uses clean vector icon buttons with hover and keyboard-focus feedback. Removing a display returns it to Available monitors and does not disconnect its computer.
+- Settings pages fade and slide in, while navigation highlights transition smoothly. Rapid clicks replace the current animation immediately and preserve unsaved edits. Windows' reduced-motion preference is respected.
+- The KVM viewer uses the same header; F11 hides it in full screen and restores it on return.
+- Restart DeskGlide is available in the tray menu. The replacement waits for the current process to fully exit and reloads saved settings. Restart does not export a replay clip.
 
-Use Updates → Update all PCs on the controlling PC to migrate paired machines. This release keeps the capture, SDR conversion, replay and KVM behavior of 0.7.6.
+Validation: native Windows hit-testing confirms the header can move the window while buttons receive normal client input, without a reserved system title bar. UI tests cover minimize/restore, close without saving, navigation and Save, rapid repeated transitions, language changes, individual display removal, embedded KVM keyboard input and full-screen return.
+Restart tests use isolated processes and a separate singleton; they verify that the replacement waits for shutdown and rejects stale parent identities without starting capture or sending keyboard input.
+
+Update from Updates → Update all PCs. Capture, SDR conversion, recording and network protocols are unchanged.

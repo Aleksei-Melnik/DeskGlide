@@ -1,5 +1,7 @@
 {
   "Settings": "Настройки",
+  "Minimize window": "Свернуть окно",
+  "Close window": "Закрыть окно",
   "Settings…": "Настройки…",
   "Computers · KVM…": "Компьютеры · KVM…",
   "Screen streaming": "Трансляция экрана",
@@ -287,6 +289,7 @@
   "Ready for updates": "Готов к обновлению",
   "Needs a manual update to 0.6 or later": "Нужна первая установка 0.6 или новее",
   "Install audio cable": "Установка аудиокабеля",
+  "Restart DeskGlide": "Перезапустить DeskGlide",
   "Checking GitHub releases…": "Проверяю GitHub Releases…",
   "No published releases yet.": "Опубликованных релизов пока нет.",
   "Preparing to restart…": "Готовлю перезапуск…",

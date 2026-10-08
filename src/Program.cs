@@ -9,6 +9,10 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         try
         {
+            if(args.FirstOrDefault()=="--restart-after")args=ApplicationRestart.WaitForPreviousInstance(args);
+            if(args.Length==3&&args[0]=="--restart-test-parent"){RestartTests.Parent(args[1],args[2]);return 0;}
+            if(args.Length==3&&args[0]=="--restart-test-child"){RestartTests.Child(args[1],args[2]);return 0;}
+            if(args.Contains("--restart-tests")){RestartTests.Run();return 0;}
             if(args.Length==4&&args[0]=="--pair-discord-input"){DiscordDevices.RenameInput(args[1],args[2],args[3]);return 0;}
             if(args.Contains("--apply-update"))return UpdateInstaller.Run(args[Array.IndexOf(args,"--apply-update")+1]);
             if(args.Contains("--kvm")&&EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var openKvm)){WindowActivation.AllowExisting();using(openKvm)openKvm.Set();return 0;}

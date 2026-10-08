@@ -55,6 +55,7 @@ sealed class TrayApp:ApplicationContext
     readonly RegisteredWaitHandle updateWait;
     int ticks;
     bool closing;
+    bool restartQueued;
     string? lastReplayError;
     const string RunKey=@"Software\Microsoft\Windows\CurrentVersion\Run";
     public TrayApp()
@@ -121,7 +122,20 @@ sealed class TrayApp:ApplicationContext
         var save=new ToolStripMenuItem(UiStrings.T("Save replay")){Enabled=replay.BufferedSeconds>0,ShortcutKeyDisplayString=ReplayHotkey.Text(settings.Replay),ToolTipText=UiStrings.F("Save the last {0} minutes",settings.Replay.Minutes)};
         save.Click+=(_,_)=>SaveReplay();items.Add(save);
         items.Add(UiStrings.T("Open clips folder"),null,async(_,_)=>{try{await RecordingFolder.Open(settings.Replay.Folder);}catch(Exception e){notifications.Enqueue(UiStrings.T("Could not open the recordings folder: ")+e.Message);}});
-        items.Add(new ToolStripSeparator());items.Add(UiStrings.T("Updates…"),null,(_,_)=>OpenUpdates());items.Add(UiStrings.T("Quit DeskGlide"),null,(_,_)=>ExitThread());
+        items.Add(new ToolStripSeparator());items.Add(UiStrings.T("Updates…"),null,(_,_)=>OpenUpdates());
+        var restart=new ToolStripMenuItem(UiStrings.T("Restart DeskGlide")){Enabled=!closing&&!restartQueued&&!updater.Busy};
+        restart.Click+=(_,_)=>Restart();items.Add(restart);
+        items.Add(UiStrings.T("Quit DeskGlide"),null,(_,_)=>ExitThread());
+    }
+    void Restart()
+    {
+        if(closing||restartQueued||updater.Busy)return;
+        restartQueued=true;
+        dispatcher.BeginInvoke(()=>
+        {
+            try{if(!closing&&!updater.Busy)Guard(()=>{settings.Save();ApplicationRestart.Start();ExitThread();});}
+            finally{restartQueued=false;}
+        });
     }
     void OpenSettings(int page=0)
     {

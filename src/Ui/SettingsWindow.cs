@@ -208,8 +208,8 @@ sealed class SettingsWindow:ShellWindow
     {
         if(id==8&&Id("role")=="Host")id=0;
         if(!pages.ContainsKey(id))id=0;SelectedPage=id;body.Content=pages[id];scroll.ScrollToTop();
-        foreach(var pair in links){pair.Value.Background=Kit.Brush(pair.Key==id?"#302039":"Transparent");pair.Value.BorderBrush=Kit.Brush(pair.Key==id?"#7C3C83":"Transparent");}
-        if(animate)Kit.Enter(body);if(id==6&&IsLoaded)_=RefreshDiagnostics();
+        foreach(var pair in links)Kit.Navigation(pair.Value,pair.Key==id,animate);
+        if(animate)Kit.Enter(body);else Kit.ResetTransition(body);if(id==6&&IsLoaded)_=RefreshDiagnostics();
     }
     async Task RefreshDiagnostics()
     {
@@ -303,14 +303,14 @@ sealed class PasswordWindow:ShellWindow
 {
     readonly C.PasswordBox password=new();
     bool accepted;
-    PasswordWindow(bool exporting):base(exporting?"Export profile":"Import profile",480,270)
+    PasswordWindow(bool exporting):base(exporting?"Export profile":"Import profile",480,330)
     {
         ResizeMode=W.ResizeMode.NoResize;ShowInTaskbar=false;
         var text=Kit.Text(exporting?"Choose a password of at least 8 characters to protect this profile and its computer access keys.":"Enter the password for this backup.");text.Margin=new(0,0,0,20);
         var error=Kit.Text("",12,"#FF83AB");error.Margin=new(0,8,0,8);
         var save=Kit.Button(exporting?"Save profile":"Restore",()=>{if(exporting&&password.Password.Length<8){error.Text=UiStrings.T("Use at least 8 characters.");return;}accepted=true;Close();},true);save.IsDefault=true;
         var cancel=Kit.Button("Cancel",Close);cancel.IsCancel=true;
-        Content=new C.Border{Padding=new(24),Child=Kit.Stack(text,password,error,Kit.Actions(cancel,save))};Loaded+=(_,_)=>password.Focus();
+        var root=new C.DockPanel();var header=Header(exporting?"Export profile":"Import profile","",true);C.DockPanel.SetDock(header,C.Dock.Top);root.Children.Add(header);root.Children.Add(new C.Border{Padding=new(24),Child=Kit.Stack(text,password,error,Kit.Actions(cancel,save))});Content=root;Loaded+=(_,_)=>password.Focus();
     }
     public static string? Ask(W.Window owner,bool exporting){var window=new PasswordWindow(exporting){Owner=owner,WindowStartupLocation=W.WindowStartupLocation.CenterOwner};window.ShowDialog();return window.accepted?window.password.Password:null;}
 }

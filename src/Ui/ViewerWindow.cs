@@ -17,7 +17,8 @@ sealed class ViewerWindow:ShellWindow
     public ViewerWindow(KvmService service,KvmPeerInfo peer):base(peer.Name,1160,780)
     {
         surface=new(service,peer);surface.Embed();host.Child=surface;
-        var root=new C.DockPanel();var toolbar=Kit.Actions(monitors,quality,fps,control,Kit.Button("Full screen · F11",ToggleFullscreen),Kit.Button("Disconnect",Close));toolbar.Margin=new(16,12,8,12);C.DockPanel.SetDock(toolbar,C.Dock.Top);root.Children.Add(toolbar);
+        var root=new C.DockPanel();var header=Header(peer.Name,"",true);C.DockPanel.SetDock(header,C.Dock.Top);root.Children.Add(header);
+        var toolbar=Kit.Actions(monitors,quality,fps,control,Kit.Button("Full screen · F11",ToggleFullscreen),Kit.Button("Disconnect",Close));toolbar.Margin=new(16,12,8,12);C.DockPanel.SetDock(toolbar,C.Dock.Top);root.Children.Add(toolbar);
         status.Margin=new(16,10,16,10);C.DockPanel.SetDock(status,C.Dock.Bottom);root.Children.Add(status);root.Children.Add(host);Content=root;
         monitors.ItemsSource=surface.Devices;monitors.SelectedItem=surface.SelectedDevice;quality.ItemTemplate=Kit.ChoiceTemplate();quality.ItemsSource=new[]{new SettingsWindow.Choice("0","Crisp text · 95"),new("1","High · 88"),new("2","Efficient · 1080p")};quality.SelectedIndex=0;fps.ItemsSource=new[]{"30 FPS","60 FPS"};fps.SelectedIndex=1;
         void Apply(){if(!changing)surface.Configure((string?)monitors.SelectedItem,quality.SelectedIndex,fps.SelectedIndex==0?30:60,control.IsChecked==true);}
@@ -29,8 +30,8 @@ sealed class ViewerWindow:ShellWindow
     void ToggleFullscreen()
     {
         surface.ReleaseControl();
-        if(!fullscreen){previous=new(Left,Top,Width,Height);WindowStyle=W.WindowStyle.None;WindowState=W.WindowState.Maximized;}
-        else{WindowState=W.WindowState.Normal;WindowStyle=W.WindowStyle.SingleBorderWindow;Left=previous.Left;Top=previous.Top;Width=previous.Width;Height=previous.Height;}fullscreen=!fullscreen;
+        if(!fullscreen){previous=new(Left,Top,Width,Height);FullscreenChrome(true);WindowState=W.WindowState.Maximized;}
+        else{WindowState=W.WindowState.Normal;FullscreenChrome(false);Left=previous.Left;Top=previous.Top;Width=previous.Width;Height=previous.Height;}fullscreen=!fullscreen;
     }
     public void ReturnControl(){surface.ReleaseControl();WindowState=W.WindowState.Minimized;}
 }

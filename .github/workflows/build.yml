@@ -19,7 +19,7 @@ jobs:
       - name: Test update integrity, rollback, audio clock and windows
         shell: pwsh
         run: |
-          foreach ($flag in @('--recording-tools-tests', '--update-tests', '--audio-timing-test', '--ui-tests', '--wpf-ui-tests', '--feature-tests', '--camera-test', '--camera-2k-test', '--camera-hold-test', '--camera-formats-test', '--kvm-video-test', '--kvm-test')) {
+          foreach ($flag in @('--recording-tools-tests', '--update-tests', '--restart-tests', '--audio-timing-test', '--ui-tests', '--wpf-ui-tests', '--feature-tests', '--camera-test', '--camera-2k-test', '--camera-hold-test', '--camera-formats-test', '--kvm-video-test', '--kvm-test')) {
             $p=Start-Process ./app/DeskGlide.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){throw "$flag failed"}
           }
