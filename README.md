@@ -14,9 +14,12 @@ Install NDI Tools/Runtime x64 on PCs sending or receiving NDI; vendor runtime bi
    Lower-resolution fullscreen games stretch to that canvas without letterboxing.
 3. For receiving video in OBS/DistroAV, select `PC-NAME (SdrCapture SDR)` with
    BT.709, Limited range, Highest bandwidth and Low latency. Keep OBS in SDR.
-4. To use instant replay, run `Install-RecordingTools.ps1` once to install the
-   verified FFmpeg recording tools. Select **Instant replay**, a save folder,
-   duration, quality and shortcut. NVIDIA NVENC is required for GPU recording.
+4. Under **Instant replay**, choose a save folder, duration, quality and shortcut,
+   then enable background recording. Missing FFmpeg tools download automatically
+   with a pinned SHA-256 check. They live in your local user-data folder, separate
+   from app updates; existing portable `tools` installations also work. A setup
+   button appears in this page when tools are missing. NVIDIA NVENC is required
+   for GPU recording. The first setup needs internet access.
 5. To control another PC, select Host under **KVM & pairing** on the PC with your
    keyboard and mouse. Select Client on the other PC and enter the host name and
    generated pairing code. `Enable-Lan.ps1` can add private wired-LAN firewall

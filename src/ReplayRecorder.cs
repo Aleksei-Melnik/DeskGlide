@@ -128,7 +128,13 @@ public sealed class ReplayRecorder:IDisposable
                     Width=config.Width==0?first.Width:config.Width;Height=config.Width==0?(first.Height&~1):config.Height;
                 }
                 config.Validate();
-                if(!File.Exists(ReplayTools.Ffmpeg))throw new FileNotFoundException("Не найден tools\\ffmpeg.exe для записи.");
+                if(!RecordingTools.Ready)
+                {
+                    Error=null;Status=UiStrings.T("Setting up recording tools…");
+                    await RecordingTools.EnsureAsync(message=>Status=message,stop.Token);
+                    // Setup may outlive a settings change. Re-read on the next pass.
+                    if(!Volatile.Read(ref options).Enabled||Volatile.Read(ref version)!=currentVersion)continue;
+                }
                 using var captureAudio=new ReplayAudio(config,syntheticAudio);audio=captureAudio;
                 await RecordSession(config,currentVersion,captureAudio);
                 audio=null;

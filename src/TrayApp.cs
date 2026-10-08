@@ -231,7 +231,7 @@ sealed class TrayApp:ApplicationContext
     void ShowHelp()=>MessageBox.Show(ConnectionText,"ScreenCapture → DistroAV");
     Ui.StatusSection[] StatusOverview()=>[
         new("Screen streaming",("State",UiStrings.T(!engine.NdiEnabled?"Off":engine.Error!=null?"Recovering capture":"On")),("NDI source",engine.SourceName),("Output",string.Join(", ",engine.CaptureSizes)),("Delivery rate",$"{engine.Fps:F1} FPS"),("Capture time",$"{engine.CaptureMs:F1} ms")),
-        new("Instant replay",("State",UiStrings.T(!settings.Replay.Enabled?"Off":replay.Error!=null?"Recording error":"On")),("Buffered",$"{replay.BufferedSeconds/60:F1} / {settings.Replay.Minutes} min"),("Buffer size",$"{replay.CacheBytes/1048576.0:F0} MB"),("Error",replay.Error??UiStrings.T("None"))),
+        new("Instant replay",("State",UiStrings.T(!settings.Replay.Enabled?"Off":replay.Error!=null?"Recording error":!RecordingTools.Ready?"Setting up recording tools…":"On")),("Buffered",$"{replay.BufferedSeconds/60:F1} / {settings.Replay.Minutes} min"),("Buffer size",$"{replay.CacheBytes/1048576.0:F0} MB"),("Error",replay.Error??UiStrings.T("None"))),
         new("KVM & pairing",("This PC",Environment.MachineName),("Role",UiStrings.T(settings.Kvm.Role)),("Connected computers",string.Join(", ",kvm?.Peers.Select(p=>p.Name)??[]) is {Length:>0} peers?peers:UiStrings.T("None"))),
         new("Virtual devices",("Receiver",UiStrings.T(settings.Discord.Enabled?"On":"Off")),("Video",discord?.Status??UiStrings.T("Off")))
     ];

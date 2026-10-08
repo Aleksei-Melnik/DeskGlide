@@ -39,8 +39,8 @@ public sealed record ReplayOptions
 static class ReplayTools
 {
     public static string Root=>Environment.GetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT")??Path.Combine(Log.Folder,"Replay");
-    public static string Ffmpeg=>Path.Combine(AppContext.BaseDirectory,"tools","ffmpeg.exe");
-    public static string Ffprobe=>Path.Combine(AppContext.BaseDirectory,"tools","ffprobe.exe");
+    public static string Ffmpeg=>Path.Combine(RecordingTools.DirectoryPath??RecordingTools.SharedDirectory,"ffmpeg.exe");
+    public static string Ffprobe=>Path.Combine(RecordingTools.DirectoryPath??RecordingTools.SharedDirectory,"ffprobe.exe");
     public static string Number(double value)=>value.ToString("0.######",CultureInfo.InvariantCulture);
     public static ProcessStartInfo StartInfo(string executable,IEnumerable<string> arguments)
     {

@@ -1,8 +1,15 @@
 param([string]$AppFolder=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 if(Test-Path -LiteralPath (Join-Path $AppFolder 'app/ScreenCapture.exe')){$AppFolder=Join-Path $AppFolder 'app'}
+$executable=Join-Path $AppFolder 'ScreenCapture.exe'
+if((Test-Path -LiteralPath $executable) -and ([version](Get-Item -LiteralPath $executable).VersionInfo.FileVersion -ge [version]'0.7.6.0')){
+    $process=Start-Process -FilePath $executable -ArgumentList '--install-recording-tools' -WindowStyle Hidden -PassThru -Wait
+    if($process.ExitCode -ne 0){throw 'Recording setup failed. See error.txt in the app folder.'}
+    Write-Host 'Recording tools are ready.'
+    return
+}
 $destination=Join-Path $AppFolder 'tools'
-if(Test-Path -LiteralPath (Join-Path $destination 'ffmpeg.exe')){Write-Host 'FFmpeg already installed; keeping the existing version.';return}
+if((Test-Path -LiteralPath (Join-Path $destination 'ffmpeg.exe')) -and (Test-Path -LiteralPath (Join-Path $destination 'ffprobe.exe'))){Write-Host 'FFmpeg already installed; keeping the existing version.';return}
 $work=Join-Path ([IO.Path]::GetTempPath()) ('ScreenCapture-ffmpeg-'+[guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work -Force | Out-Null
 $zip=Join-Path $work 'ffmpeg.zip'
@@ -16,4 +23,3 @@ New-Item -ItemType Directory -Path $destination -Force | Out-Null
 foreach($name in @('ffmpeg.exe','ffprobe.exe')){Copy-Item -LiteralPath (Join-Path $root "bin/$name") -Destination (Join-Path $destination $name)}
 Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $destination 'FFmpeg-LICENSE')
 Write-Host "Recording tools installed in $destination. Download cache: $work"
-

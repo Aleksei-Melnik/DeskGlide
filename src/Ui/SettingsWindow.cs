@@ -131,6 +131,19 @@ sealed class SettingsWindow:ShellWindow
     void BuildReplay(Settings v)
     {
         var page=Page(1,"Recording","Instant replay","Record in the background. A clip is saved only when you press Save or its shortcut.");
+        var setup=Section(page,"Recording tools","Installed automatically when replay starts. You can also set them up here.");
+        var setupStatus=Kit.Text(RecordingTools.Ready?"Recording tools are ready.":"Recording tools are not installed.",12,"#B0A9BC");setup.Children.Add(setupStatus);
+        setup.Visibility=RecordingTools.Ready?W.Visibility.Collapsed:W.Visibility.Visible;
+        setup.Children.Add(Kit.AsyncButton("Set up recording",async()=>
+        {
+            try
+            {
+                var progress=new Progress<string>(message=>{if(!IsClosed)setupStatus.Text=message;});
+                await RecordingTools.EnsureAsync(((IProgress<string>)progress).Report,lifetime.Token,true);
+                if(!IsClosed){setupStatus.Text=UiStrings.T("Recording tools are ready.");setup.Visibility=W.Visibility.Collapsed;}
+            }
+            catch(OperationCanceledException) when(lifetime.IsCancellationRequested){}
+        }));
         var main=Section(page,"Instant replay");Row(main,"Replay buffer",Toggle("replay","Record in the background",v.Replay.Enabled));Row(main,"Duration",Choose("minutes",Enumerable.Range(5,16).Select(n=>new Choice(n.ToString(),$"{n} minutes")),v.Replay.Minutes.ToString()));Row(main,"Save shortcut",replayKey);
         var encoding=Section(page,"Recording quality","NVIDIA NVENC hardware encoding. Streaming stays at 60 FPS.");Row(encoding,"Codec",Choose("codec",Options("HEVC","H264","AV1"),v.Replay.Codec));Row(encoding,"Quality",Choose("quality",Options("Ultra","High","Medium","Low"),v.Replay.Quality));Row(encoding,"Frame rate",Choose("fps",[new("60","60 FPS"),new("120","120 FPS")],v.Replay.Fps.ToString()));
         Row(encoding,"Resolution",Choose("resolution",[new("0","Monitor resolution"),new("1280","1280 × 720 · 720p"),new("1920","1920 × 1080 · 1080p"),new("2560","2560 × 1440 · 1440p"),new("3840","3840 × 2160 · 4K")],v.Replay.Width.ToString()));
