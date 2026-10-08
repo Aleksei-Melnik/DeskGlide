@@ -21,5 +21,8 @@ jobs:
         run: |
           foreach ($flag in @('--recording-tools-tests', '--update-tests', '--restart-tests', '--audio-timing-test', '--ui-tests', '--wpf-ui-tests', '--feature-tests', '--camera-test', '--camera-2k-test', '--camera-hold-test', '--camera-formats-test', '--kvm-video-test', '--kvm-test')) {
             $p=Start-Process ./app/DeskGlide.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
-            if($p.ExitCode -ne 0){throw "$flag failed"}
+            if($p.ExitCode -ne 0){
+              if(Test-Path ./app/error.txt){Get-Content ./app/error.txt}
+              throw "$flag failed"
+            }
           }

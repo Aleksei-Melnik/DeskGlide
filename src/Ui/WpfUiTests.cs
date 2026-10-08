@@ -17,6 +17,8 @@ static class WpfUiTests
     }
     public static void Run()
     {
+        if(EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var running))
+        {running.Dispose();throw new InvalidOperationException("Close DeskGlide before running UI tests: they activate test windows and can interrupt keyboard focus.");}
         WindowsFormsSynchronizationContext.AutoInstall=false;
         var app=new W.Application{ShutdownMode=W.ShutdownMode.OnExplicitShutdown};Exception? failure=null;
         app.Dispatcher.BeginInvoke(()=>{try{RunTests();}catch(Exception e){failure=e;}finally{foreach(W.Window window in app.Windows.Cast<W.Window>().ToArray())window.Close();app.Shutdown();}});
@@ -73,7 +75,7 @@ static class WpfUiTests
         foreach(int page in Enumerable.Range(0,32).Select(i=>new[]{0,1,2,3,4,7,9}[i%7])){form.SelectPage(page);Pump();}
         watch.Restart();while(watch.ElapsedMilliseconds<300){Pump();Thread.Sleep(5);}Pump();
         var pageSurface=Children((W.DependencyObject)form.Content).OfType<C.ContentControl>().Single(c=>c.GetType()==typeof(C.ContentControl));
-        Require(pageSurface.Opacity>.999&&pageSurface.RenderTransform is M.TranslateTransform motion&&Math.Abs(motion.X)<.001,"Rapid navigation left an incomplete transition");
+        Require(pageSurface.Opacity>.999&&pageSurface.RenderTransform.Value.IsIdentity,"Rapid navigation left an incomplete transition");
         Require(form.Collect().NdiAudioDevice=="saved"&&form.Collect().Replay.Microphone=="mic","Navigation lost edits");
         form.WindowState=W.WindowState.Minimized;form.Reveal();Require(form.WindowState==W.WindowState.Normal,"WPF window did not restore");
         Invoke(Children((W.DependencyObject)form.Content).OfType<C.Button>().Single(b=>(string?)b.Tag=="Save changes"));Require(form.Accepted&&form.IsClosed,"Save button failed");
