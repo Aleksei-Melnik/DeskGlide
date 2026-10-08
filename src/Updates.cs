@@ -20,7 +20,7 @@ sealed record UpdateJob(string Destination,int ParentPid,long ParentStarted,stri
 
 static class Updates
 {
-    public const string Repository="Aleksei-Melnik/ScreenCapture";
+    public const string Repository="Aleksei-Melnik/DeskGlide";
     public const string RepositoryUrl="https://github.com/"+Repository;
     public static Version Current=>typeof(Updates).Assembly.GetName().Version??new(0,0,0);
     public static string VersionText=>$"{Current.Major}.{Current.Minor}.{Current.Build}";
@@ -30,7 +30,7 @@ static class Updates
     static HttpClient CreateClient()
     {
         var client=new HttpClient{Timeout=TimeSpan.FromMinutes(10)};
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ScreenCapture/"+VersionText);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("DeskGlide/"+VersionText);
         return client;
     }
     public static string AssetUrl(string version,string name)=>$"{RepositoryUrl}/releases/download/v{version}/{Uri.EscapeDataString(name)}";
@@ -46,10 +46,11 @@ static class Updates
         if(!rsa.VerifyData(json,signature,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1))throw new IOException("Подпись обновления не прошла проверку.");
         var m=JsonSerializer.Deserialize<ReleaseManifest>(json)??throw new IOException("Пустой манифест.");
         _=ParseVersion(m.Version);
+        // Legacy archive/assembly names allow ScreenCapture clients to migrate in place.
         if(m.File!=$"ScreenCapture-{m.Version}-win-x64.zip"||m.Size<1||m.Size>536870912||!HashValid(m.Sha256)||m.Files is not {Count:>0 and <=2000})throw new IOException("Некорректный пакет обновления.");
         var names=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach(var file in m.Files){ValidateRelative(file.Key);if(!HashValid(file.Value)||!names.Add(file.Key))throw new IOException("Некорректный список файлов.");}
-        foreach(string name in new[]{"ScreenCapture.exe","ScreenCapture.dll","ScreenCapture.runtimeconfig.json"})if(!m.Files.ContainsKey(name))throw new IOException("Неполный пакет ScreenCapture.");
+        foreach(string name in new[]{"ScreenCapture.exe","ScreenCapture.dll","ScreenCapture.runtimeconfig.json"})if(!m.Files.ContainsKey(name))throw new IOException("Неполный пакет DeskGlide.");
         return m;
     }
     static bool HashValid(string hash)=>hash!=null&&System.Text.RegularExpressions.Regex.IsMatch(hash,"^[A-Fa-f0-9]{64}$");

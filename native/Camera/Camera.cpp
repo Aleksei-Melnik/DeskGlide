@@ -74,7 +74,7 @@ class CameraPin final:public CSourceStream,public IAMStreamConfig,public IKsProp
         ReleaseMutex(mutex);
     }
 public:
-    CameraPin(HRESULT* hr,CSource* filter):CSourceStream(NAME("ScreenCapture Camera"),hr,filter,L"Capture") {
+    CameraPin(HRESULT* hr,CSource* filter):CSourceStream(NAME("DeskGlide Camera"),hr,filter,L"Capture") {
         LARGE_INTEGER value;QueryPerformanceFrequency(&value);frequency=value.QuadPart;
         timer=CreateWaitableTimerExW(nullptr,nullptr,2,TIMER_ALL_ACCESS);
         if(!timer)timer=CreateWaitableTimerW(nullptr,FALSE,nullptr);
@@ -190,13 +190,13 @@ public:
 };
 class Camera final:public CSource,public IAMFilterMiscFlags {
 public:
-    Camera(LPUNKNOWN outer,HRESULT* hr):CSource(NAME("ScreenCapture Camera"),outer,CLSID_ScreenCaptureCamera,hr){if(!new CameraPin(hr,this))*hr=E_OUTOFMEMORY;}
+    Camera(LPUNKNOWN outer,HRESULT* hr):CSource(NAME("DeskGlide Camera"),outer,CLSID_ScreenCaptureCamera,hr){if(!new CameraPin(hr,this))*hr=E_OUTOFMEMORY;}
     DECLARE_IUNKNOWN;
     STDMETHODIMP NonDelegatingQueryInterface(REFIID id,void** out) override {if(id==IID_IAMFilterMiscFlags)return GetInterface((IAMFilterMiscFlags*)this,out);return CSource::NonDelegatingQueryInterface(id,out);}
     STDMETHODIMP_(ULONG) GetMiscFlags() override{return AM_FILTER_MISC_FLAGS_IS_SOURCE;}
     static CUnknown* WINAPI Create(LPUNKNOWN outer,HRESULT* hr){return new Camera(outer,hr);}
 };
-CFactoryTemplate g_Templates[]={{L"ScreenCapture Camera",&CLSID_ScreenCaptureCamera,Camera::Create,nullptr,nullptr}};
+CFactoryTemplate g_Templates[]={{L"DeskGlide Camera",&CLSID_ScreenCaptureCamera,Camera::Create,nullptr,nullptr}};
 int g_cTemplates=1;
 extern "C" BOOL WINAPI DllEntryPoint(HINSTANCE,ULONG,LPVOID);
 BOOL APIENTRY DllMain(HINSTANCE instance,DWORD reason,LPVOID reserved){return DllEntryPoint(instance,reason,reserved);}

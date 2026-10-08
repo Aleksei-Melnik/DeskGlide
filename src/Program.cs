@@ -64,7 +64,7 @@ internal static class Program
             Application.EnableVisualStyles();
             WindowsFormsSynchronizationContext.AutoInstall=false;
             var desktop=new System.Windows.Application{ShutdownMode=System.Windows.ShutdownMode.OnExplicitShutdown};
-            desktop.DispatcherUnhandledException+=(_,e)=>{Log.Write("Desktop UI: "+e.Exception);e.Handled=true;MessageBox.Show(e.Exception.Message,"ScreenCapture");};
+            desktop.DispatcherUnhandledException+=(_,e)=>{Log.Write("Desktop UI: "+e.Exception);e.Handled=true;MessageBox.Show(e.Exception.Message,"DeskGlide");};
             using var app=new TrayApp();app.ThreadExit+=(_,_)=>desktop.Shutdown();
             if(args.Contains("--kvm"))app.OpenKvm();
             if(args.Contains("--updated"))

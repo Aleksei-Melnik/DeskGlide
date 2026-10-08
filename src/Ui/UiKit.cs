@@ -40,7 +40,7 @@ static class Kit
         motion.BeginAnimation(M.TranslateTransform.YProperty,new DoubleAnimation(8,0,TimeSpan.FromMilliseconds(180)){EasingFunction=new CubicEase{EasingMode=EasingMode.EaseOut},FillBehavior=FillBehavior.Stop});
         Pulse(element);
     }
-    public static void Notify(W.Window owner,string message,string title="ScreenCapture")=>W.MessageBox.Show(owner,UiStrings.T(message),UiStrings.T(title),W.MessageBoxButton.OK,W.MessageBoxImage.Information);
+    public static void Notify(W.Window owner,string message,string title="DeskGlide")=>W.MessageBox.Show(owner,UiStrings.T(message),UiStrings.T(title),W.MessageBoxButton.OK,W.MessageBoxImage.Information);
     public static W.DataTemplate ChoiceTemplate()
     {
         var factory=new W.FrameworkElementFactory(typeof(C.TextBlock));
@@ -55,9 +55,9 @@ class ShellWindow:W.Window
     public ShellWindow(string title,double width,double height)
     {
         Resources.MergedDictionaries.Add(new W.ResourceDictionary{Source=new Uri("/ScreenCapture;component/Ui/Theme.xaml",UriKind.Relative)});
-        Style=(W.Style)FindResource(typeof(W.Window));Title="ScreenCapture · "+UiStrings.T(title);Width=width;Height=height;WindowStartupLocation=W.WindowStartupLocation.CenterScreen;
-        System.ComponentModel.PropertyChangedEventHandler languageChanged=(_,_)=>Title="ScreenCapture · "+UiStrings.T(title);UiStrings.Shared.PropertyChanged+=languageChanged;
-        Icon=System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/ScreenCapture;component/Assets/SdrCapture.ico"));
+        Style=(W.Style)FindResource(typeof(W.Window));Title="DeskGlide · "+UiStrings.T(title);Width=width;Height=height;WindowStartupLocation=W.WindowStartupLocation.CenterScreen;
+        System.ComponentModel.PropertyChangedEventHandler languageChanged=(_,_)=>Title="DeskGlide · "+UiStrings.T(title);UiStrings.Shared.PropertyChanged+=languageChanged;
+        Icon=System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/ScreenCapture;component/Assets/DeskGlide.ico"));
         Closed+=(_,_)=>{IsClosed=true;UiStrings.Shared.PropertyChanged-=languageChanged;};
         SourceInitialized+=(_,_)=>
         {
@@ -90,8 +90,7 @@ class ShellWindow:W.Window
         var heading=Kit.Text(title,26);heading.FontWeight=W.FontWeights.SemiBold;
         var caption=Kit.Text(subtitle,13,"#B0A9BC");caption.Margin=new(0,8,0,0);
         var grid=new C.Grid();grid.ColumnDefinitions.Add(new());grid.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});grid.Children.Add(Kit.Stack(heading,caption));
-        var initials=Kit.Text("SC",20);initials.FontWeight=W.FontWeights.Bold;initials.HorizontalAlignment=W.HorizontalAlignment.Center;initials.VerticalAlignment=W.VerticalAlignment.Center;
-        var mark=new C.Border{Width=48,Height=48,CornerRadius=new(12),Child=initials};mark.SetResourceReference(C.Border.BackgroundProperty,"Accent");C.Grid.SetColumn(mark,1);grid.Children.Add(mark);
+        var mark=new C.Image{Width=48,Height=48,Source=System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/ScreenCapture;component/Assets/DeskGlide.png")),ToolTip="DeskGlide"};C.Grid.SetColumn(mark,1);grid.Children.Add(mark);
         return new C.Border{Padding=new(28,22,28,20),BorderBrush=Kit.Brush("#24FFFFFF"),BorderThickness=new(0,0,0,1),Background=Kit.Brush("#A6100E18"),Child=grid};
     }
     [StructLayout(LayoutKind.Sequential)] readonly record struct Margins(int Left,int Right,int Top,int Bottom);

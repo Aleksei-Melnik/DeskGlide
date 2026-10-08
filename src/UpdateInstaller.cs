@@ -15,7 +15,7 @@ static class UpdateInstaller
         if(!Path.GetFullPath(AppContext.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar).Equals(payload,StringComparison.OrdinalIgnoreCase))throw new IOException("Запустите установщик из проверенного пакета.");
         var job=JsonSerializer.Deserialize<UpdateJob>(File.ReadAllText(jobPath))??throw new IOException("Пустое задание обновления.");
         if(!Guid.TryParseExact(job.Nonce,"N",out _))throw new IOException("Неверный идентификатор установки.");
-        if(job.Executable is not ("ScreenCapture.exe" or "SdrCapture.exe"))throw new IOException("Неверное имя приложения.");
+        if(!SupportedExecutable(job.Executable))throw new IOException("Неверное имя приложения.");
         string resultPath=Path.Combine(Updates.Root,"last-result.json");
         bool restartPrevious=false,installed=false;
         Process? child=null;
@@ -29,7 +29,7 @@ static class UpdateInstaller
             {
                 if(parent.StartTime.ToUniversalTime().Ticks!=job.ParentStarted||!Path.GetDirectoryName(parent.MainModule!.FileName)!.Equals(job.Destination,StringComparison.OrdinalIgnoreCase))throw new IOException("Исходный процесс изменился.");
                 string parentName=Path.GetFileName(parent.MainModule.FileName);
-                if(parentName is not ("SdrCapture.exe" or "ScreenCapture.exe"))throw new IOException("Неверное исходное приложение.");
+                if(!SupportedExecutable(parentName))throw new IOException("Неверное исходное приложение.");
                 if(parentName!=job.Executable)throw new IOException("Изменилось имя исходного приложения.");
                 using var ready=EventWaitHandle.OpenExisting("Local\\SdrCapture.UpdateReady."+job.Nonce);ready.Set();
                 if(!parent.WaitForExit(45000))throw new IOException("Приложение не завершилось. Файлы не заменены.");
@@ -78,6 +78,7 @@ static class UpdateInstaller
         }
         finally{child?.Dispose();}
     }
+    internal static bool SupportedExecutable(string name)=>name is "DeskGlide.exe" or "ScreenCapture.exe" or "SdrCapture.exe";
     internal static void WithInstallationLock(Action install,string name="Local\\SdrCapture.Tray")
     {
         // Dispose the named object before launching the app: its singleton checks creation.
@@ -86,7 +87,7 @@ static class UpdateInstaller
         try
         {
             try{acquired=applicationMutex.WaitOne(15000);}catch(AbandonedMutexException){acquired=true;}
-            if(!acquired)throw new IOException("Другая копия ScreenCapture ещё работает.");
+            if(!acquired)throw new IOException("Другая копия DeskGlide ещё работает.");
             install();
         }
         finally{if(acquired)applicationMutex.ReleaseMutex();}

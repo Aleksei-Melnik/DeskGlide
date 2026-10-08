@@ -1,6 +1,6 @@
 # Third-party components
 
-ScreenCapture source is MIT licensed. The following components keep their own
+DeskGlide source is MIT licensed. The following components keep their own
 copyright notices and licenses:
 
 - .NET runtime and Windows Desktop runtime: Microsoft and contributors, MIT.
@@ -18,7 +18,7 @@ copyright notices and licenses:
 
 Optional Discord audio uses the original, signed VB-CABLE installer, downloaded
 on request from VB-Audio. VB-CABLE is donationware by VB-Audio / Vincent Burel,
-not a ScreenCapture driver. It is never installed automatically or on a KVM host.
+not a DeskGlide driver. It is never installed automatically or on a KVM host.
 Users can identify, license or support the author through the settings page:
 https://www.vb-cable.com/ and https://vb-audio.com/Services/licensing.htm .
 The original package is SHA-256 pinned and its installer signature is verified.
@@ -26,7 +26,7 @@ The original package is SHA-256 pinned and its installer signature is verified.
 Dependency license texts from the restored NuGet packages are included in the
 release's dependency-licenses directory when available.
 
-NDI is a trademark of Vizrt NDI AB. ScreenCapture is an independent project,
+NDI is a trademark of Vizrt NDI AB. DeskGlide is an independent project,
 not an official NDI application. The NDI runtime is installed separately under
 its vendor terms: https://ndi.video/ and https://docs.ndi.video/
 

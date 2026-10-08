@@ -14,7 +14,7 @@ static class WindowActivation
     }
     public static void AllowExisting()
     {
-        foreach(string name in new[]{"ScreenCapture","SdrCapture"})foreach(var process in Process.GetProcessesByName(name))using(process)
+        foreach(string name in new[]{"DeskGlide","ScreenCapture","SdrCapture"})foreach(var process in Process.GetProcessesByName(name))using(process)
             try{if(process.Id!=Environment.ProcessId&&process.SessionId==Process.GetCurrentProcess().SessionId&&Path.GetDirectoryName(process.MainModule?.FileName)==AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar))AllowSetForegroundWindow(process.Id);}catch(System.ComponentModel.Win32Exception){}catch(InvalidOperationException){}
     }
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);

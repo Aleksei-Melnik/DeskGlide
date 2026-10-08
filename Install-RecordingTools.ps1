@@ -1,7 +1,8 @@
 param([string]$AppFolder=$PSScriptRoot)
 $ErrorActionPreference='Stop'
 if(Test-Path -LiteralPath (Join-Path $AppFolder 'app/ScreenCapture.exe')){$AppFolder=Join-Path $AppFolder 'app'}
-$executable=Join-Path $AppFolder 'ScreenCapture.exe'
+$executable=Join-Path $AppFolder 'DeskGlide.exe'
+if(!(Test-Path -LiteralPath $executable)){$executable=Join-Path $AppFolder 'ScreenCapture.exe'}
 if((Test-Path -LiteralPath $executable) -and ([version](Get-Item -LiteralPath $executable).VersionInfo.FileVersion -ge [version]'0.7.6.0')){
     $process=Start-Process -FilePath $executable -ArgumentList '--install-recording-tools' -WindowStyle Hidden -PassThru -Wait
     if($process.ExitCode -ne 0){throw 'Recording setup failed. See error.txt in the app folder.'}

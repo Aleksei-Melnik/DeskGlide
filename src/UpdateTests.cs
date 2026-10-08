@@ -13,7 +13,7 @@ static class UpdateTests
     {
         string root=Path.Combine(Path.GetTempPath(),"ScreenCapture-update-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
         string zip=Path.Combine(root,"package.zip"),payload=Path.Combine(root,"payload"),target=Path.Combine(root,"target"),backup=Path.Combine(root,"backup");
-        var content=new Dictionary<string,string>{{"ScreenCapture.exe","new exe"},{"ScreenCapture.dll","new dll"},{"ScreenCapture.runtimeconfig.json","{}"}};
+        var content=new Dictionary<string,string>{{"ScreenCapture.exe","new exe"},{"ScreenCapture.dll","new dll"},{"ScreenCapture.runtimeconfig.json","{}"},{"DeskGlide.exe","new exe"},{"SdrCapture.exe","new exe"}};
         using(var archive=ZipFile.Open(zip,ZipArchiveMode.Create))foreach(var file in content){using var stream=archive.CreateEntry(file.Key).Open();stream.Write(Encoding.UTF8.GetBytes(file.Value));}
         byte[] package=File.ReadAllBytes(zip);
         var manifest=new ReleaseManifest("0.6.0","ScreenCapture-0.6.0-win-x64.zip",package.Length,Hash(package),content.ToDictionary(f=>f.Key,f=>Hash(Encoding.UTF8.GetBytes(f.Value))));
@@ -40,6 +40,9 @@ static class UpdateTests
             singleton.ReleaseMutex();
         }
         Require(File.ReadAllText(Path.Combine(target,"ScreenCapture.exe"))=="new exe","New executable not installed");
+        Require(File.ReadAllText(Path.Combine(target,"DeskGlide.exe"))=="new exe"&&File.ReadAllText(Path.Combine(target,"SdrCapture.exe"))=="new exe","Branded or legacy launcher missing");
+        foreach(string launcher in new[]{"DeskGlide.exe","ScreenCapture.exe","SdrCapture.exe"})Require(UpdateInstaller.SupportedExecutable(launcher),"Updater cannot restart launcher: "+launcher);
+        Require(!UpdateInstaller.SupportedExecutable("other.exe")&&!UpdateInstaller.SupportedExecutable("../DeskGlide.exe"),"Updater accepted an unrelated launcher");
         File.AppendAllText(Path.Combine(payload,"ScreenCapture.dll"),"tampered");Reject(()=>Updates.VerifyPayload(payload,verified),"Tampered payload accepted");
         Require(Updates.ParseVersion("0.10.0")>Updates.ParseVersion("0.9.9"),"Version comparison is lexical");
         Reject(()=>Updates.ParseVersion("0.6.0/evil"),"Untrusted release path accepted");

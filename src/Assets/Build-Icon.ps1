@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
-# SC monogram built from vector paths, consistent at every tray and Explorer size.
+# DG monogram built from vector paths, consistent at every tray and Explorer size.
 # Supersampling preserves the rounded silhouette; no external graphics tools required.
 function New-RoundedPath([single]$X, [single]$Y, [single]$Width, [single]$Height, [single]$Radius) {
     $path = [System.Drawing.Drawing2D.GraphicsPath]::new()
@@ -30,21 +30,21 @@ function New-IconBitmap([int]$Size) {
         $pen.StartCap = $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
         $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
     }
-    $s = [System.Drawing.Drawing2D.GraphicsPath]::new()
-    $s.AddLine(108,80,78,80)
-    $s.AddBezier(78,80,62,80,56,87,56,102)
-    $s.AddBezier(56,102,56,117,64,124,80,124)
-    $s.AddLine(80,124,88,124)
-    $s.AddBezier(88,124,104,124,112,133,112,149)
-    $s.AddBezier(112,149,112,167,102,176,86,176)
-    $s.AddLine(86,176,54,176)
-    $c = [System.Drawing.Drawing2D.GraphicsPath]::new()
-    $c.AddLine(202,80,178,80)
-    $c.AddBezier(178,80,155,80,146,99,146,128)
-    $c.AddBezier(146,128,146,157,155,176,178,176)
-    $c.AddLine(178,176,202,176)
-    $g.DrawPath($white,$s); $g.DrawPath($mint,$c)
-    $s.Dispose(); $c.Dispose(); $tile.Dispose(); $gradient.Dispose(); $border.Dispose(); $mint.Dispose(); $white.Dispose(); $g.Dispose()
+    $d = [System.Drawing.Drawing2D.GraphicsPath]::new()
+    $d.AddLine(50,176,50,80)
+    $d.AddLine(50,80,75,80)
+    $d.AddBezier(75,80,103,80,116,97,116,128)
+    $d.AddBezier(116,128,116,159,103,176,75,176)
+    $d.AddLine(75,176,50,176)
+    $letterG = [System.Drawing.Drawing2D.GraphicsPath]::new()
+    $letterG.AddBezier(208,86,201,81,192,80,181,80)
+    $letterG.AddBezier(181,80,156,80,145,98,145,128)
+    $letterG.AddBezier(145,128,145,158,156,176,181,176)
+    $letterG.AddBezier(181,176,193,176,202,174,208,170)
+    $letterG.AddLine(208,170,208,131)
+    $letterG.AddLine(208,131,184,131)
+    $g.DrawPath($white,$d); $g.DrawPath($mint,$letterG)
+    $d.Dispose(); $letterG.Dispose(); $tile.Dispose(); $gradient.Dispose(); $border.Dispose(); $mint.Dispose(); $white.Dispose(); $g.Dispose()
     $result = [System.Drawing.Bitmap]::new($Size,$Size)
     $target = [System.Drawing.Graphics]::FromImage($result)
     $target.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
@@ -61,10 +61,10 @@ foreach ($size in $sizes) {
     $memory = [System.IO.MemoryStream]::new()
     $bitmap.Save($memory,[System.Drawing.Imaging.ImageFormat]::Png)
     $frames += ,$memory.ToArray()
-    if ($size -eq 256) { $bitmap.Save((Join-Path $PSScriptRoot 'SdrCapture.png'),[System.Drawing.Imaging.ImageFormat]::Png) }
+    if ($size -eq 256) { $bitmap.Save((Join-Path $PSScriptRoot 'DeskGlide.png'),[System.Drawing.Imaging.ImageFormat]::Png) }
     $memory.Dispose(); $bitmap.Dispose()
 }
-$file = [System.IO.File]::Create((Join-Path $PSScriptRoot 'SdrCapture.ico'))
+$file = [System.IO.File]::Create((Join-Path $PSScriptRoot 'DeskGlide.ico'))
 $writer = [System.IO.BinaryWriter]::new($file)
 try {
     $writer.Write([uint16]0); $writer.Write([uint16]1); $writer.Write([uint16]$sizes.Count)

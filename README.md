@@ -1,13 +1,14 @@
-# ScreenCapture
+# DeskGlide
 
-Screen streaming, instant replay and KVM for Windows 11. ScreenCapture is a
-standalone NeuralMea utility. Its interface supports English and Russian.
+KVM, screen and audio sharing, and instant replay for Windows 11. Connect your
+PCs, arrange their monitors and move between them with one keyboard and mouse.
+The interface supports English and Russian.
 
 ## Getting started
 
 Install NDI Tools/Runtime x64 on PCs sending or receiving NDI; vendor runtime binaries are not redistributed here.
 
-1. Extract the Windows release and run `ScreenCapture.exe`. Settings opens from
+1. Extract the Windows release and run `DeskGlide.exe`. Settings opens from
    a tray double-click or **Settings** in the tray menu.
 2. Under **Screen streaming**, choose a monitor and enable NDI. Output is SDR,
    at the monitor's preferred native resolution, with a 60 FPS delivery clock.
@@ -71,7 +72,7 @@ link remains available in settings.
   network folders work. Buffering stays local; a separate worker delivers saved
   clips to the destination without blocking capture.
 - Clips are exported only by **Save replay**, the configured shortcut or
-  `ScreenCapture.exe --save-replay`. Updates, shutdown and settings changes do not
+  `DeskGlide.exe --save-replay`. Updates, shutdown and settings changes do not
   export a clip. An unsaved buffer is discarded on restart or recording-format
   changes. Already requested deliveries can finish later if a share was offline.
 
@@ -87,7 +88,7 @@ physical edge switching. An active desktop/virtual display is still required.
 **Computers · KVM** opens a separate chooser. The default launcher shortcut is
 Ctrl+Alt+K, edge-lock toggle Ctrl+Alt+Pause, emergency return Ctrl+Alt+Esc.
 Monitor shortcuts are configurable. Stream Deck injected keystrokes are supported.
-`ScreenCapture.exe --kvm` also opens the chooser. Viewing offers native-resolution
+`DeskGlide.exe --kvm` also opens the chooser. Viewing offers native-resolution
 JPEG 95/88 or bandwidth-saving 1080p, with 30/60 FPS target settings. Both peers
 need 0.7.2 or later for the dedicated video channel; older peers use snapshot mode.
 
@@ -116,11 +117,18 @@ startup acknowledgement. **Update all PCs** stages compatible paired clients,
 restarts them, and waits for their return before updating the host. Settings,
 recording tools and saved clips are preserved. Reopen Discord/OBS to load an
 updated camera DLL. Releases are published at:
-https://github.com/Aleksei-Melnik/ScreenCapture/releases
+https://github.com/Aleksei-Melnik/DeskGlide/releases
 
 Existing installs retain `%LOCALAPPDATA%\SdrCapture`, pairing and the NDI source
-name. `SdrCapture.exe` is a compatibility launcher for old shortcuts and firewall
-rules. Exit the app before a manual in-place extraction; retain the `tools` folder.
+name. `ScreenCapture.exe` and `SdrCapture.exe` are compatibility launchers for
+old shortcuts and firewall rules; new installs use `DeskGlide.exe`. All three
+launch the same app and share a singleton, so they cannot start duplicate senders.
+Old `.scprofile` backups remain readable. Custom camera/audio names are kept.
+The signed updater archive retains the `ScreenCapture-*` name so existing
+clients can update; the public `DeskGlide-*` download contains identical files.
+The renamed GitHub repository redirects old update URLs. Do not recreate a
+repository under the old name. Exit the app before a manual in-place extraction;
+retain the `tools` folder.
 
 ## Building and validation
 

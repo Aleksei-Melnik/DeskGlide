@@ -95,7 +95,7 @@ sealed class KvmViewer:Form
     public KvmViewer(KvmService service,KvmPeerInfo peer)
     {
         this.service=service;this.peer=peer;
-        Text="ScreenCapture · "+peer.Name;Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(1100,740);MinimumSize=new(860,450);KeyPreview=true;Font=new("Segoe UI",10);StartPosition=FormStartPosition.CenterScreen;
+        Text="DeskGlide · "+peer.Name;Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(1100,740);MinimumSize=new(860,450);KeyPreview=true;Font=new("Segoe UI",10);StartPosition=FormStartPosition.CenterScreen;
         UiStyle.FixedWindow(this);
         var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=50,Padding=new(8,5,8,5),WrapContents=false,BackColor=Color.FromArgb(242,246,251)};
         monitors.Dock=DockStyle.None;monitors.Width=160;monitors.Margin=new(0,7,0,0);

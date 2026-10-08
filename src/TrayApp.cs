@@ -83,18 +83,18 @@ sealed class TrayApp:ApplicationContext
         if(!hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey))notifications.Enqueue("Горячая клавиша занята. Выберите другую в Replay Buffer → Settings.");
         delivery.Notification+=message=>notifications.Enqueue(message);
         UiStrings.Shared.Language=settings.Language;
-        tray=new NotifyIcon{Icon=appIcon,Text="ScreenCapture · NDI · SDR",Visible=true,ContextMenuStrip=new ContextMenuStrip()};
+        tray=new NotifyIcon{Icon=appIcon,Text="DeskGlide · NDI · SDR",Visible=true,ContextMenuStrip=new ContextMenuStrip()};
         TrayMenuStyle.Apply(tray.ContextMenuStrip);
         tray.ContextMenuStrip.Opening+=(_,_)=>BuildMenu();
         tray.DoubleClick+=(_,_)=>OpenSettings();
         timer.Tick+=(_,_)=>
         {
-            string text=$"ScreenCapture · NDI {(engine.NdiEnabled?"ON":"OFF")} · Replay {(settings.Replay.Enabled?"ON":"OFF")}";tray.Text=text[..Math.Min(63,text.Length)];
+            string text=$"DeskGlide · NDI {(engine.NdiEnabled?"ON":"OFF")} · Replay {(settings.Replay.Enabled?"ON":"OFF")}";tray.Text=text[..Math.Min(63,text.Length)];
             ReplayAppContext.Capture();
             if(++ticks%5==0){kvm?.RefreshScreens();controller?.Refresh();}
             if(ticks==8&&settings.Updates.CheckOnStartup&&!updater.Busy)_=CheckForUpdatesQuietly();
             if(replay.Error!=null&&replay.Error!=lastReplayError){notifications.Enqueue("Проблема записи повтора: "+replay.Error);lastReplayError=replay.Error;}
-            if(notifications.TryDequeue(out string? message))tray.ShowBalloonTip(5000,"ScreenCapture",message[..Math.Min(255,message.Length)],ToolTipIcon.Info);
+            if(notifications.TryDequeue(out string? message))tray.ShowBalloonTip(5000,"DeskGlide",message[..Math.Min(255,message.Length)],ToolTipIcon.Info);
         };
         timer.Start();engine.Start(settings.Options);StartKvm();StartDiscord();
         if(settings.Kvm.Role!="Host")_=Task.Run(async()=>{for(int i=0;i<30&&!closing;i++){try{DiscordDevices.RecoverDefaults(settings.Kvm.Role);}catch(Exception e){Log.Write("Audio default recovery: "+e.Message);}await Task.Delay(1000);}});
@@ -106,7 +106,7 @@ sealed class TrayApp:ApplicationContext
         using var icon=new Icon(stream,SystemInformation.SmallIconSize);
         return (Icon)icon.Clone();
     }
-    void Guard(Action action){try{action();}catch(Exception e){Log.Write(e.ToString());MessageBox.Show(e.Message,"ScreenCapture",MessageBoxButtons.OK,MessageBoxIcon.Error);}}
+    void Guard(Action action){try{action();}catch(Exception e){Log.Write(e.ToString());MessageBox.Show(e.Message,"DeskGlide",MessageBoxButtons.OK,MessageBoxIcon.Error);}}
     void BuildMenu()
     {
         var items=tray.ContextMenuStrip!.Items;
@@ -121,7 +121,7 @@ sealed class TrayApp:ApplicationContext
         var save=new ToolStripMenuItem(UiStrings.T("Save replay")){Enabled=replay.BufferedSeconds>0,ShortcutKeyDisplayString=ReplayHotkey.Text(settings.Replay),ToolTipText=UiStrings.F("Save the last {0} minutes",settings.Replay.Minutes)};
         save.Click+=(_,_)=>SaveReplay();items.Add(save);
         items.Add(UiStrings.T("Open clips folder"),null,async(_,_)=>{try{await RecordingFolder.Open(settings.Replay.Folder);}catch(Exception e){notifications.Enqueue(UiStrings.T("Could not open the recordings folder: ")+e.Message);}});
-        items.Add(new ToolStripSeparator());items.Add(UiStrings.T("Updates…"),null,(_,_)=>OpenUpdates());items.Add(UiStrings.T("Quit ScreenCapture"),null,(_,_)=>ExitThread());
+        items.Add(new ToolStripSeparator());items.Add(UiStrings.T("Updates…"),null,(_,_)=>OpenUpdates());items.Add(UiStrings.T("Quit DeskGlide"),null,(_,_)=>ExitThread());
     }
     void OpenSettings(int page=0)
     {
@@ -163,7 +163,7 @@ sealed class TrayApp:ApplicationContext
         if(IsAutorun()!=form.StartWithWindows)
         {
             using var key=Registry.CurrentUser.CreateSubKey(RunKey);
-            if(form.StartWithWindows)key.SetValue("ScreenCapture",$"\"{Environment.ProcessPath}\"");else key.DeleteValue("ScreenCapture",false);key.DeleteValue("SdrCapture",false);
+            if(form.StartWithWindows)key.SetValue("DeskGlide",$"\"{Environment.ProcessPath}\"");else key.DeleteValue("DeskGlide",false);key.DeleteValue("ScreenCapture",false);key.DeleteValue("SdrCapture",false);
         }
         if(form.ImportedProfile!=null||priorKvm!=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],ExcludedMonitors=[],Seamless=true}))StartKvm();else controller?.UpdateLayout(settings.Kvm);
         settings.Discord=result.Discord;settings.Save();if(discordChanged)StartDiscord();
@@ -172,7 +172,7 @@ sealed class TrayApp:ApplicationContext
     string Diagnostics()=>$"{engine.SourceName}\r\n{engine.Status}\r\n{engine.CaptureStatus}\r\nЗахват: {engine.CaptureMs:F1} мс; NDI: {engine.SendMs:F1} мс\r\n\r\n{replay.Status}\r\n{replay.AudioStatus}\r\nNDI audio: {engine.NdiAudioStatus}\r\nБуфер: {replay.CacheBytes/1048576.0:F0} МБ\r\nКадры записи: {replay.EncodedFrames}; повторы: {replay.RepeatedInputFrames}\r\nПримечание: неподвижный экран тоже даёт повторы.\r\nЗапусков кодировщика: {replay.EncoderStarts}\r\n{replay.Error}\r\n{delivery.Status}\r\n\r\nDiscord: {discord?.Status??"выключен"}\r\n\r\nKVM: {kvm?.Status}\r\n{string.Join("\r\n",kvm?.Peers.Select(p=>p.Name+" · экранов: "+p.Screens.Length)??[])}";
     async Task CheckForUpdatesQuietly()
     {
-        try{await updater.Check();if(updater.Latest!=null&&Updates.ParseVersion(updater.Latest.Manifest.Version)>Updates.Current)notifications.Enqueue("Доступна ScreenCapture "+updater.Latest.Manifest.Version+". Откройте «Обновления».");}
+        try{await updater.Check();if(updater.Latest!=null&&Updates.ParseVersion(updater.Latest.Manifest.Version)>Updates.Current)notifications.Enqueue("Доступна DeskGlide "+updater.Latest.Manifest.Version+". Откройте «Обновления».");}
         catch(Exception e){updater.SetStatus("Проверка обновлений недоступна: "+e.Message);}
     }
     void OpenUpdates()
@@ -226,9 +226,9 @@ sealed class TrayApp:ApplicationContext
         try{discord=new(settings.Discord);}
         catch(Exception e){notifications.Enqueue("Discord: "+e.Message);}
     }
-    static bool IsAutorun(){using var key=Registry.CurrentUser.OpenSubKey(RunKey);return key?.GetValue("ScreenCapture")!=null||key?.GetValue("SdrCapture")!=null;}
-    public static string ConnectionText=>"На стрим-ПК: OBS → Источники → NDI Source (DistroAV).\nИсточник: ИМЯ-ИГРОВОГО-ПК (SdrCapture SDR).\n\nYUV Range: Limited\nYUV Color Space: BT.709\nLatency Mode: Low\nBandwidth: Highest\nBehavior: Always play when not visible (Keepalive)\nFramesync: выключено\nEnable audio: выключено\n\nЭто NDI High Bandwidth, не HX/HEVC. Нужна проводная локальная сеть.\nВ OBS → Настройки → Расширенные → Видео оставьте SDR Rec.709.\n\nОбработка цвета сохранена из прежнего ScreenCapture.\nПолная задержка зависит также от сети и OBS; нулевая задержка не гарантируется.";
-    void ShowHelp()=>MessageBox.Show(ConnectionText,"ScreenCapture → DistroAV");
+    static bool IsAutorun(){using var key=Registry.CurrentUser.OpenSubKey(RunKey);return key?.GetValue("DeskGlide")!=null||key?.GetValue("ScreenCapture")!=null||key?.GetValue("SdrCapture")!=null;}
+    public static string ConnectionText=>"На стрим-ПК: OBS → Источники → NDI Source (DistroAV).\nИсточник: ИМЯ-ИГРОВОГО-ПК (SdrCapture SDR).\n\nYUV Range: Limited\nYUV Color Space: BT.709\nLatency Mode: Low\nBandwidth: Highest\nBehavior: Always play when not visible (Keepalive)\nFramesync: выключено\nEnable audio: выключено\n\nЭто NDI High Bandwidth, не HX/HEVC. Нужна проводная локальная сеть.\nВ OBS → Настройки → Расширенные → Видео оставьте SDR Rec.709.\n\nНа приёмник передаётся SDR независимо от режима HDR игрового монитора.\nПолная задержка зависит также от сети и OBS; нулевая задержка не гарантируется.";
+    void ShowHelp()=>MessageBox.Show(ConnectionText,"DeskGlide → DistroAV");
     Ui.StatusSection[] StatusOverview()=>[
         new("Screen streaming",("State",UiStrings.T(!engine.NdiEnabled?"Off":engine.Error!=null?"Recovering capture":"On")),("NDI source",engine.SourceName),("Output",string.Join(", ",engine.CaptureSizes)),("Delivery rate",$"{engine.Fps:F1} FPS"),("Capture time",$"{engine.CaptureMs:F1} ms")),
         new("Instant replay",("State",UiStrings.T(!settings.Replay.Enabled?"Off":replay.Error!=null?"Recording error":!RecordingTools.Ready?"Setting up recording tools…":"On")),("Buffered",$"{replay.BufferedSeconds/60:F1} / {settings.Replay.Minutes} min"),("Buffer size",$"{replay.CacheBytes/1048576.0:F0} MB"),("Error",replay.Error??UiStrings.T("None"))),

@@ -1,14 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <AssemblyName>ScreenCapture</AssemblyName><RootNamespace>SdrCapture</RootNamespace><PathMap>$(MSBuildProjectDirectory)=/_/ScreenCapture/src</PathMap><RepositoryUrl>https://github.com/Aleksei-Melnik/ScreenCapture</RepositoryUrl><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Keep the assembly identity: existing signed updaters require these payload names. -->
+    <AssemblyName>ScreenCapture</AssemblyName><RootNamespace>SdrCapture</RootNamespace><PathMap>$(MSBuildProjectDirectory)=/_/DeskGlide/src</PathMap><RepositoryUrl>https://github.com/Aleksei-Melnik/DeskGlide</RepositoryUrl><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
+    <Product>DeskGlide</Product><AssemblyTitle>DeskGlide</AssemblyTitle><Description>KVM, screen sharing and instant replay for Windows</Description>
     <UseWindowsForms>true</UseWindowsForms><UseWPF>true</UseWPF><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><PlatformTarget>x64</PlatformTarget>
-    <Version>0.7.6</Version><AssemblyVersion>0.7.6.0</AssemblyVersion><FileVersion>0.7.6.0</FileVersion>
-    <ApplicationIcon>Assets\SdrCapture.ico</ApplicationIcon>
+    <Version>0.7.7</Version><AssemblyVersion>0.7.7.0</AssemblyVersion><FileVersion>0.7.7.0</FileVersion>
+    <ApplicationIcon>Assets\DeskGlide.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><PackageReference Include="Vortice.Direct3D11" Version="3.8.3" /><PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" /></ItemGroup>
-  <ItemGroup><EmbeddedResource Include="Assets\SdrCapture.ico" LogicalName="SdrCapture.AppIcon.ico" /></ItemGroup>
-  <ItemGroup><Resource Include="Assets\SdrCapture.ico" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="Assets\DeskGlide.ico" LogicalName="SdrCapture.AppIcon.ico" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets\DeskGlide.ico" /><Resource Include="Assets\DeskGlide.png" /></ItemGroup>
   <ItemGroup><EmbeddedResource Include="Ui\Strings.ru.json" LogicalName="SdrCapture.Strings.ru" WithCulture="false" /></ItemGroup>
   <ItemGroup><PackageReference Include="NAudio.Wasapi" Version="2.3.0" /></ItemGroup>
   <ItemGroup><Content Include="..\native\TurboJpeg\libturbojpeg.dll" Link="libturbojpeg.dll" CopyToOutputDirectory="PreserveNewest" /><Content Include="..\licenses\libjpeg-turbo\*" Link="licenses\libjpeg-turbo\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>

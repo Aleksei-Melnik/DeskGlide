@@ -165,7 +165,8 @@ static class CameraInstallation
     public static string Name(string? configured=null)
     {
         if(!string.IsNullOrWhiteSpace(configured))return configured.Trim();
-        using var key=Registry.CurrentUser.OpenSubKey(DeviceKey);return key?.GetValue("FriendlyName") as string??"ScreenCapture Camera";
+        // Keep an installed/custom name so Discord retains its selected device.
+        using var key=Registry.CurrentUser.OpenSubKey(DeviceKey);return key?.GetValue("FriendlyName") as string??"DeskGlide Camera";
     }
     public static void ValidateName(string name){if(string.IsNullOrWhiteSpace(name)||name.Length<4||name.Length>60||name.Any(char.IsControl))throw new ArgumentException("Имя камеры: от 4 до 60 символов, без переносов строк.");}
     public static void Install(string role,string? configured=null)

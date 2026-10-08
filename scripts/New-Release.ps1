@@ -37,8 +37,10 @@ foreach($item in Get-ChildItem -LiteralPath $payload -Recurse -File | Sort-Objec
     $relative=[IO.Path]::GetRelativePath($payload,$item.FullName).Replace('\','/')
     $files[$relative]=(Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
 }
+# Keep the signed archive name for existing updaters; offer identical branded bytes.
 $name="ScreenCapture-$version-win-x64.zip";$zip=Join-Path $release $name
 [IO.Compression.ZipFile]::CreateFromDirectory($payload,$zip,[IO.Compression.CompressionLevel]::Optimal,$false)
+Copy-Item -LiteralPath $zip -Destination (Join-Path $release "DeskGlide-$version-win-x64.zip")
 $manifest=[ordered]@{Version=$version;File=$name;Size=(Get-Item -LiteralPath $zip).Length;Sha256=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash;Files=$files}
 $json=[Text.Encoding]::UTF8.GetBytes(($manifest | ConvertTo-Json -Depth 8))
 [IO.File]::WriteAllBytes((Join-Path $release 'update.json'),$json)

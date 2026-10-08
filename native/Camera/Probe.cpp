@@ -41,7 +41,7 @@ static bool DeviceEnumeration(){
     wchar_t path[128];swprintf_s(path,L"Software\\ScreenCapture\\CameraProbe-%lu",GetCurrentProcessId());HKEY root=nullptr,entry=nullptr;
     if(RegCreateKeyExW(HKEY_CURRENT_USER,path,0,nullptr,0,KEY_ALL_ACCESS,nullptr,&root,nullptr)!=ERROR_SUCCESS)return false;
     RegCreateKeyExW(root,L"CLSID\\{860BB310-5D01-11D0-BD3B-00A0C911CE86}\\Instance\\{72984451-D4C4-46EB-A610-519DB1F6A820}",0,nullptr,0,KEY_ALL_ACCESS,nullptr,&entry,nullptr);
-    const wchar_t* id=L"{72984451-D4C4-46EB-A610-519DB1F6A820}";const wchar_t* name=L"ScreenCapture Camera";
+    const wchar_t* id=L"{72984451-D4C4-46EB-A610-519DB1F6A820}";const wchar_t* name=L"DeskGlide Camera";
     RegSetValueExW(entry,L"CLSID",0,REG_SZ,(const BYTE*)id,(DWORD)((wcslen(id)+1)*2));RegSetValueExW(entry,L"FriendlyName",0,REG_SZ,(const BYTE*)name,(DWORD)((wcslen(name)+1)*2));RegCloseKey(entry);
     bool found=false;
     if(RegOverridePredefKey(HKEY_CLASSES_ROOT,root)==ERROR_SUCCESS){

@@ -17,7 +17,7 @@ sealed class KvmHub:Form
     {
         this.service=service;this.seamless=seamless;this.view=view;this.settings=settings;
         this.remoteOnly=remoteOnly??(p=>p.RemoteViewOnly);this.setRemoteOnly=setRemoteOnly;
-        Text="ScreenCapture · KVM";Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(820,580);MinimumSize=new(720,480);Font=new("Segoe UI",10);BackColor=Color.White;StartPosition=FormStartPosition.CenterScreen;
+        Text="DeskGlide · KVM";Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(820,580);MinimumSize=new(720,480);Font=new("Segoe UI",10);BackColor=Color.White;StartPosition=FormStartPosition.CenterScreen;
         UiStyle.FixedWindow(this);
         var header=new Panel{Dock=DockStyle.Top,Height=110,Padding=new(24,15,24,10),BackColor=Color.FromArgb(24,35,54)};
         header.Controls.Add(new Label{Text="Какой компьютер открыть?",Dock=DockStyle.Top,Height=44,Font=new(Font.FontFamily,22,FontStyle.Bold),ForeColor=Color.White});

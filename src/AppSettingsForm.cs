@@ -39,10 +39,10 @@ partial class AppSettingsForm:Form
         loadAudio=discoverAudio??SettingsAudioDiscovery.Load;
         initial=value.Copy();ResultSettings=value.Copy();this.service=service;
         kvmOpen=new(value.Kvm.OpenHotkeyModifiers,value.Kvm.OpenHotkeyKey);kvmToggle=new(value.Kvm.ToggleHotkeyModifiers,value.Kvm.ToggleHotkeyKey);
-        Text=$"ScreenCapture {Updates.VersionText} · Настройки";Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(1020,760);MinimumSize=new(940,700);Font=new Font("Segoe UI",10);StartPosition=FormStartPosition.CenterScreen;AutoScaleMode=AutoScaleMode.Dpi;BackColor=Color.White;
+        Text=$"DeskGlide {Updates.VersionText} · Настройки";Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(1020,760);MinimumSize=new(940,700);Font=new Font("Segoe UI",10);StartPosition=FormStartPosition.CenterScreen;AutoScaleMode=AutoScaleMode.Dpi;BackColor=Color.White;
         UiStyle.FixedWindow(this);
         var heading=new Panel{Dock=DockStyle.Top,Height=88,Padding=new Padding(24,14,24,8),BackColor=Color.FromArgb(24,35,54)};
-        heading.Controls.Add(new Label{Text="ScreenCapture",ForeColor=Color.White,Font=new Font(Font.FontFamily,23,FontStyle.Bold),Dock=DockStyle.Top,Height=43});
+        heading.Controls.Add(new Label{Text="DeskGlide",ForeColor=Color.White,Font=new Font(Font.FontFamily,23,FontStyle.Bold),Dock=DockStyle.Top,Height=43});
         heading.Controls.Add(new Label{Text="Экран, мгновенный повтор и управление компьютерами",ForeColor=Color.FromArgb(195,211,234),Dock=DockStyle.Bottom,Height=22});
         var footer=new FlowLayoutPanel{Dock=DockStyle.Bottom,Height=65,Padding=new Padding(16,12,20,10),FlowDirection=FlowDirection.RightToLeft,BackColor=Color.FromArgb(245,247,250)};
         var save=new Button{Text="Сохранить",Width=140,Height=36,BackColor=Color.FromArgb(33,105,211),ForeColor=Color.White,FlatStyle=FlatStyle.Flat};save.FlatAppearance.BorderSize=0;
@@ -63,7 +63,7 @@ partial class AppSettingsForm:Form
         cursor.Checked=value.CaptureCursor;Row(general,"Курсор",cursor);
         startup.Checked=autorun;Row(general,"Запуск",startup);
         preventSleep.Checked=value.PreventIdleSleep;Row(general,"При бездействии",preventSleep);
-        help.SetToolTip(preventSleep,"Работает, пока ScreenCapture запущен, даже при выключенных NDI и записи. После отключения опции или выхода снова действуют таймеры Windows. Ручной сон остаётся доступен.");
+        help.SetToolTip(preventSleep,"Работает, пока DeskGlide запущен, даже при выключенных NDI и записи. После отключения опции или выхода снова действуют таймеры Windows. Ручной сон остаётся доступен.");
         PopulateAudio(ndiAudio,value.NdiAudioDevice);Row(general,"Звук NDI / Discord",ndiAudio);
         var refreshDevices=new Button{Text="Обновить устройства",AutoSize=true};refreshDevices.Click+=async(_,_)=>await RefreshAudioDevices();
         Row(general,"",deviceStatus,52);Row(general,"",refreshDevices);
@@ -140,7 +140,7 @@ partial class AppSettingsForm:Form
         monitors=new MonitorLayoutEditor(value.Kvm,KvmLayout.Merge(value.Kvm,new[]{new KvmPeerInfo(value.Kvm.Id,Environment.MachineName,KvmScreen.Local())}.Concat(service?.Peers??[]))){Dock=DockStyle.Fill,Height=390};
         layoutPage.Controls.Add(monitors,0,layoutPage.RowCount);layoutPage.SetColumnSpan(monitors,2);layoutPage.RowStyles.Add(new(SizeType.Absolute,420));layoutPage.RowCount++;
         Note(layoutPage,"Перетащите экраны как на столе: соседние границы должны касаться. «Слева» и «Справа» размещают экран около основного. «Только KVM» исключает весь выбранный ПК из переходов мышью — вернуть его можно в карточке KVM. Позиции сохраняются.");
-        var updates=Page("Обновления","GitHub Releases · ScreenCapture "+Updates.VersionText);
+        var updates=Page("Обновления","GitHub Releases · DeskGlide "+Updates.VersionText);
         checkUpdates.Checked=value.Updates.CheckOnStartup;remoteUpdates.Checked=value.Updates.AllowFromHost;
         Row(updates,"Проверка",checkUpdates);Row(updates,"Обновлять с хоста",remoteUpdates,64);
         var updateButton=new Button{Text="Проверить и обновить ПК…",AutoSize=true};
@@ -249,10 +249,10 @@ partial class AppSettingsForm:Form
         try
         {
             var profile=ConfigurationBackup.Capture(ReadSettings(),startup.Checked,Log.Folder);
-            using var dialog=new SaveFileDialog{Filter="Профиль ScreenCapture|*.scprofile",FileName=Environment.MachineName+"-ScreenCapture.scprofile",DefaultExt="scprofile"};
+            using var dialog=new SaveFileDialog{Filter="Профиль DeskGlide|*.scprofile",FileName=Environment.MachineName+"-DeskGlide.scprofile",DefaultExt="scprofile"};
             if(dialog.ShowDialog(this)!=DialogResult.OK)return;
             using var password=new ProfilePasswordForm(true);if(password.ShowDialog(this)!=DialogResult.OK)return;
-            File.WriteAllBytes(dialog.FileName,ConfigurationBackup.Encode(profile,password.Password));MessageBox.Show(this,"Резервная копия сохранена. Запомните пароль: без него восстановление невозможно.","ScreenCapture");
+            File.WriteAllBytes(dialog.FileName,ConfigurationBackup.Encode(profile,password.Password));MessageBox.Show(this,"Резервная копия сохранена. Запомните пароль: без него восстановление невозможно.","DeskGlide");
         }
         catch(Exception e){MessageBox.Show(this,e.Message,"Не удалось сохранить профиль");}
     }
@@ -260,7 +260,7 @@ partial class AppSettingsForm:Form
     {
         try
         {
-            using var dialog=new OpenFileDialog{Filter="Профиль ScreenCapture|*.scprofile"};if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+            using var dialog=new OpenFileDialog{Filter="Профиль DeskGlide|*.scprofile"};if(dialog.ShowDialog(this)!=DialogResult.OK)return;
             if(new FileInfo(dialog.FileName).Length>2*1024*1024)throw new IOException("Файл слишком большой.");
             using var password=new ProfilePasswordForm(false);if(password.ShowDialog(this)!=DialogResult.OK)return;
             var profile=ConfigurationBackup.Decode(File.ReadAllBytes(dialog.FileName),password.Password);

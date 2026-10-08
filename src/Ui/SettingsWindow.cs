@@ -46,7 +46,7 @@ sealed class SettingsWindow:ShellWindow
         var peers=new[]{new KvmPeerInfo(value.Kvm.Id,Environment.MachineName,KvmScreen.Local())}.Concat(service?.Peers??[]).ToArray();
         monitors=new(value.Kvm,KvmLayout.Merge(value.Kvm,peers),peers);
         var root=new C.Grid{Background=Kit.Brush("#8808090F")};root.RowDefinitions.Add(new(){Height=W.GridLength.Auto});root.RowDefinitions.Add(new());root.RowDefinitions.Add(new(){Height=W.GridLength.Auto});
-        root.Children.Add(Header("ScreenCapture","Screen streaming · Instant replay · KVM"));
+        root.Children.Add(Header("DeskGlide","Screen streaming · Instant replay · KVM"));
         var middle=new C.Grid();middle.ColumnDefinitions.Add(new(){Width=new(224)});middle.ColumnDefinitions.Add(new());C.Grid.SetRow(middle,1);root.Children.Add(middle);
         var nav=new C.StackPanel{Margin=new(16,10,16,10)};
         void Group(string title){var label=Kit.Text(title,10,"#8C829D");label.FontWeight=W.FontWeights.Bold;label.Margin=new(13,10,0,4);nav.Children.Add(label);}
@@ -121,7 +121,7 @@ sealed class SettingsWindow:ShellWindow
         Row(section,"Language",language);language.SelectionChanged+=(_,_)=>UiStrings.Shared.Language=Id("language");
         Row(section,"Autostart",Toggle("startup","Start with Windows",autorun));
         var power=Section(page,"Power");Row(power,"Keep awake",Toggle("awake","Keep PC and screens awake",v.PreventIdleSleep));
-        power.Children.Add(Kit.Text("Prevents automatic sleep while ScreenCapture is running. Manual sleep is still available.",12,"#B0A9BC"));
+        power.Children.Add(Kit.Text("Prevents automatic sleep while DeskGlide is running. Manual sleep is still available.",12,"#B0A9BC"));
     }
     void ReceiverVisibility()
     {
@@ -189,7 +189,7 @@ sealed class SettingsWindow:ShellWindow
     }
     void BuildUpdates(Settings v)
     {
-        var page=Page(5,"Updates","Keep every PC in sync.",$"ScreenCapture {Updates.VersionText}");var section=Section(page,"Update preferences");Row(section,"Startup",Toggle("checkUpdates","Check for a newer version",v.Updates.CheckOnStartup));Row(section,"Paired host",Toggle("remoteUpdates","Allow updates from the host",v.Updates.AllowFromHost));
+        var page=Page(5,"Updates","Keep every PC in sync.",$"DeskGlide {Updates.VersionText}");var section=Section(page,"Update preferences");Row(section,"Startup",Toggle("checkUpdates","Check for a newer version",v.Updates.CheckOnStartup));Row(section,"Paired host",Toggle("remoteUpdates","Allow updates from the host",v.Updates.AllowFromHost));
         var manage=Kit.Button("Manage updates",()=>openUpdates?.Invoke(),true);manage.IsEnabled=openUpdates!=null;section.Children.Add(manage);
         page.Children.Add(Kit.Text("Updates keep your settings, pairing and saved clips. Unsaved replay buffers are discarded on restart.",12,"#B0A9BC"));
     }
@@ -244,11 +244,11 @@ sealed class SettingsWindow:ShellWindow
     void Save(){try{ResultSettings=Collect();Accepted=true;Close();}catch(Exception e){error.Text=e.Message;}}
     void ExportProfile()
     {
-        try{var profile=ConfigurationBackup.Capture(Collect(),StartWithWindows,Log.Folder);var dialog=new Microsoft.Win32.SaveFileDialog{Filter="ScreenCapture profile|*.scprofile",FileName=Environment.MachineName+"-ScreenCapture.scprofile",DefaultExt=".scprofile"};if(dialog.ShowDialog(this)!=true)return;var password=PasswordWindow.Ask(this,true);if(password==null)return;File.WriteAllBytes(dialog.FileName,ConfigurationBackup.Encode(profile,password));Kit.Notify(this,"Profile saved. Keep the password safe; you need it to restore this backup.");}catch(Exception e){error.Text=e.Message;}
+        try{var profile=ConfigurationBackup.Capture(Collect(),StartWithWindows,Log.Folder);var dialog=new Microsoft.Win32.SaveFileDialog{Filter="DeskGlide profile|*.scprofile",FileName=Environment.MachineName+"-DeskGlide.scprofile",DefaultExt=".scprofile"};if(dialog.ShowDialog(this)!=true)return;var password=PasswordWindow.Ask(this,true);if(password==null)return;File.WriteAllBytes(dialog.FileName,ConfigurationBackup.Encode(profile,password));Kit.Notify(this,"Profile saved. Keep the password safe; you need it to restore this backup.");}catch(Exception e){error.Text=e.Message;}
     }
     void ImportProfile()
     {
-        try{var dialog=new Microsoft.Win32.OpenFileDialog{Filter="ScreenCapture profile|*.scprofile"};if(dialog.ShowDialog(this)!=true)return;if(new FileInfo(dialog.FileName).Length>2097152)throw new IOException("The profile file is too large.");var password=PasswordWindow.Ask(this,false);if(password==null)return;var profile=ConfigurationBackup.Decode(File.ReadAllBytes(dialog.FileName),password);
+        try{var dialog=new Microsoft.Win32.OpenFileDialog{Filter="DeskGlide profile|*.scprofile"};if(dialog.ShowDialog(this)!=true)return;if(new FileInfo(dialog.FileName).Length>2097152)throw new IOException("The profile file is too large.");var password=PasswordWindow.Ask(this,false);if(password==null)return;var profile=ConfigurationBackup.Decode(File.ReadAllBytes(dialog.FileName),password);
             if(W.MessageBox.Show(this,UiStrings.F("Restore the profile for {0} from {1}?\n\nSettings and pairing on this PC will be replaced. Saved clips stay in place.",profile.Computer,profile.Created.LocalDateTime.ToString("g")),UiStrings.T("Restore profile"),W.MessageBoxButton.OKCancel,W.MessageBoxImage.Question)!=W.MessageBoxResult.OK)return;
             ImportedProfile=profile;ResultSettings=profile.Settings.Copy();toggles["startup"].IsChecked=profile.Autorun;Accepted=true;Close();
         }catch(Exception e){error.Text=e.Message;}
@@ -272,7 +272,7 @@ sealed class SettingsWindow:ShellWindow
             bool receiver=Id("role")!="Host",network=Id("discordMode")=="Network",silent=Id("discordMode")=="Silent";
             ((W.UIElement)camera.Parent).Visibility=((W.UIElement)sound.Parent).Visibility=((W.UIElement)setup.Parent).Visibility=receiver?W.Visibility.Visible:W.Visibility.Collapsed;
             outputRow.Visibility=volumeRow.Visibility=terms.Visibility=network?W.Visibility.Visible:W.Visibility.Collapsed;install.Visibility=network&&!endpoints.Any(DiscordDevices.IsCable)?W.Visibility.Visible:W.Visibility.Collapsed;inputRow.Visibility=silent?W.Visibility.Collapsed:W.Visibility.Visible;
-            hint.Text=UiStrings.T(!receiver?"Set this up on the streaming PC where Discord runs. The gaming host does not need virtual devices.":network?"Game audio enters the cable output and reaches its paired input in Discord. For another cable, select both ends. Choosing speakers plays sound locally.":silent?"Video only. Disable audio in your Discord share; ScreenCapture does not change Discord settings.":"Choose your mixer, such as RØDECaster, or any local recording input. Discord uses it directly; NDI audio and the cable are unused.");
+            hint.Text=UiStrings.T(!receiver?"Set this up on the streaming PC where Discord runs. The gaming host does not need virtual devices.":network?"Game audio enters the cable output and reaches its paired input in Discord. For another cable, select both ends. Choosing speakers plays sound locally.":silent?"Video only. Disable audio in your Discord share; DeskGlide does not change Discord settings.":"Choose your mixer, such as RØDECaster, or any local recording input. Discord uses it directly; NDI audio and the cable are unused.");
         }
         refreshReceiverVisibility=Update;mode.SelectionChanged+=(_,_)=>Update();choices["role"].SelectionChanged+=(_,_)=>Update();Update();
     }
