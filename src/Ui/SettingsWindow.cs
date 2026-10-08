@@ -133,14 +133,15 @@ sealed class SettingsWindow:ShellWindow
         var page=Page(1,"Recording","Instant replay","Record in the background. A clip is saved only when you press Save or its shortcut.");
         var setup=Section(page,"Recording tools","Installed automatically when replay starts. You can also set them up here.");
         var setupStatus=Kit.Text(RecordingTools.Ready?"Recording tools are ready.":"Recording tools are not installed.",12,"#B0A9BC");setup.Children.Add(setupStatus);
-        setup.Visibility=RecordingTools.Ready?W.Visibility.Collapsed:W.Visibility.Visible;
+        var setupCard=(W.UIElement)setup.Parent;
+        setupCard.Visibility=RecordingTools.Ready?W.Visibility.Collapsed:W.Visibility.Visible;
         setup.Children.Add(Kit.AsyncButton("Set up recording",async()=>
         {
             try
             {
                 var progress=new Progress<string>(message=>{if(!IsClosed)setupStatus.Text=message;});
                 await RecordingTools.EnsureAsync(((IProgress<string>)progress).Report,lifetime.Token,true);
-                if(!IsClosed){setupStatus.Text=UiStrings.T("Recording tools are ready.");setup.Visibility=W.Visibility.Collapsed;}
+                if(!IsClosed){setupStatus.Text=UiStrings.T("Recording tools are ready.");setupCard.Visibility=W.Visibility.Collapsed;}
             }
             catch(OperationCanceledException) when(lifetime.IsCancellationRequested){}
         }));
