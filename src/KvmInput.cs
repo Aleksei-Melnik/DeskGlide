@@ -114,7 +114,7 @@ sealed class KvmController:IDisposable
             {
                 try
                 {
-                    inputDispatcher=new Control();_=inputDispatcher.Handle;
+                    inputDispatcher=options.Role=="Host"?new KvmRawMouse(MoveRemote):new Control();_=inputDispatcher.Handle;
                     if(options.Role=="Host")mouseHook=SetWindowsHookEx(14,mouseProc,GetModuleHandle(null),0);
                     keyHook=SetWindowsHookEx(13,keyProc,GetModuleHandle(null),0);
                     if((options.Role=="Host"&&mouseHook==IntPtr.Zero)||keyHook==IntPtr.Zero)throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
@@ -176,6 +176,15 @@ sealed class KvmController:IDisposable
         else if(destination.HasValue)Warp(destination.Value);
     }
     void Warp(Point point){pendingWarp=point;KvmInput.SetCursorPos(point.X,point.Y);}
+    void MoveRemote(int dx,int dy)
+    {
+        if(remote==null||ViewerActive||(dx==0&&dy==0))return;
+        var candidate=new Point((int)Math.Clamp((long)logical.X+dx,-100000,100000),(int)Math.Clamp((long)logical.Y+dy,-100000,100000));
+        var target=Seamless?KvmLayout.At(Monitors,candidate):null;
+        if(target!=null&&target.Key!=remote.Key){Activate(target,candidate);return;}
+        logical=KvmLayout.Clamp(remote,candidate);
+        if(!TryPhysical(remote,logical,out var physical)||!service.Send(remote.Peer,new(){Type="mouse",X=physical.X,Y=physical.Y}))ReturnLocal();
+    }
     // Feed the same path as WH_KEYBOARD_LL without sending any OS input in regression tests.
     internal IntPtr TestKey(int key,bool up,bool injected)
     {
@@ -211,11 +220,9 @@ sealed class KvmController:IDisposable
             }
             if(message==0x200)
             {
-                if(point==anchor)return (IntPtr)1;
-                var candidate=new Point(logical.X+point.X-anchor.X,logical.Y+point.Y-anchor.Y);
-                var target=Seamless?KvmLayout.At(Monitors,candidate):null;
-                if(target!=null&&target.Key!=remote.Key){Activate(target,candidate);return (IntPtr)1;}
-                logical=KvmLayout.Clamp(remote,candidate);Warp(anchor);
+                // WM_MOUSEMOVE can be produced by SetCursorPos/ClipCursor in games.
+                // Only WM_INPUT physical movement advances the remote pointer.
+                return (IntPtr)1;
             }
             if(!TryPhysical(remote,logical,out var physical)){ReturnLocal();return (IntPtr)1;}
             int flags=message switch{0x201=>2,0x202=>4,0x204=>8,0x205=>16,0x207=>32,0x208=>64,0x20B=>128,0x20C=>256,0x20A=>2048,0x20E=>4096,_=>0};

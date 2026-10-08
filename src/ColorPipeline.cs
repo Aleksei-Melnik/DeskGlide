@@ -30,6 +30,8 @@ public sealed class ColorPipeline : IDisposable
     public int Height { get; private set; }
     public byte[] Pixels { get; private set; } = [];
     Format inputFormat;
+    readonly int canvasWidth,canvasHeight;
+    int inputWidth,inputHeight;
     [StructLayout(LayoutKind.Sequential)] struct Parameters { public float Exposure; public uint Linear, Hdr, Padding; }
     // Input is linear scRGB for FP16. No PQ/HLG texture is accepted here.
     // Output is bounded SDR BT.709 RGB16, never an HDR pass-through.
@@ -43,14 +45,14 @@ public sealed class ColorPipeline : IDisposable
         float decodeSrgb(float x) { return x <= 0.04045 ? x/12.92 : pow((x+0.055)/1.055,2.4); }
         float decode709(float x) { return x < 0.081 ? x/4.5 : pow((x+0.099)/1.099,1.0/0.45); }
         float encodeSrgb(float x) { return x <= 0.0031308 ? 12.92*x : 1.055*pow(x,1.0/2.4)-0.055; }
-        float3 fromSrgb(float3 v) { return float3(encode(decodeSrgb(v.r)),encode(decodeSrgb(v.g)),encode(decodeSrgb(v.b))); }
+        float3 fromSrgb(float3 v) { return v; }
         float3 pointerBlend(float3 c, uint2 position) {
             int2 q = int2(position)-int2(mouseX,mouseY);
             if(mouseMode==0 || any(q<0) || q.x>=mouseW || q.y>=mouseH) return c;
             uint p = mouse.Load(int3(q,0));
             float3 rgb = float3((p>>16)&255,(p>>8)&255,p&255)/255.0;
             if(mouseMode==2) return lerp(c,fromSrgb(rgb),((p>>24)&255)/255.0);
-            uint3 background = (uint3)round(saturate(float3(encodeSrgb(decode709(c.r)),encodeSrgb(decode709(c.g)),encodeSrgb(decode709(c.b))))*255);
+            uint3 background = (uint3)round(saturate(c)*255);
             if(mouseMode==1) {
                 uint a=(p&1)!=0?255:0, x=(p&2)!=0?255:0;
                 return fromSrgb(((background&a)^x)/255.0);
@@ -61,7 +63,14 @@ public sealed class ColorPipeline : IDisposable
         }
         [numthreads(8,8,1)] void main(uint3 id : SV_DispatchThreadID) {
             uint w,h; dst.GetDimensions(w,h); if(id.x>=w || id.y>=h) return;
-            float3 c = src.Load(int3(id.xy,0)).rgb;
+            uint sw,sh;src.GetDimensions(sw,sh);
+            float2 p=(float2(id.xy)+.5)*float2(sw,sh)/float2(w,h)-.5;
+            int2 q=(int2)floor(p),maximum=int2(sw-1,sh-1);float2 f=frac(p);
+            float3 a=src.Load(int3(clamp(q,int2(0,0),maximum),0)).rgb;
+            float3 b=src.Load(int3(clamp(q+int2(1,0),int2(0,0),maximum),0)).rgb;
+            float3 c0=src.Load(int3(clamp(q+int2(0,1),int2(0,0),maximum),0)).rgb;
+            float3 d=src.Load(int3(clamp(q+int2(1,1),int2(0,0),maximum),0)).rgb;
+            float3 c=lerp(lerp(a,b,f.x),lerp(c0,d,f.x),f.y);
             c = float3(isfinite(c.r)?c.r:0, isfinite(c.g)?c.g:0, isfinite(c.b)?c.b:0);
             if(linearInput != 0) {
                 c = max(c*exposure,0);
@@ -73,13 +82,16 @@ public sealed class ColorPipeline : IDisposable
                 }
             }
             else c = float3(decodeSrgb(c.r),decodeSrgb(c.g),decodeSrgb(c.b));
-            c = float3(encode(c.r),encode(c.g),encode(c.b));
-            c = pointerBlend(saturate(c), id.xy);
+            // Desktop pixels are display referred. Preserve sRGB shadow brightness;
+            // applying the camera BT.709 OETF here was darkening SDR screen content.
+            c = float3(encodeSrgb(c.r),encodeSrgb(c.g),encodeSrgb(c.b));
+            c = pointerBlend(saturate(c), (uint2)clamp(p+0.5,float2(0,0),float2(sw-1,sh-1)));
             dst[id.xy] = float4(saturate(c),1);
         }
         """;
-    public ColorPipeline(ID3D11Device device, ID3D11DeviceContext context)
+    public ColorPipeline(ID3D11Device device, ID3D11DeviceContext context,int canvasWidth=0,int canvasHeight=0)
     {
+        this.canvasWidth=canvasWidth;this.canvasHeight=canvasHeight;
         this.device = device; this.context = context;
         shader = device.CreateComputeShader(colorCode.Value);
         constants = device.CreateBuffer(new BufferDescription(16, BindFlags.ConstantBuffer, ResourceUsage.Default));
@@ -124,10 +136,12 @@ public sealed class ColorPipeline : IDisposable
         """;
     void Allocate(Texture2DDescription d)
     {
-        if (input != null && Width == d.Width && Height == d.Height && inputFormat == d.Format) return;
-        FreeTextures(); Width = (int)d.Width; Height = (int)d.Height; inputFormat = d.Format;
+        if (input != null && inputWidth == d.Width && inputHeight == d.Height && inputFormat == d.Format) return;
+        FreeTextures();inputWidth=(int)d.Width;inputHeight=(int)d.Height;
+        Width=canvasWidth>0?canvasWidth:inputWidth;Height=canvasHeight>0?canvasHeight:inputHeight;inputFormat=d.Format;
         d.BindFlags = BindFlags.ShaderResource; d.Usage = ResourceUsage.Default; d.CPUAccessFlags = CpuAccessFlags.None; d.MiscFlags = ResourceOptionFlags.None;
         input = device.CreateTexture2D(d); srv = device.CreateShaderResourceView(input);
+        d.Width=(uint)Width;d.Height=(uint)Height;
         d.Format = Format.R16G16B16A16_UNorm; d.BindFlags = BindFlags.UnorderedAccess | BindFlags.ShaderResource;
         output = device.CreateTexture2D(d); uav = device.CreateUnorderedAccessView(output);
         outputSrv = device.CreateShaderResourceView(output);

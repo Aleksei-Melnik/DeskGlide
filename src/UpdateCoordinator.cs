@@ -10,11 +10,11 @@ sealed class UpdateCoordinator(Control ui,Func<KvmService?> service,Func<UpdateO
     public AvailableRelease? Latest {get;private set;}
     public Dictionary<string,string> Peers {get;}=[];
     public event Action? Changed;
-    public void SetStatus(string value){Status=value;Changed?.Invoke();}
+    public void SetStatus(string value){Status=UiStrings.T(value);Changed?.Invoke();}
     public async Task Check()
     {
         SetStatus("Проверяю GitHub Releases…");Latest=await Updates.Check();
-        SetStatus(Latest==null?"Опубликованных релизов пока нет.":Updates.ParseVersion(Latest.Manifest.Version)>Updates.Current?$"Доступна версия {Latest.Manifest.Version}":$"Установлена актуальная версия {Updates.VersionText}");
+        SetStatus(Latest==null?"Опубликованных релизов пока нет.":Updates.ParseVersion(Latest.Manifest.Version)>Updates.Current?UiStrings.F("Version {0} is available",Latest.Manifest.Version):UiStrings.F("Current version: {0}",Updates.VersionText));
     }
     async Task PrepareLocal(AvailableRelease release)
     {
@@ -29,7 +29,7 @@ sealed class UpdateCoordinator(Control ui,Func<KvmService?> service,Func<UpdateO
         {
             await Check();var release=Latest??throw new IOException("Пока нет релиза.");
             if(!repair&&Updates.ParseVersion(release.Manifest.Version)<=Updates.Current)return;
-            await PrepareLocal(release);SetStatus("Сохраняю повтор и готовлю перезапуск…");
+            await PrepareLocal(release);SetStatus("Готовлю перезапуск…");
             await beforeInstall();await Updates.LaunchInstaller(prepared!);exit();
         }
         catch(Exception e){SetStatus("Обновление не установлено: "+e.Message);}
@@ -75,7 +75,7 @@ sealed class UpdateCoordinator(Control ui,Func<KvmService?> service,Func<UpdateO
             if(restarting.Any(p=>!network.Peers.Any(n=>n.Id==p.Id&&n.Version==release.Manifest.Version)))throw new IOException("Подтверждение запуска получено не от всех ПК. Управляющий ПК оставлен включённым.");
             if(localNew)
             {
-                SetStatus("Подключённые ПК готовы. Сохраняю повтор управляющего ПК…");
+                SetStatus("Подключённые ПК готовы. Перезапускаю управляющий ПК…");
                 await beforeInstall();await Updates.LaunchInstaller(prepared!);exit();
             }
             else SetStatus(peers.Any(p=>p.UpdateProtocol<1)?"Совместимые ПК обновлены. Для старых версий нужна первая установка.":"Все подключённые ПК используют актуальный релиз.");
@@ -127,7 +127,7 @@ sealed class UpdateCoordinator(Control ui,Func<KvmService?> service,Func<UpdateO
             else
             {
                 if(prepared==null||preparedRequest!=message.Id||prepared.Manifest.Version!=message.Version)throw new IOException("Пакет для этой команды не подготовлен.");
-                SetStatus("Сохраняю повтор перед обновлением…");await beforeInstall();await Updates.LaunchInstaller(prepared);
+                SetStatus("Готовлю перезапуск…");await beforeInstall();await Updates.LaunchInstaller(prepared);
                 await Reply(1,"Перезапуск…");exit();
             }
         }

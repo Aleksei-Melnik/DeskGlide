@@ -5,6 +5,7 @@ using System.Text.Json;
 namespace SdrCapture;
 sealed class Settings
 {
+    public string Language {get;set;}=System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName=="ru"?"ru":"en";
     public string Device {get;set;}="";
     public bool Compensate {get;set;}=true;
     public bool CaptureCursor {get;set;}=true;
@@ -19,7 +20,7 @@ sealed class Settings
     public static string PathName=>Path.Combine(Log.Folder,"settings.json");
     public static Settings Load(){try{return JsonSerializer.Deserialize<Settings>(File.ReadAllText(PathName))??new();}catch{return new();}}
     public void Save(){Directory.CreateDirectory(Log.Folder);File.WriteAllText(PathName+".tmp",JsonSerializer.Serialize(this));File.Move(PathName+".tmp",PathName,true);}
-    public Settings Copy()=>new(){Device=Device,Compensate=Compensate,CaptureCursor=CaptureCursor,PreventIdleSleep=PreventIdleSleep,SendOnLaunch=SendOnLaunch,NdiAudioDevice=NdiAudioDevice,NdiAudioVolume=NdiAudioVolume,Updates=Updates with{},Replay=Replay with{},Kvm=Kvm.Copy(),Discord=Discord with{}};
+    public Settings Copy()=>new(){Language=Language,Device=Device,Compensate=Compensate,CaptureCursor=CaptureCursor,PreventIdleSleep=PreventIdleSleep,SendOnLaunch=SendOnLaunch,NdiAudioDevice=NdiAudioDevice,NdiAudioVolume=NdiAudioVolume,Updates=Updates with{},Replay=Replay with{},Kvm=Kvm.Copy(),Discord=Discord with{}};
     [System.Text.Json.Serialization.JsonIgnore] public CaptureOptions Options=>new(Device,Compensate,CaptureCursor);
 }
 sealed class TrayApp:ApplicationContext
@@ -43,10 +44,11 @@ sealed class TrayApp:ApplicationContext
     KvmDragDrop? dragDrop;
     DiscordReceiver? discord;
     readonly UpdateCoordinator updater;
-    UpdatesForm? updatesForm;
-    KvmHub? kvmHub;
+    Ui.UpdatesWindow? updatesForm;
+    Ui.KvmWindow? kvmHub;
+    Ui.SettingsWindow? settingsWindow;
     bool settingsOpenQueued;
-    readonly Dictionary<string,KvmViewer> viewers=[];
+    readonly Dictionary<string,Ui.ViewerWindow> viewers=[];
     readonly EventWaitHandle kvmEvent=new(false,EventResetMode.AutoReset,"Local\\SdrCapture.OpenKvm");
     readonly RegisteredWaitHandle kvmWait;
     readonly EventWaitHandle updateEvent=new(false,EventResetMode.AutoReset,"Local\\SdrCapture.UpdateThis");
@@ -69,10 +71,10 @@ sealed class TrayApp:ApplicationContext
         replay=new ReplayRecorder(settings.Replay);
         engine.FrameAvailable=replay.Offer;engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;engine.ReplayEnabled=settings.Replay.Enabled;engine.ReplayFrameRate=settings.Replay.Fps;
         _=dispatcher.Handle;
-        updater=new(dispatcher,()=>kvm,()=>settings.Updates,async()=>
+        updater=new(dispatcher,()=>kvm,()=>settings.Updates,()=>
         {
             controller?.ReturnLocal();settings.Save();
-            if(settings.Replay.Enabled&&replay.BufferedSeconds>0){await replay.SaveAsync(ReplayAppContext.Capture());delivery.Wake();}
+            return Task.CompletedTask;
         },()=>ExitThread());
         updateWait=ThreadPool.RegisterWaitForSingleObject(updateEvent,(_,_)=>{if(!closing)try{dispatcher.BeginInvoke(async()=>await updater.InstallHere(true));}catch(InvalidOperationException){}},null,Timeout.Infinite,false);
         kvmWait=ThreadPool.RegisterWaitForSingleObject(kvmEvent,(_,_)=>{if(!closing)try{dispatcher.BeginInvoke(OpenKvm);}catch(InvalidOperationException){}},null,Timeout.Infinite,false);
@@ -80,7 +82,9 @@ sealed class TrayApp:ApplicationContext
         hotkey.SaveRequested+=SaveReplay;
         if(!hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey))notifications.Enqueue("Горячая клавиша занята. Выберите другую в Replay Buffer → Settings.");
         delivery.Notification+=message=>notifications.Enqueue(message);
+        UiStrings.Shared.Language=settings.Language;
         tray=new NotifyIcon{Icon=appIcon,Text="ScreenCapture · NDI · SDR",Visible=true,ContextMenuStrip=new ContextMenuStrip()};
+        TrayMenuStyle.Apply(tray.ContextMenuStrip);
         tray.ContextMenuStrip.Opening+=(_,_)=>BuildMenu();
         tray.DoubleClick+=(_,_)=>OpenSettings();
         timer.Tick+=(_,_)=>
@@ -107,18 +111,17 @@ sealed class TrayApp:ApplicationContext
     {
         var items=tray.ContextMenuStrip!.Items;
         while(items.Count>0){var item=items[0];items.RemoveAt(0);item.Dispose();}
-        var ndiToggle=new ToolStripMenuItem("NDI → OBS / Discord"){Checked=settings.SendOnLaunch};
-        ndiToggle.Click+=(_,_)=>Guard(()=>{settings.SendOnLaunch=!settings.SendOnLaunch;settings.Save();engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;});items.Add(ndiToggle);
-        var replayToggle=new ToolStripMenuItem("Мгновенный повтор"){Checked=settings.Replay.Enabled};
-        replayToggle.Click+=(_,_)=>Guard(()=>ApplyReplay(settings.Replay with{Enabled=!settings.Replay.Enabled}));items.Add(replayToggle);
-        var save=new ToolStripMenuItem($"Сохранить последние {settings.Replay.Minutes} мин · {ReplayHotkey.Text(settings.Replay)}"){Enabled=replay.BufferedSeconds>0};
-        save.Click+=(_,_)=>SaveReplay();items.Add(save);
-        items.Add("KVM · управление компьютерами…",null,(_,_)=>dispatcher.BeginInvoke(OpenKvm));
+        items.Add(UiStrings.T("Settings…"),null,(_,_)=>OpenSettings());
+        items.Add(UiStrings.T("Computers · KVM…"),null,(_,_)=>dispatcher.BeginInvoke(OpenKvm));
         items.Add(new ToolStripSeparator());
-        items.Add("Настройки…",null,(_,_)=>OpenSettings());
-        items.Add("Обновления…",null,(_,_)=>OpenUpdates());
-        items.Add("Открыть записи",null,async(_,_)=>{string folder=settings.Replay.Folder;try{await Task.Run(()=>Directory.CreateDirectory(folder));Process.Start(new ProcessStartInfo(folder){UseShellExecute=true});}catch(Exception e){notifications.Enqueue("Не удалось открыть папку записей: "+e.Message);}});
-        items.Add(new ToolStripSeparator());items.Add("Выход",null,(_,_)=>ExitThread());
+        var ndiToggle=new ToolStripMenuItem(UiStrings.T("Screen streaming")){Checked=settings.SendOnLaunch};
+        ndiToggle.Click+=(_,_)=>Guard(()=>{settings.SendOnLaunch=!settings.SendOnLaunch;settings.Save();engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;});items.Add(ndiToggle);
+        var replayToggle=new ToolStripMenuItem(UiStrings.T("Instant replay")){Checked=settings.Replay.Enabled};
+        replayToggle.Click+=(_,_)=>Guard(()=>ApplyReplay(settings.Replay with{Enabled=!settings.Replay.Enabled}));items.Add(replayToggle);
+        var save=new ToolStripMenuItem(UiStrings.T("Save replay")){Enabled=replay.BufferedSeconds>0,ShortcutKeyDisplayString=ReplayHotkey.Text(settings.Replay),ToolTipText=UiStrings.F("Save the last {0} minutes",settings.Replay.Minutes)};
+        save.Click+=(_,_)=>SaveReplay();items.Add(save);
+        items.Add(UiStrings.T("Open clips folder"),null,async(_,_)=>{try{await RecordingFolder.Open(settings.Replay.Folder);}catch(Exception e){notifications.Enqueue(UiStrings.T("Could not open the recordings folder: ")+e.Message);}});
+        items.Add(new ToolStripSeparator());items.Add(UiStrings.T("Updates…"),null,(_,_)=>OpenUpdates());items.Add(UiStrings.T("Quit ScreenCapture"),null,(_,_)=>ExitThread());
     }
     void OpenSettings(int page=0)
     {
@@ -135,34 +138,34 @@ sealed class TrayApp:ApplicationContext
     {
         var opening=Stopwatch.StartNew();
         controller?.ReturnLocal();
-        var existing=Application.OpenForms.OfType<AppSettingsForm>().FirstOrDefault();
-        if(existing!=null){WindowActivation.Show(existing);return;}
-        var form=new AppSettingsForm(settings,kvm,IsAutorun(),Diagnostics,OpenViewer,OpenUpdates,page);
-        form.FormClosed+=(_,_)=>{try{if(form.DialogResult==DialogResult.OK)Guard(()=>ApplySettings(form));}finally{form.Dispose();}};
-        WindowActivation.Show(form);
+        var existing=settingsWindow is {IsClosed:false}?settingsWindow:null;
+        if(existing!=null){existing.Reveal();return;}
+        var form=new Ui.SettingsWindow(settings,kvm,IsAutorun(),Diagnostics,OpenUpdates,page,overview:StatusOverview);settingsWindow=form;
+        form.Closed+=(_,_)=>{settingsWindow=null;if(form.Accepted)Guard(()=>ApplySettings(form));};
+        form.Reveal();
         Log.Write($"Settings window shown in {opening.ElapsedMilliseconds} ms");
     });
-    void ApplySettings(AppSettingsForm form)
+    void ApplySettings(Ui.SettingsWindow form)
     {
         var result=form.ResultSettings;
         bool discordChanged=settings.Discord!=result.Discord||settings.Kvm.Role!=result.Kvm.Role;
         if(!hotkey.Set(result.Replay.HotkeyModifiers,result.Replay.HotkeyKey))
         {hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey);throw new InvalidOperationException("Клавиша сохранения занята другой программой.");}
-        string priorKvm=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],Seamless=true});
+        string priorKvm=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],ExcludedMonitors=[],Seamless=true});
         if(form.ImportedProfile!=null)
         {
             try{ConfigurationBackup.Restore(form.ImportedProfile,Log.Folder);}
             catch{hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey);throw;}
         }
         keepAwake.Set(result.PreventIdleSleep);settings.PreventIdleSleep=result.PreventIdleSleep;
-        settings.Device=result.Device;settings.Compensate=result.Compensate;settings.CaptureCursor=result.CaptureCursor;settings.SendOnLaunch=result.SendOnLaunch;settings.NdiAudioDevice=result.NdiAudioDevice;settings.NdiAudioVolume=result.NdiAudioVolume;settings.Updates=result.Updates;settings.Replay=result.Replay;settings.Kvm=result.Kvm;settings.Save();
+        settings.Language=result.Language;UiStrings.Shared.Language=settings.Language;settings.Device=result.Device;settings.Compensate=result.Compensate;settings.CaptureCursor=result.CaptureCursor;settings.SendOnLaunch=result.SendOnLaunch;settings.NdiAudioDevice=result.NdiAudioDevice;settings.NdiAudioVolume=result.NdiAudioVolume;settings.Updates=result.Updates;settings.Replay=result.Replay;settings.Kvm=result.Kvm;settings.Save();
         engine.Update(settings.Options);engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;engine.ReplayEnabled=settings.Replay.Enabled;engine.ReplayFrameRate=settings.Replay.Fps;replay.Update(settings.Replay);
         if(IsAutorun()!=form.StartWithWindows)
         {
             using var key=Registry.CurrentUser.CreateSubKey(RunKey);
             if(form.StartWithWindows)key.SetValue("ScreenCapture",$"\"{Environment.ProcessPath}\"");else key.DeleteValue("ScreenCapture",false);key.DeleteValue("SdrCapture",false);
         }
-        if(form.ImportedProfile!=null||priorKvm!=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],Seamless=true}))StartKvm();else controller?.UpdateLayout(settings.Kvm);
+        if(form.ImportedProfile!=null||priorKvm!=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],ExcludedMonitors=[],Seamless=true}))StartKvm();else controller?.UpdateLayout(settings.Kvm);
         settings.Discord=result.Discord;settings.Save();if(discordChanged)StartDiscord();
         SelectRemoteAudio();notifications.Enqueue("Настройки применены.");
     }
@@ -174,21 +177,21 @@ sealed class TrayApp:ApplicationContext
     }
     void OpenUpdates()
     {
-        if(updatesForm is {IsDisposed:false}){updatesForm.Activate();return;}
-        controller?.ReturnLocal();updatesForm=new(updater,()=>kvm);updatesForm.Show();
+        if(updatesForm is {IsClosed:false}){updatesForm.Reveal();return;}
+        controller?.ReturnLocal();updatesForm=new(updater,()=>kvm);updatesForm.Reveal();
     }
     void OpenViewer(KvmPeerInfo peer)
     {
         if(kvm==null||settings.Kvm.Role!="Host")return;
         controller?.ReturnLocal();
-        if(viewers.TryGetValue(peer.Id,out var existing)&&!existing.IsDisposed){if(existing.WindowState==FormWindowState.Minimized)existing.WindowState=FormWindowState.Normal;WindowActivation.Show(existing);return;}
-        var viewer=new KvmViewer(kvm,peer);viewers[peer.Id]=viewer;viewer.Activated+=(_,_)=>{controller?.ReturnLocal();if(controller!=null)controller.ViewerActive=true;};viewer.Deactivate+=(_,_)=>{if(controller!=null)controller.ViewerActive=false;};viewer.FormClosed+=(_,_)=>{viewers.Remove(peer.Id);if(controller!=null)controller.ViewerActive=false;};viewer.Show();
+        if(viewers.TryGetValue(peer.Id,out var existing)&&!existing.IsClosed){existing.Reveal();return;}
+        var viewer=new Ui.ViewerWindow(kvm,peer);viewers[peer.Id]=viewer;viewer.Activated+=(_,_)=>{controller?.ReturnLocal();if(controller!=null)controller.ViewerActive=true;};viewer.Deactivated+=(_,_)=>{if(controller!=null)controller.ViewerActive=false;};viewer.Closed+=(_,_)=>{viewers.Remove(peer.Id);if(controller!=null)controller.ViewerActive=false;};viewer.Reveal();
     }
     public void OpenKvm()=>Guard(()=>
     {
         controller?.ReturnLocal();
-        if(kvmHub is {IsDisposed:false}){if(kvmHub.WindowState==FormWindowState.Minimized)kvmHub.WindowState=FormWindowState.Normal;WindowActivation.Show(kvmHub);return;}
-        kvmHub=new(()=>kvm,()=>controller?.Seamless??false,enabled=>{if(controller!=null){controller.Seamless=enabled;settings.Kvm.Seamless=enabled;settings.Save();}},()=>{controller?.ReturnLocal();foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();},OpenViewer,OpenSettings,p=>p.RemoteViewOnly||settings.Kvm.RemoteOnlyPeers.Contains(p.Id),(p,only)=>{settings.Kvm.RemoteOnlyPeers.Remove(p.Id);if(only)settings.Kvm.RemoteOnlyPeers.Add(p.Id);settings.Save();controller?.UpdateLayout(settings.Kvm);});WindowActivation.Show(kvmHub);
+        if(kvmHub is {IsClosed:false}){kvmHub.Reveal();return;}
+        kvmHub=new(()=>kvm,()=>controller?.Seamless??false,enabled=>{if(controller!=null){controller.Seamless=enabled;settings.Kvm.Seamless=enabled;settings.Save();}},()=>{controller?.ReturnLocal();foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();},OpenViewer,OpenSettings,p=>p.RemoteViewOnly||settings.Kvm.RemoteOnlyPeers.Contains(p.Id),(p,only)=>{settings.Kvm.RemoteOnlyPeers.Remove(p.Id);if(only)settings.Kvm.RemoteOnlyPeers.Add(p.Id);settings.Save();controller?.UpdateLayout(settings.Kvm);});kvmHub.Reveal();
     });
     void StartKvm()
     {
@@ -199,7 +202,7 @@ sealed class TrayApp:ApplicationContext
             kvm=new KvmService(settings.Kvm);kvm.Notification+=m=>notifications.Enqueue(m);kvm.Received+=updater.Receive;
             controller=new KvmController(kvm,settings.Kvm);
             controller.OpenRequested+=()=>{if(!closing)try{dispatcher.BeginInvoke(OpenKvm);}catch(InvalidOperationException){}};
-            controller.EmergencyReturn+=()=>{if(!closing)dispatcher.BeginInvoke(()=>{foreach(var viewer in Application.OpenForms.OfType<KvmViewer>().ToArray())viewer.ReturnControl();});};
+            controller.EmergencyReturn+=()=>{if(!closing)dispatcher.BeginInvoke(()=>{foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();});};
             controller.SeamlessChanged+=enabled=>{if(!closing)dispatcher.BeginInvoke(()=>{settings.Kvm.Seamless=enabled;settings.Save();});};
             kvm.Disconnected+=_=>{if(!closing)try{dispatcher.BeginInvoke(()=>controller?.ReturnLocal());}catch(InvalidOperationException){}};
             kvm.PeersChanged+=()=>{if(!closing)try{dispatcher.BeginInvoke(()=>controller?.Refresh());}catch(InvalidOperationException){}};
@@ -226,6 +229,12 @@ sealed class TrayApp:ApplicationContext
     static bool IsAutorun(){using var key=Registry.CurrentUser.OpenSubKey(RunKey);return key?.GetValue("ScreenCapture")!=null||key?.GetValue("SdrCapture")!=null;}
     public static string ConnectionText=>"На стрим-ПК: OBS → Источники → NDI Source (DistroAV).\nИсточник: ИМЯ-ИГРОВОГО-ПК (SdrCapture SDR).\n\nYUV Range: Limited\nYUV Color Space: BT.709\nLatency Mode: Low\nBandwidth: Highest\nBehavior: Always play when not visible (Keepalive)\nFramesync: выключено\nEnable audio: выключено\n\nЭто NDI High Bandwidth, не HX/HEVC. Нужна проводная локальная сеть.\nВ OBS → Настройки → Расширенные → Видео оставьте SDR Rec.709.\n\nОбработка цвета сохранена из прежнего ScreenCapture.\nПолная задержка зависит также от сети и OBS; нулевая задержка не гарантируется.";
     void ShowHelp()=>MessageBox.Show(ConnectionText,"ScreenCapture → DistroAV");
+    Ui.StatusSection[] StatusOverview()=>[
+        new("Screen streaming",("State",UiStrings.T(!engine.NdiEnabled?"Off":engine.Error!=null?"Recovering capture":"On")),("NDI source",engine.SourceName),("Output",string.Join(", ",engine.CaptureSizes)),("Delivery rate",$"{engine.Fps:F1} FPS"),("Capture time",$"{engine.CaptureMs:F1} ms")),
+        new("Instant replay",("State",UiStrings.T(!settings.Replay.Enabled?"Off":replay.Error!=null?"Recording error":"On")),("Buffered",$"{replay.BufferedSeconds/60:F1} / {settings.Replay.Minutes} min"),("Buffer size",$"{replay.CacheBytes/1048576.0:F0} MB"),("Error",replay.Error??UiStrings.T("None"))),
+        new("KVM & pairing",("This PC",Environment.MachineName),("Role",UiStrings.T(settings.Kvm.Role)),("Connected computers",string.Join(", ",kvm?.Peers.Select(p=>p.Name)??[]) is {Length:>0} peers?peers:UiStrings.T("None"))),
+        new("Virtual devices",("Receiver",UiStrings.T(settings.Discord.Enabled?"On":"Off")),("Video",discord?.Status??UiStrings.T("Off")))
+    ];
     void ApplyReplay(ReplayOptions options)
     {
         options.Validate();
@@ -243,5 +252,5 @@ sealed class TrayApp:ApplicationContext
         try{string app=ReplayAppContext.Capture();notifications.Enqueue($"Сохраняю последние {settings.Replay.Minutes} мин…");var result=await replay.SaveAsync(app);delivery.Wake();}
         catch(Exception e){notifications.Enqueue("Повтор не сохранён: "+e.Message);}
     }
-    protected override void ExitThreadCore(){closing=true;keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();dispatcher.Dispose();tray.Visible=false;tray.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
+    protected override void ExitThreadCore(){closing=true;settingsWindow?.Close();keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();dispatcher.Dispose();tray.Visible=false;tray.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
 }

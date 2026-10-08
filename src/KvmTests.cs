@@ -9,6 +9,12 @@ static class KvmTests
     public static void Run(){RunAsync().GetAwaiter().GetResult();Files();Hooks();}
     static void Hooks()
     {
+        var mousePacket=new byte[48];mousePacket[8]=1;
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(mousePacket.AsSpan(36),-47);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(mousePacket.AsSpan(40),13);
+        if(KvmRawMouse.RelativeDelta(mousePacket,8)!=new Point(-47,13))throw new Exception("Physical raw mouse deltas parsed incorrectly");
+        mousePacket[8]=0;if(KvmRawMouse.RelativeDelta(mousePacket,8)!=null)throw new Exception("Synthetic game warp accepted as physical input");
+        mousePacket[8]=1;mousePacket[24]=1;if(KvmRawMouse.RelativeDelta(mousePacket,8)!=null)throw new Exception("Absolute input interpreted as relative movement");
         using var service=new KvmService(new KvmOptions());
         using var input=new KvmController(service,new KvmOptions{Role="Host",Seamless=false});
         input.Refresh();input.ReturnLocal();
@@ -105,6 +111,9 @@ static class KvmTests
         layoutOptions.RemoteOnlyPeers.Add("stream");
         if(KvmLayout.Merge(layoutOptions,peers).Any(m=>m.Peer!="game"))throw new Exception("Host exclusion ignored");
         layoutOptions.RemoteOnlyPeers.Clear();
+        layoutOptions.ExcludedMonitors.Add(left.Key);
+        var individual=KvmLayout.Merge(layoutOptions,peers);if(individual.Any(m=>m.Key==left.Key)||!individual.Any(m=>m.Key==right.Key))throw new Exception("Per-monitor exclusion removed the other screen");
+        layoutOptions.ExcludedMonitors.Clear();
         if(KvmLayout.Merge(layoutOptions,peers).First(m=>m.Device=="left").X!=-1920)throw new Exception("Restoring a PC lost its layout");
         foreach(var invalid in new KvmScreen[][]{[peers[0].Screens[0],peers[0].Screens[0]],[new(null!,0,0,1,1,true)],[null!]})
         {bool rejected=false;try{KvmWire.ValidateScreens(invalid);}catch(IOException){rejected=true;}if(!rejected)throw new Exception("Malformed screens accepted");}

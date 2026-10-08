@@ -54,6 +54,7 @@ public sealed class StreamEngine:IDisposable
         DesktopCapture? capture=null;
         int activeVersion=-1;
         string activeDevice="";
+        string canvasDevice="";int canvasWidth=0,canvasHeight=0;
         long nextRetry=0,logAt=0;
         try
         {
@@ -78,10 +79,15 @@ public sealed class StreamEngine:IDisposable
                         var displays=DisplayInfo.All();
                         var display=displays.FirstOrDefault(d=>d.Device==config.Device);
                         if(display==null) throw new InvalidOperationException("Выбранный монитор временно недоступен");
-                        capture=new DesktopCapture(display,config.Compensate);
+                        if(canvasDevice!=config.Device)
+                        {
+                            var preferred=PreferredResolution.Read(display.Device,display.Width,display.Height);
+                            canvasWidth=preferred.Width;canvasHeight=preferred.Height;canvasDevice=config.Device;
+                        }
+                        capture=new DesktopCapture(display,config.Compensate,canvasWidth,canvasHeight);
                         activeDevice=config.Device;activeVersion=Volatile.Read(ref restartVersion);
                         Recoveries++;CaptureStatus="Захват";
-                        Log.Write($"Capture opened: {display.Device}, {display.Width}x{display.Height}, HDR={display.Hdr}");
+                        Log.Write($"Capture opened: {display.Device}, {display.Width}x{display.Height}, output={canvasWidth}x{canvasHeight}, HDR={display.Hdr}");
                     }
                     capture.CompensateSdr=config.Compensate;capture.CaptureCursor=config.Cursor;
                     long begin=Stopwatch.GetTimestamp();
@@ -112,6 +118,7 @@ public sealed class StreamEngine:IDisposable
     }
     void SendLoop(string name)
     {
+        Thread.CurrentThread.Priority=ThreadPriority.AboveNormal;
         using var pacing=new Pacer();
         VideoBuffer? current=null;
         try

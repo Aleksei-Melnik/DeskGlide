@@ -5,7 +5,7 @@ partial class AppSettingsForm
 {
     void BuildDiscordPage(Settings value)
     {
-        var page=Page("Discord · приём","Экран игрового ПК в Discord · 1080p60");
+        var page=Page("Discord · приём","Экран игрового ПК в Discord · разрешение монитора · 60 FPS");
         discordEnabled.Text="Принимать изображение игрового ПК";discordEnabled.Checked=value.Discord.Enabled;Row(page,"Камера",discordEnabled,38);
         discordName.Text=CameraInstallation.Name(value.Discord.CameraName);Row(page,"Имя в Discord",discordName,38);
         discordSource.Text=value.Discord.Source;

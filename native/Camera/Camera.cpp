@@ -1,3 +1,4 @@
+#include <new>
 #include <streams.h>
 #include <initguid.h>
 #include <ks.h>
@@ -9,7 +10,7 @@
 
 // A user-mode DirectShow device. No kernel driver, NDI code or network access in the host process.
 DEFINE_GUID(CLSID_ScreenCaptureCamera,0x72984451,0xd4c4,0x46eb,0xa6,0x10,0x51,0x9d,0xb1,0xf6,0xa8,0x20);
-static const int Width=1920, Height=1080, Bytes=Width*Height*4;
+static const int MaxBytes=7680*4320*4;
 static const DWORD Magic=0x53434331;
 struct FrameHeader { DWORD magic,width,height,stride; ULONGLONG heartbeat,number; };
 static_assert(sizeof(FrameHeader)==32,"IPC header");
@@ -36,15 +37,17 @@ static bool ObjectName(wchar_t* dest,size_t capacity,const wchar_t* suffix) {
     GetTokenInformation(token,TokenUser,nullptr,0,&count);
     BYTE* bytes=new BYTE[count]; LPWSTR sid=nullptr;
     bool ok=GetTokenInformation(token,TokenUser,bytes,count,&count)&&ConvertSidToStringSidW(((TOKEN_USER*)bytes)->User.Sid,&sid);
-    if(ok)swprintf_s(dest,capacity,L"Local\\ScreenCapture.Camera.%s.%s",sid,suffix);
+    if(ok)swprintf_s(dest,capacity,L"Local\\ScreenCapture.Camera.v3.%s.%s",sid,suffix);
     if(sid)LocalFree(sid);delete[] bytes;CloseHandle(token);return ok;
 }
 
 class CameraPin final:public CSourceStream,public IAMStreamConfig,public IKsPropertySet {
+    int Width=1920,Height=1080,Bytes=Width*Height*4;
     HANDLE mapping=nullptr,mutex=nullptr,timer=nullptr;
     const FrameHeader* shared=nullptr;
     LONGLONG origin=0,frequency=0,index=0;
     BYTE* latest=nullptr;
+    int latestCapacity=0;
     ULONGLONG latestTime=0;
     ULONGLONG latestNumber=0;
     bool first=true;
@@ -61,16 +64,21 @@ class CameraPin final:public CSourceStream,public IAMStreamConfig,public IKsProp
         wchar_t name[256];if(!ObjectName(name,256,L"frame"))return;
         mapping=OpenFileMappingW(FILE_MAP_READ,FALSE,name);if(!mapping){sharedError=GetLastError();return;}
         ObjectName(name,256,L"lock");mutex=OpenMutexW(SYNCHRONIZE|MUTEX_MODIFY_STATE,FALSE,name);
-        if(mutex)shared=(const FrameHeader*)MapViewOfFile(mapping,FILE_MAP_READ,0,0,sizeof(FrameHeader)+Bytes);
+        if(mutex)shared=(const FrameHeader*)MapViewOfFile(mapping,FILE_MAP_READ,0,0,sizeof(FrameHeader)+MaxBytes);
         if(!shared){sharedError=GetLastError();CloseShared();}else sharedError=0;
+    }
+    void Dimensions(){
+        if(configured||IsConnected())return;OpenShared();if(!shared)return;
+        DWORD wait=WaitForSingleObject(mutex,5);if(wait!=WAIT_OBJECT_0&&wait!=WAIT_ABANDONED)return;
+        if(shared->magic==Magic&&shared->width>=2&&shared->height>=2&&shared->width<=8192&&shared->height<=8192&&(ULONGLONG)shared->width*shared->height*4<=MaxBytes&&shared->stride==shared->width*4){Width=(int)shared->width;Height=(int)shared->height;Bytes=Width*Height*4;}
+        ReleaseMutex(mutex);
     }
 public:
     CameraPin(HRESULT* hr,CSource* filter):CSourceStream(NAME("ScreenCapture Camera"),hr,filter,L"Capture") {
         LARGE_INTEGER value;QueryPerformanceFrequency(&value);frequency=value.QuadPart;
         timer=CreateWaitableTimerExW(nullptr,nullptr,2,TIMER_ALL_ACCESS);
         if(!timer)timer=CreateWaitableTimerW(nullptr,FALSE,nullptr);
-        latest=new BYTE[Bytes]();
-        Trace("create camera v0.7.1");
+        Dimensions();latest=new BYTE[Bytes]();latestCapacity=Bytes;Trace("create native camera %dx%d",Width,Height);
     }
     ~CameraPin(){CloseShared();if(timer)CloseHandle(timer);delete[] latest;}
     DECLARE_IUNKNOWN;
@@ -80,6 +88,7 @@ public:
         return CSourceStream::NonDelegatingQueryInterface(id,out);
     }
     HRESULT MakeType(CMediaType* type,int bits,REFERENCE_TIME duration) {
+        Dimensions();
         if(!type)return E_POINTER;
         type->InitMediaType();type->SetType(&MEDIATYPE_Video);type->SetSubtype(bits==24?&MEDIASUBTYPE_RGB24:&MEDIASUBTYPE_RGB32);
         int bytes=Width*Height*(bits/8);
@@ -100,6 +109,7 @@ public:
         return MakeType(type,position<2?24:32,position%2?333333:166666);
     }
     HRESULT CheckMediaType(const CMediaType* type) override {
+        CAutoLock lock(m_pFilter->pStateLock());Dimensions();
         if(!type||*type->Type()!=MEDIATYPE_Video||(*type->Subtype()!=MEDIASUBTYPE_RGB32&&*type->Subtype()!=MEDIASUBTYPE_RGB24)||*type->FormatType()!=FORMAT_VideoInfo||!type->Format()||type->FormatLength()<sizeof(VIDEOINFOHEADER))return VFW_E_TYPE_NOT_ACCEPTED;
         auto info=(const VIDEOINFOHEADER*)type->Format();
         int bits=*type->Subtype()==MEDIASUBTYPE_RGB24?24:32;
@@ -109,6 +119,7 @@ public:
         HRESULT hr=CheckMediaType(type);if(FAILED(hr))return hr;
         hr=CSourceStream::SetMediaType(type);if(FAILED(hr))return hr;
         auto info=(const VIDEOINFOHEADER*)type->Format();bpp=info->bmiHeader.biBitCount/8;outputBytes=Width*Height*bpp;topDown=info->bmiHeader.biHeight<0;interval=info->AvgTimePerFrame;
+        if(latestCapacity<Bytes){delete[] latest;latest=new(std::nothrow) BYTE[Bytes]();if(!latest)return E_OUTOFMEMORY;latestCapacity=Bytes;latestNumber=0;}
         Trace("connected RGB%d %dx%d interval=%lld",bpp*8,Width,info->bmiHeader.biHeight,interval);return S_OK;
     }
     HRESULT DecideBufferSize(IMemAllocator* allocator,ALLOCATOR_PROPERTIES* properties) override {
@@ -135,7 +146,9 @@ public:
             }
             if(fresh||attempt==4)break;Sleep(1);
         }
-        bool valid=GetTickCount64()-latestTime<2000;
+        // Retain the last received picture through short network/display resets.
+        // Source silence must not replace a valid picture with a black flash.
+        bool valid=latestNumber!=0;
         if(!valid)ZeroMemory(target,outputBytes);
         else if(bpp==4&&!topDown)CopyMemory(target,latest,Bytes);
         else for(int y=0;y<Height;y++){
@@ -160,11 +173,12 @@ public:
     STDMETHODIMP GetFormat(AM_MEDIA_TYPE** type) override {if(!type)return E_POINTER;CAutoLock lock(m_pFilter->pStateLock());CMediaType value;HRESULT hr=IsConnected()?(value=m_mt,S_OK):GetMediaType(&value);if(FAILED(hr))return hr;*type=CreateMediaType(&value);return *type?S_OK:E_OUTOFMEMORY;}
     STDMETHODIMP GetNumberOfCapabilities(int* count,int* size) override {if(!count||!size)return E_POINTER;*count=4;*size=sizeof(VIDEO_STREAM_CONFIG_CAPS);return S_OK;}
     STDMETHODIMP GetStreamCaps(int i,AM_MEDIA_TYPE** type,BYTE* caps) override {
+        CAutoLock lock(m_pFilter->pStateLock());Dimensions();
         if(!type||!caps)return E_POINTER;*type=nullptr;if(i<0||i>=4)return S_FALSE;
         auto c=(VIDEO_STREAM_CONFIG_CAPS*)caps;ZeroMemory(c,sizeof(*c));c->guid=FORMAT_VideoInfo;c->VideoStandard=0;
         c->InputSize=c->MinCroppingSize=c->MaxCroppingSize=c->MinOutputSize=c->MaxOutputSize={Width,Height};
         c->CropGranularityX=c->CropGranularityY=c->CropAlignX=c->CropAlignY=c->OutputGranularityX=c->OutputGranularityY=1;
-        c->MinFrameInterval=166666;c->MaxFrameInterval=1000000;c->MinBitsPerSecond=Width*Height*24*10;c->MaxBitsPerSecond=0x7fffffff;
+        c->MinFrameInterval=166666;c->MaxFrameInterval=1000000;c->MinBitsPerSecond=(LONG)min((LONGLONG)Width*Height*24*10,0x7fffffffLL);c->MaxBitsPerSecond=0x7fffffff;
         CMediaType value;HRESULT hr=MakeType(&value,i<2?24:32,i%2?333333:166666);if(FAILED(hr))return hr;*type=CreateMediaType(&value);return *type?S_OK:E_OUTOFMEMORY;
     }
     STDMETHODIMP Set(REFGUID,DWORD,LPVOID,DWORD,LPVOID,DWORD) override{return E_NOTIMPL;}

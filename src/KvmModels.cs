@@ -21,8 +21,9 @@ public sealed record KvmOptions
     public bool AllowView {get;set;}=true;
     public bool RemoteViewOnly {get;set;}
     public List<string> RemoteOnlyPeers {get;set;}=[];
+    public List<string> ExcludedMonitors {get;set;}=[];
     public List<MonitorPlacement> Layout {get;set;}=[];
-    public KvmOptions Copy()=>this with{Layout=Layout.Select(m=>m with{}).ToList(),RemoteOnlyPeers=RemoteOnlyPeers.ToList()};
+    public KvmOptions Copy()=>this with{Layout=Layout.Select(m=>m with{}).ToList(),RemoteOnlyPeers=RemoteOnlyPeers.ToList(),ExcludedMonitors=ExcludedMonitors.ToList()};
     public void Validate()
     {
         if(Role is not ("Off" or "Host" or "Client"))throw new ArgumentException("Неизвестная роль KVM.");
@@ -31,6 +32,7 @@ public sealed record KvmOptions
         if(RemoteOnlyPeers.Count>64||RemoteOnlyPeers.Any(id=>!Guid.TryParseExact(id,"N",out _)||id==Id))throw new ArgumentException("Недопустимый список серверов KVM.");
         if(Role=="Client"){if(string.IsNullOrWhiteSpace(Host))throw new ArgumentException("Введите имя или IP управляющего ПК.");KvmPairing.Decode(PairingCode);}
         if(Layout.Count>32||Layout.GroupBy(m=>m.Key).Any(g=>g.Count()>1))throw new ArgumentException("Недопустимая схема мониторов.");
+        if(ExcludedMonitors.Count>64||ExcludedMonitors.Any(k=>k.Length>256||!k.Contains('|')))throw new ArgumentException("Invalid excluded monitor list.");
         foreach(var m in Layout)
             if(Math.Abs((long)m.X)>100000||Math.Abs((long)m.Y)>100000||m.Width<1||m.Width>16384||m.Height<1||m.Height>16384||m.Hotkey<0||m.Hotkey>12)
                 throw new ArgumentException("Недопустимое положение или размер монитора.");
@@ -81,7 +83,7 @@ static class KvmLayout
 {
     public static (MonitorPlacement Target,Point Point)? EdgeCrossing(IEnumerable<MonitorPlacement> monitors,MonitorPlacement local,KvmScreen screen,Point point)
     {
-        var logical=new Point(local.X+Math.Clamp(point.X-screen.X,0,local.Width-1),local.Y+Math.Clamp(point.Y-screen.Y,0,local.Height-1));
+        var logical=new Point(local.X+(int)((long)Math.Clamp(point.X-screen.X,0,screen.Width-1)*local.Width/screen.Width),local.Y+(int)((long)Math.Clamp(point.Y-screen.Y,0,screen.Height-1)*local.Height/screen.Height));
         var candidates=new List<Point>();
         if(point.X<=screen.X)candidates.Add(new(local.X-1,logical.Y));
         else if(point.X>=screen.X+screen.Width-1)candidates.Add(new(local.X+local.Width,logical.Y));
@@ -94,12 +96,15 @@ static class KvmLayout
     {
         var available=peers.ToArray();
         var remoteOnly=options.RemoteOnlyPeers.Concat(available.Where(p=>p.RemoteViewOnly&&p.Id!=options.Id).Select(p=>p.Id)).ToHashSet();
-        var result=options.Layout.Where(m=>!remoteOnly.Contains(m.Peer)).Select(m=>m with{}).ToList();
+        var result=options.Layout.Where(m=>!remoteOnly.Contains(m.Peer)&&!options.ExcludedMonitors.Contains(m.Key)).Select(m=>m with{}).ToList();
         foreach(var peer in available.Where(p=>!remoteOnly.Contains(p.Id)))
         foreach(var screen in peer.Screens)
         {
+            if(peer.Id!=options.Id&&options.ExcludedMonitors.Contains(peer.Id+"|"+screen.Device))continue;
             var found=result.FirstOrDefault(m=>m.Peer==peer.Id&&m.Device==screen.Device);
-            if(found!=null){found.Width=screen.Width;found.Height=screen.Height;found.Name=peer.Name+" · "+screen.Device;continue;}
+            // Saved desk geometry stays connected when an exclusive game changes
+            // physical resolution. Coordinate mapping handles that change below.
+            if(found!=null){found.Name=peer.Name+" · "+screen.Device;continue;}
             int x=peer.Id==options.Id?screen.X:result.Count==0?0:result.Max(m=>m.X+m.Width);
             result.Add(new(){Peer=peer.Id,Device=screen.Device,Name=peer.Name+" · "+screen.Device,X=x,Y=peer.Id==options.Id?screen.Y:0,Width=screen.Width,Height=screen.Height});
         }
@@ -107,5 +112,5 @@ static class KvmLayout
     }
     public static MonitorPlacement? At(IEnumerable<MonitorPlacement> monitors,Point point)=>monitors.FirstOrDefault(m=>m.Bounds.Contains(point));
     public static Point Clamp(MonitorPlacement monitor,Point point)=>new(Math.Clamp(point.X,monitor.X,monitor.X+monitor.Width-1),Math.Clamp(point.Y,monitor.Y,monitor.Y+monitor.Height-1));
-    public static Point ToPhysical(MonitorPlacement monitor,KvmScreen screen,Point point)=>new(screen.X+Math.Clamp(point.X-monitor.X,0,screen.Width-1),screen.Y+Math.Clamp(point.Y-monitor.Y,0,screen.Height-1));
+    public static Point ToPhysical(MonitorPlacement monitor,KvmScreen screen,Point point)=>new(screen.X+(int)((long)Math.Clamp(point.X-monitor.X,0,monitor.Width-1)*(screen.Width-1)/Math.Max(1,monitor.Width-1)),screen.Y+(int)((long)Math.Clamp(point.Y-monitor.Y,0,monitor.Height-1)*(screen.Height-1)/Math.Max(1,monitor.Height-1)));
 }

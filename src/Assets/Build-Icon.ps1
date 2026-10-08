@@ -20,12 +20,12 @@ function New-IconBitmap([int]$Size) {
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
     $g.ScaleTransform($Size*$scale/256.0, $Size*$scale/256.0)
     $tile = New-RoundedPath 8 8 240 240 52
-    $gradient = [System.Drawing.Drawing2D.LinearGradientBrush]::new([System.Drawing.Point]::new(24,12),[System.Drawing.Point]::new(224,248),[System.Drawing.ColorTranslator]::FromHtml('#233c62'),[System.Drawing.ColorTranslator]::FromHtml('#0c1529'))
+    $gradient = [System.Drawing.Drawing2D.LinearGradientBrush]::new([System.Drawing.Point]::new(24,12),[System.Drawing.Point]::new(224,248),[System.Drawing.ColorTranslator]::FromHtml('#41203f'),[System.Drawing.ColorTranslator]::FromHtml('#120e1d'))
     $g.FillPath($gradient,$tile)
-    $border = [System.Drawing.Pen]::new([System.Drawing.ColorTranslator]::FromHtml('#466384'),2)
+    $border = [System.Drawing.Pen]::new([System.Drawing.ColorTranslator]::FromHtml('#8b456e'),2)
     $g.DrawPath($border,$tile)
     $white = [System.Drawing.Pen]::new([System.Drawing.ColorTranslator]::FromHtml('#f4f8ff'),22)
-    $mint = [System.Drawing.Pen]::new([System.Drawing.ColorTranslator]::FromHtml('#57e3d0'),22)
+    $mint = [System.Drawing.Pen]::new([System.Drawing.ColorTranslator]::FromHtml('#ff538e'),22)
     foreach ($pen in @($white,$mint)) {
         $pen.StartCap = $pen.EndCap = [System.Drawing.Drawing2D.LineCap]::Round
         $pen.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
@@ -99,4 +99,3 @@ foreach ($size in @(16,20,24,32,40,48,64)) {
 $preview.Save((Join-Path $PSScriptRoot 'Icon-preview.png'),[System.Drawing.Imaging.ImageFormat]::Png)
 $label.Dispose(); $background.Dispose(); $canvas.Dispose(); $preview.Dispose()
 Write-Output ('Icon built: ' + ($sizes -join ', ') + ' px')
-

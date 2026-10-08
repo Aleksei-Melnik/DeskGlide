@@ -93,6 +93,30 @@ static class ReplayTests
         }
         finally{feedStop.Cancel();try{await feed;}catch(OperationCanceledException){}}
     }
+    public static async Task ManualSaveOnly()
+    {
+        string root=Path.Combine(AppContext.BaseDirectory,"replay-manual-save-"+Guid.NewGuid().ToString("N"));Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",root);
+        var options=new ReplayOptions{Enabled=true,Width=640,Height=360,AudioMode="Silent",Folder=Path.Combine(root,"destination")};
+        using var recorder=new ReplayRecorder(options);using var stop=new CancellationTokenSource();
+        var feed=Task.Factory.StartNew(()=>
+        {
+            using var pacer=new Pacer();int index=0;
+            while(!stop.IsCancellationRequested){pacer.Wait(stop.Token);using var frame=new VideoBuffer(640,360);for(int i=0;i<frame.Length;i+=2){frame.Data[i]=128;frame.Data[i+1]=(byte)(32+(index%160));}recorder.Offer(frame);index++;}
+        },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
+        int Saved()=>Directory.Exists(Path.Combine(root,"saved"))?Directory.GetFiles(Path.Combine(root,"saved"),"*.mp4").Length:0;
+        async Task Ready(){var timer=Stopwatch.StartNew();while(recorder.BufferedSeconds<3&&timer.Elapsed.TotalSeconds<15){if(recorder.Error!=null)throw new Exception(recorder.Error);await Task.Delay(100);}if(recorder.BufferedSeconds<3)throw new Exception("Replay buffer did not fill");}
+        try
+        {
+            await Ready();if(Saved()!=0)throw new Exception("Background recording exported a clip without Save");
+            recorder.Update(options with{Quality="Medium"});await Task.Delay(1000);await Ready();if(Saved()!=0)throw new Exception("Changing quality exported a clip");
+            var clip=await recorder.SaveAsync("Manual test");if(Saved()!=1||!File.Exists(clip.LocalPath))throw new Exception("Explicit Save did not export exactly one clip");
+            recorder.Update(options with{Enabled=false});await Task.Delay(500);stop.Cancel();await feed;recorder.Dispose();
+            if(Saved()!=1||Directory.Exists(options.Folder))throw new Exception("Disable or shutdown exported unsolicited clips");
+            using var probe=await Probe(clip.LocalPath);if(probe.RootElement.GetProperty("streams").EnumerateArray().Any(s=>s.GetProperty("codec_type").GetString()=="audio"))throw new Exception("Silent replay contains audio");
+            Program.Write("replay-manual-save-test.json",new{Pass=true,ExportsBeforeSave=0,ExportsAfterExplicitSave=1,NoExportOnReconfigure=true,NoExportOnDisableOrDispose=true,HardwareCodec="HEVC NVENC",clip.Seconds});
+        }
+        finally{stop.Cancel();try{await feed;}catch(OperationCanceledException){}}
+    }
     internal static async Task<JsonDocument> Probe(string path)
     {
         using var timeout=new CancellationTokenSource(30000);

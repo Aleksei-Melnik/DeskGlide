@@ -62,6 +62,13 @@ static class KvmImageCodec
 }
 sealed class KvmViewer:Form
 {
+    internal event Action? FullscreenRequested,ReturnRequested;
+    internal string StatusText=>status.Text;
+    internal string[] Devices=>monitors.Items.Cast<string>().ToArray();
+    internal string? SelectedDevice=>(string?)monitors.SelectedItem;
+    internal void Configure(string? device,int qualityIndex,int fps,bool input){if(device!=null&&monitors.Items.Contains(device))monitors.SelectedItem=device;quality.SelectedIndex=qualityIndex;frameRate.SelectedIndex=fps==30?0:1;control.Checked=input;}
+    internal void ReleaseControl()=>Release();
+    internal void Embed(){TopLevel=false;FormBorderStyle=FormBorderStyle.None;Dock=DockStyle.Fill;foreach(Control child in Controls)if(child!=picture)child.Visible=false;}
     internal sealed class Viewport:PictureBox
     {
         public Viewport(){SetStyle(ControlStyles.Selectable,true);TabStop=true;}
@@ -210,11 +217,12 @@ sealed class KvmViewer:Form
     void Release()=>service.Send(peer.Id,new(){Type="release"});
     void ToggleFullscreen()
     {
+        if(!TopLevel){FullscreenRequested?.Invoke();return;}
         Release();
         if(!fullscreen){previousBounds=Bounds;previousBorder=FormBorderStyle;WindowState=FormWindowState.Normal;FormBorderStyle=FormBorderStyle.None;Bounds=Screen.FromControl(this).Bounds;}
         else{FormBorderStyle=previousBorder;Bounds=previousBounds;}
         fullscreen=!fullscreen;
     }
-    public void ReturnControl(){Release();WindowState=FormWindowState.Minimized;}
+    public void ReturnControl(){Release();if(!TopLevel){ReturnRequested?.Invoke();return;}WindowState=FormWindowState.Minimized;}
     [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code,uint type);
 }

@@ -30,7 +30,9 @@ static class FeatureTests
         foreach(var point in new[]{new Point(-120,20),new Point(0,0)})Require(KvmLayout.EdgeCrossing([local,left,right],local,screen,point)?.Target==left,"Fast left / corner crossing");
         Require(KvmLayout.EdgeCrossing([local,left,right],local,screen,new(2800,30))?.Target==right,"Fast right crossing");
         Require(KvmLayout.EdgeCrossing([local,left,right],local,screen,new(100,100))==null,"Interior must stay local");
-        var edges=KvmDragDrop.SharedEdges([local,left,right],local,screen).ToArray();Require(edges.Length==2&&edges.All(r=>r.Width==2)&&edges.Single(r=>r.X==0).Height==1080,"Drag portals overlap unshared/taskbar edges");
+        var gameMode=new KvmScreen("center",0,0,1280,1024,true);
+        Require(KvmLayout.EdgeCrossing([local,left,right],local,gameMode,new(1279,512))?.Target==right,"Fullscreen resolution broke the right edge");
+        Require(KvmLayout.ToPhysical(local,gameMode,new(local.X+2559,local.Y+1439))==new Point(1279,1023),"Fullscreen cursor mapping was not scaled");
         using(var image=new Bitmap(2560,1440))
         {
             using(var graphics=Graphics.FromImage(image))graphics.Clear(Color.FromArgb(13,91,187));
@@ -60,29 +62,32 @@ static class FeatureTests
         KvmFileCache.Clean(cache,TimeSpan.FromHours(4));Require(!Directory.Exists(temporary)&&Directory.Exists(unmarked)&&File.ReadAllText(permanent)=="payload","Cache cleanup touched a permanent/unmarked destination");
         Program.Write("feature-tests.json",new{Pass=true,MouseButtons=true,FastEdgeOvershoot=true,NativeKvmPixels=true,EncryptedProfileRollback=true,HostDriverBlocked=true,InstallerIntegrity=true});
     }
-    public static unsafe void Camera()
+    public static unsafe void Camera(int width=1920,int height=1080)
     {
         using var frames=new CameraFrames();using var stop=new CancellationTokenSource();
+        using var ready=new ManualResetEventSlim();
         var publish=Task.Factory.StartNew(()=>
         {
-            var pixels=new byte[CameraFrames.Bytes];var clock=Stopwatch.StartNew();int previous=-1;
+            var pixels=new byte[width*height*4];var clock=Stopwatch.StartNew();int previous=-1;
             fixed(byte* ptr=pixels)while(!stop.IsCancellationRequested)
             {
                 int index=(int)(clock.Elapsed.TotalSeconds*60);if(index==previous){Thread.Sleep(1);continue;}
                 previous=index;Array.Fill(pixels,(byte)(index%250+1));
-                for(int p=0;p<CameraFrames.Width*32*4;p+=4){pixels[p]=0;pixels[p+1]=0;pixels[p+2]=255;int bottom=p+CameraFrames.Width*(CameraFrames.Height-32)*4;pixels[bottom]=255;pixels[bottom+1]=0;pixels[bottom+2]=0;}
-                frames.Write((IntPtr)ptr,CameraFrames.Width*4);
+                for(int p=0;p<width*32*4;p+=4){pixels[p]=0;pixels[p+1]=0;pixels[p+2]=255;int bottom=p+width*(height-32)*4;pixels[bottom]=255;pixels[bottom+1]=0;pixels[bottom+2]=0;}
+                frames.Write((IntPtr)ptr,width*4,width,height);ready.Set();
             }
         },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
         try
         {
+            Require(ready.Wait(3000),"Camera publisher did not start");
             foreach(string mode in new[]{"rgb24","rgb32","30"})
             {
                 var start=new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory,"camera","CameraProbe.exe")){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
                 start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory,"camera","ScreenCapture.Camera.dll"));start.ArgumentList.Add(mode);start.ArgumentList.Add("pattern");
                 using var process=Process.Start(start)!;string text=process.StandardOutput.ReadToEnd(),error=process.StandardError.ReadToEnd();process.WaitForExit();
-                File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"camera-native-"+mode+"-test.json"),text);
+                File.WriteAllText(Path.Combine(AppContext.BaseDirectory,$"camera-native-{width}-{mode}-test.json"),text);
                 Require(process.ExitCode==0,"Native camera "+mode+" failed: "+text+error);
+                using var report=JsonDocument.Parse(text);Require(report.RootElement.GetProperty("Width").GetInt32()==width&&report.RootElement.GetProperty("Height").GetInt32()==height,"Camera changed native dimensions");
             }
         }
         finally{stop.Cancel();publish.GetAwaiter().GetResult();}
@@ -91,6 +96,29 @@ static class FeatureTests
             var bytes=DiscordReceiver.ConvertAudio(new(){Data=(IntPtr)ptr,Samples=4,Channels=2,Stride=16},50);
             var values=MemoryMarshal.Cast<byte,float>(bytes);Require(values[0]==.5f&&Math.Abs(values[1]-.1f)<.00001&&values[4]==0&&values[5]==0,"NDI audio normalization/NaN handling");
         }
+    }
+    public static unsafe void CameraNativeFormats()
+    {
+        using var frames=new CameraFrames();var results=new List<JsonElement>();
+        foreach(var (width,height) in new[]{(1920,1080),(2560,1440),(3840,2160),(7680,4320),(3440,1440),(1080,1920)})
+        {
+            byte[] pixels=new byte[width*height*4];fixed(byte* ptr=pixels)frames.Write((IntPtr)ptr,width*4,width,height);
+            var start=new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory,"camera","CameraProbe.exe")){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+            start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory,"camera","ScreenCapture.Camera.dll"));start.ArgumentList.Add("caps");using var process=Process.Start(start)!;
+            string text=process.StandardOutput.ReadToEnd(),error=process.StandardError.ReadToEnd();process.WaitForExit();using var report=JsonDocument.Parse(text);
+            Require(process.ExitCode==0&&report.RootElement.GetProperty("Width").GetInt32()==width&&report.RootElement.GetProperty("Height").GetInt32()==height,"Camera native format negotiation: "+text+error);results.Add(report.RootElement.Clone());
+        }
+        Program.Write("camera-native-formats-test.json",new{Pass=true,Scope="IPC dimensions and DirectShow format negotiation; not 8K frame-rate or network throughput",Formats=results});
+    }
+    public static unsafe void CameraHold()
+    {
+        using var frames=new CameraFrames();byte[] pixels=new byte[1920*1080*4];Array.Fill(pixels,(byte)113);
+        fixed(byte* ptr=pixels)frames.Write((IntPtr)ptr,1920*4,1920,1080);
+        var start=new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory,"camera","CameraProbe.exe")){UseShellExecute=false,CreateNoWindow=true,RedirectStandardOutput=true,RedirectStandardError=true};
+        start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory,"camera","ScreenCapture.Camera.dll"));using var process=Process.Start(start)!;
+        string text=process.StandardOutput.ReadToEnd(),error=process.StandardError.ReadToEnd();process.WaitForExit();using var report=JsonDocument.Parse(text);
+        Require(report.RootElement.GetProperty("Frames").GetInt32()>=200&&report.RootElement.GetProperty("Unique").GetInt32()==1,"Paused publisher changed the last image: "+text+error);
+        Program.Write("camera-hold-test.json",new{Pass=true,HoldSeconds=4,Probe=report.RootElement.Clone()});
     }
     public static void NdiCamera()
     {

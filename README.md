@@ -1,211 +1,132 @@
 # ScreenCapture
 
-Windows 11 x64 tray application for a gaming PC and a streaming PC. Captures
-the desktop, converts it to SDR and sends it to OBS/DistroAV over NDI High
-Bandwidth. Includes GPU instant replay, audio capture and paired-PC controls.
+Screen streaming, instant replay and KVM for Windows 11. ScreenCapture is a
+standalone NeuralMea utility. Its interface supports English and Russian.
 
-**Download:** [latest release](https://github.com/Aleksei-Melnik/ScreenCapture/releases/latest).
+## Getting started
 
-## First run
+Install NDI Tools/Runtime x64 on PCs sending or receiving NDI; vendor runtime binaries are not redistributed here.
 
-1. Extract the ZIP into a writable local folder and run `ScreenCapture.exe`.
-2. Install [NDI Tools / Runtime](https://ndi.video/tools/) for NDI functionality.
-   The proprietary NDI runtime is not included in this repository or release.
-3. For recording, run `Install-RecordingTools.ps1` beside the executable. It
-   downloads the pinned FFmpeg build from its upstream distributor and checks
-   SHA-256. Alternatively put `ffmpeg.exe` and `ffprobe.exe` in `tools`.
-4. Open Settings from the tray and select the monitor, NDI audio endpoint,
-   recording folder and replay audio inputs. Local paths and UNC network paths
-   are supported; replay buffering happens locally before background delivery.
-5. If Windows blocks incoming LAN connections, run `Enable-Lan.ps1` as
-   administrator. It permits this executable only on wired private local networks.
+1. Extract the Windows release and run `ScreenCapture.exe`. Settings opens from
+   a tray double-click or **Settings** in the tray menu.
+2. Under **Screen streaming**, choose a monitor and enable NDI. Output is SDR,
+   at the monitor's preferred native resolution, with a 60 FPS delivery clock.
+   Lower-resolution fullscreen games stretch to that canvas without letterboxing.
+3. For receiving video in OBS/DistroAV, select `PC-NAME (SdrCapture SDR)` with
+   BT.709, Limited range, Highest bandwidth and Low latency. Keep OBS in SDR.
+4. To use instant replay, run `Install-RecordingTools.ps1` once to install the
+   verified FFmpeg recording tools. Select **Instant replay**, a save folder,
+   duration, quality and shortcut. NVIDIA NVENC is required for GPU recording.
+5. To control another PC, select Host under **KVM & pairing** on the PC with your
+   keyboard and mouse. Select Client on the other PC and enter the host name and
+   generated pairing code. `Enable-Lan.ps1` can add private wired-LAN firewall
+   rules when Windows blocks the connection.
 
-For upgrading 0.5.x, exit the app and extract this release **over its existing
-app folder**, keeping `tools`. `SdrCapture.exe` is a compatibility launcher for
-existing shortcuts, Stream Deck commands and firewall rules; both launchers run
-the same ScreenCapture application. Existing settings stay in
-`%LOCALAPPDATA%\SdrCapture`, and the NDI source name remains `SdrCapture SDR`.
+The app uses NDI High Bandwidth for streaming. HEVC, H.264 and AV1 are independent
+hardware recording choices; NDI streaming does not use the recording codec.
+SDR/HDR desktop capture is converted on the GPU into bounded SDR. SDR shadows
+retain their display brightness. HDR highlights use a fixed tone-mapping curve;
+Windows SDR-white brightness is compensated without changing Windows settings.
 
-Settings opens before audio-device discovery finishes. Saved devices remain selected
-while loading, including temporarily unavailable devices. Use **Обновить устройства**
-on the screen-transmission page (or **Обновить список** on the Discord page) to retry
-if a driver does not respond. A refresh preserves edits made while it was loading.
+## Virtual camera and audio
 
-## NDI and Discord
+**Virtual devices** is available on a receiving PC, and hidden on the KVM host.
+Enable reception, select the gaming PC's NDI source and use **Set up devices**.
+The camera publishes the source's native resolution rather than forcing 1080p.
+Supported frame capacity includes Full HD, 1440p, 4K, 8K (7680×4320), ultrawide
+and portrait formats. RGB24/RGB32 and 60/30 FPS formats are advertised.
 
-Enable NDI in the tray. In OBS/DistroAV select `PC-NAME (SdrCapture SDR)`, BT.709,
-Limited range, Highest bandwidth and Low latency. Leave OBS output in SDR Rec.709.
-NDI transmission uses High Bandwidth, not HX/HEVC. Recording has its own hardware
-encoder and quality settings.
+Receive the source before opening the camera in Discord or OBS. A connected
+DirectShow graph keeps its negotiated format; restart the consuming app after
+upgrading the camera or changing the source monitor. Discord's account settings,
+network and encoder can limit its outgoing resolution and frame rate.
+8K format negotiation is tested; 8K60 capture and end-to-end streaming are not
+benchmarked on physical 8K equipment.
 
-Settings → NDI has an audio device selector and a **0–100% volume slider**.
-The default is 50%; 0% mutes outgoing NDI audio. This slider does not change
-the recording tracks or Windows device volume. Select Silent for no audio.
+For network audio, choose a virtual cable output and its paired recording input.
+**Install VB-CABLE** downloads the pinned, signed original VB-Audio installer
+and requests administrator permission on the receiving PC. Existing cables are
+reused. **Set up devices** names the selected input to match the camera; renaming
+also requests administrator permission. Original Windows defaults are restored
+if the installer changes them. Fully quit and reopen Discord after setup.
+Discord may retain an earlier audio selection; choose the matching input once.
 
-For Discord without OBS or NDI Webcam Input, open **Discord · приём** on the
-**receiving/streaming PC**. Install **ScreenCapture Camera**, find/select the
-gaming PC's NDI source, enable reception and save. The native camera offers
-1920×1080 RGB24/RGB32 video at 60 FPS, with 30 FPS negotiation for clients that
-initialise preview at a lower frame rate. RGB24 is first because native WebRTC
-DirectShow capture ignores RGB32. It is registered for the current Windows user;
-restart Discord after first installation. Select it under screen share → Devices
-and select 60 FPS in Discord. Discord's account, streaming settings and network
-can still limit the outgoing stream; the device cannot override those limits.
+Use **Local input or mixer** for a RØDECaster or another recording input, or
+**Silent** for no audio. No cable is installed on the gaming host. Driver
+installation is explicit; merely pairing computers or updating installs no driver.
+Camera binaries live in a versioned user directory so Discord cannot lock the
+updater's application files. VB-CABLE is donationware by VB-Audio; its licensing
+link remains available in settings.
 
-For network sound, use **Установить VB-CABLE…** on that same receiving PC. This downloads
-the pinned, signed, original **VB-CABLE** package and opens its administrator
-installer. Click Install Driver and reboot if requested. Select the cable output
-and its paired recording input in ScreenCapture, then use **Настроить устройства…**.
-Renaming requests administrator permission separately; the main app stays unelevated.
-The recording endpoint becomes
-**ScreenCapture Camera Audio (VB-CABLE)**, matching the complete camera name.
-The name can be customised in settings. Both endpoint IDs and the vendor's
-interface name remain unchanged. Fully quit/reopen Discord after updating.
-Chromium can infer the camera/audio group from these names; Discord's saved
-device selection may still require choosing the paired audio input once.
-VB-CABLE is donationware by VB-Audio; licensing and
-donation links are in our settings. Existing cables are reused. ScreenCapture
-snapshots the six Windows audio-default roles before installation and restores
-the original active endpoints if the installer selects the new cable instead.
-Recovery is retained for the installer's reboot; a deliberate switch to another
-non-cable device is preserved. Previous defaults from installations before 0.7.1
-cannot be reconstructed: restore those once in Windows sound settings if needed.
-Audio can be Silent and has a separate receiver volume slider.
+## Instant replay
 
-Choose **Вход этого ПК / микшер** to pair the camera with a local audio input,
-such as RØDECaster. Discord captures that endpoint directly; network audio is
-not played through a cable in this mode. Other cables can be used by selecting
-their playback and recording endpoints manually. Renaming only changes the
-selected recording endpoint, never Windows defaults. Multiple inputs with the
-same camera label can make grouping ambiguous; select the intended input in
-Discord if its automatic selection differs.
+- Duration: 5–20 minutes. Recording: 60/120 FPS; native, 720p, 1080p, 1440p or 4K.
+- HEVC/H.264/AV1 NVENC when supported by the GPU and installed FFmpeg.
+- Game audio, microphone and optional remote-PC audio, mixed or separate tracks.
+  Silent is available per source. Track order remains game, microphone, remote PC.
+- Clips are grouped by foreground game or app automatically. Local and UNC
+  network folders work. Buffering stays local; a separate worker delivers saved
+  clips to the destination without blocking capture.
+- Clips are exported only by **Save replay**, the configured shortcut or
+  `ScreenCapture.exe --save-replay`. Updates, shutdown and settings changes do not
+  export a clip. An unsaved buffer is discarded on restart or recording-format
+  changes. Already requested deliveries can finish later if a share was offline.
 
-No cable or camera is installed automatically, through updates or through KVM
-pairing. Installation is blocked on the controlling/gaming PC. Camera binaries
-are kept in a versioned user directory so a running Discord cannot block updates.
+## KVM and monitors
 
-Settings → **Передача экрана → При бездействии** includes **Не усыплять ПК и не
-выключать экран**, enabled by default (including after upgrade). While the app
-is running it requests that Windows keep the system and display awake, even
-with NDI/replay disabled. Disabling the option or exiting releases the request;
-Windows power-plan timers are never edited. Manual sleep remains available.
+Arrange each physical screen under **Monitor layout**; shared edges must touch.
+Two screens on the same remote PC can sit on opposite sides of your host display.
+Use × to remove one monitor from edge switching, and drag it back from
+**Available monitors**. Its PC remains accessible through KVM. On a headless
+server select **Remote view only** under client permissions; it stays outside
+physical edge switching. An active desktop/virtual display is still required.
 
-## Replay and paired PCs
+**Computers · KVM** opens a separate chooser. The default launcher shortcut is
+Ctrl+Alt+K, edge-lock toggle Ctrl+Alt+Pause, emergency return Ctrl+Alt+Esc.
+Monitor shortcuts are configurable. Stream Deck injected keystrokes are supported.
+`ScreenCapture.exe --kvm` also opens the chooser. Viewing offers native-resolution
+JPEG 95/88 or bandwidth-saving 1080p, with 30/60 FPS target settings. Both peers
+need 0.7.2 or later for the dedicated video channel; older peers use snapshot mode.
 
-- Replay can be enabled independently of NDI. Duration: 5–20 minutes.
-- GPU recording: HEVC, H.264 or AV1 when supported by the installed GPU/FFmpeg.
-- Recording at 60 or 120 FPS, selectable quality, configurable save hotkey.
-- Game audio, microphone and optional remote-PC audio; Silent per input;
-  one mixed track or separate tracks. Clips are grouped by foreground game/app.
-- KVM roles: controlling PC and controlled PC, paired with a generated code.
-  Arrange individual monitors in Settings, including two monitors of the same
-  remote PC on opposite sides of the local monitor. Clipboard, file transfer,
-  optional remote audio for replay and remote viewing are included.
+Physical mouse deltas drive remote movement while games constrain or recenter the
+host cursor. Saved desk geometry stays connected through fullscreen resolution
+changes. Actual latency and frame rate depend on Windows, GPU load and the network;
+zero latency or fresh 60 FPS under every game load is not guaranteed.
 
-Tray → **KVM · управление компьютерами…** opens an independent computer chooser.
-`ScreenCapture.exe --kvm` can be assigned to a shortcut or Stream Deck button.
-The same chooser has a configurable hotkey under **KVM / сеть**, initially
-**Ctrl+Alt+K**. **Ctrl+Alt+Pause** toggles mouse transitions (also configurable)
-and returns control locally when locking them. Monitor shortcuts are set in
-**Мониторы**. Stream Deck software keystrokes are supported; save edited settings.
-Each remote viewer has monitor selection, fullscreen (F11), a view-only toggle
-and Disconnect; closing it does not stop capture or recording. Reopening the
-same PC activates its existing window. Settings have contextual descriptions,
-role-specific fields and a short transition that follows Windows animation settings.
+File transfer uses Ctrl+C / Ctrl+V in either direction. Experimental desktop-edge
+OLE drag portals have been removed because they produced a visible strip.
+Temporary transfer cache files expire after four hours; copies pasted into normal
+folders stay. Secure desktops and some elevated windows cannot be controlled.
 
-In a connected computer's KVM card, enable **Только окно KVM** to exclude it
-from physical monitor transitions while keeping remote viewing/control available.
-Alternatively, enable **Режим сервера** on the controlled computer. Excluding a
-PC retains its saved monitor positions; disabling the option restores them.
-There is no timed cooldown when crossing monitor edges. Actual input latency
-still depends on Windows scheduling and the network.
+## Settings and updates
 
-The viewer offers 30/60 FPS and displays actual received/presented FPS.
-It defaults to native-resolution JPEG 95 with full 4:4:4 chroma for sharp text,
-with JPEG 88 and bandwidth-saving 1080p options. GPU capture, rotation and
-scaling feed a SIMD encoder. A dedicated authenticated TLS connection keeps
-video independent from file transfers, with bounded buffering and decoding
-outside the UI thread. Both PCs need 0.7.2; older peers use the compatible slow
-snapshot mode. GDI fallback is available if GPU capture cannot initialise.
-Native 1440p60 at high quality can use several hundred Mbit/s on detailed scenes.
+**General** contains language, Windows autostart and keep-awake. Keep-awake is on
+by default and releases its Windows request when disabled or the app exits;
+it changes no power-plan settings. Manual sleep remains available.
 
-File dragging is an unfinished experiment and has been reported not to hand off
-between the actual PCs. Do not rely on it in this release. Use **Ctrl+C / Ctrl+V**
-for file transfer in either direction. The current experimental implementation
-only attempts controlling-PC → controlled-PC handoff; reverse drag is not
-implemented. This update does not fix drag/drop.
+**Backup & restore** exports encrypted `.scprofile` files including pairing and
+layout. Keep one profile per PC and its password. After reinstalling Windows,
+restore it on the original PC; reselect audio devices if Windows changes their IDs.
 
-**Мой профиль** exports an encrypted `.scprofile` for each PC, including pairing
-identity, monitor layout, devices, replay/NDI/Discord settings and autorun. Keep
-the password. Restore that PC's own profile after reinstalling Windows; retain
-the computer name and reselect audio endpoints if Windows changed their IDs.
-Virtual devices still need installation on a fresh receiving PC.
+**Updates** verifies RSA-signed manifests, SHA-256 package/file hashes and update
+startup acknowledgement. **Update all PCs** stages compatible paired clients,
+restarts them, and waits for their return before updating the host. Settings,
+recording tools and saved clips are preserved. Reopen Discord/OBS to load an
+updated camera DLL. Releases are published at:
+https://github.com/Aleksei-Melnik/ScreenCapture/releases
 
-KVM and remote audio need the program on both computers. Secure desktops/UAC,
-headless machines without a usable capture surface, elevated windows, games and
-anti-cheat can restrict capture/input. The experimental KVM path has local
-protocol tests; broad real multi-PC validation is still pending. Frame rate and
-latency depend on GPU load, display mode and LAN performance; zero latency is
-not promised.
+Existing installs retain `%LOCALAPPDATA%\SdrCapture`, pairing and the NDI source
+name. `SdrCapture.exe` is a compatibility launcher for old shortcuts and firewall
+rules. Exit the app before a manual in-place extraction; retain the `tools` folder.
 
-## Updates
+## Building and validation
 
-Tray → **Обновления…** → **Обновить все подключённые ПК** on the controlling PC.
-Each PC downloads the same release and checks its RSA signature and file hashes.
-Only then does it save its replay, restart and retain settings/pairing/recordings.
-The host waits for clients to reconnect before updating itself. Failed file
-replacement or startup triggers restoration of the previous app files.
+Build with .NET 10 and Visual Studio C++ Windows SDK: `./Build.ps1`.
+Managed deterministic tests cover update integrity/rollback, audio timing, KVM,
+UI responsiveness and language switching. Camera probes exercise real DirectShow
+negotiation, RGB24/32, 30/60 FPS, native dimensions and source pauses. GPU tests
+exercise HDR-to-SDR bounds, SDR gray ramps, cursors and stretched output. Local
+fixtures do not substitute for game-load, remote-network or hardware benchmarks.
 
-Every PC needs a **one-time manual upgrade to 0.6.0**; older versions have no
-update command. Offline PCs must reconnect and be updated later. A controlled
-PC can disable updates from its host in Settings → Updates. Startup checking
-only notifies; it does not automatically install updates.
-
-The release manifest is signed with the maintainer's release key. This is
-application-level update verification, **not Windows Authenticode signing**.
-The private key is never stored in the repository, build artifacts or app.
-GitHub access requires an internet connection; no GitHub login is needed to update.
-
-## Build and test
-
-Requires Windows x64, PowerShell 7, .NET 10 SDK and Visual Studio C++ desktop
-build tools / Windows SDK:
-
-```powershell
-./Build.ps1
-./app/ScreenCapture.exe --update-tests
-./app/ScreenCapture.exe --audio-timing-test
-./app/ScreenCapture.exe --kvm-test
-./app/ScreenCapture.exe --ui-tests
-./app/ScreenCapture.exe --feature-tests
-./scripts/Build-Camera.ps1 -Output ./app/camera -Probe
-./app/ScreenCapture.exe --camera-test
-./app/ScreenCapture.exe --camera-ndi-test
-./app/ScreenCapture.exe --discord-device-test
-```
-
-Tests write JSON reports beside the executable. `--ndi-audio-test` also needs
-the NDI runtime and checks a synthetic signal at 100%, 50% and mute. Hardware
-capture/encoding tests require a real desktop and GPU and are not run in CI.
-The camera probe loads the filter directly without installing devices or drivers.
-It verifies real DirectShow RGB24/RGB32 samples, 1080p60 timestamps, 30 FPS preview,
-connected-graph renegotiation, orientation, colour channels and changing image data.
-The NDI camera test uses a synthetic 2560×1440 source and also needs the NDI runtime.
-The device test checks default-restore rules and reads Windows PolicyConfig without
-changing audio devices. Actual Discord publishing and VB-CABLE playback still
-require a receiving-PC test. Bounded native camera logs under
-`%LOCALAPPDATA%\SdrCapture\Discord\camera-*.log` record formats and frame counters,
-never image or audio content.
-
-Compatibility references: [WebRTC DirectShow formats](https://github.com/webrtc-mirror/webrtc/blob/main/modules/video_capture/windows/device_info_ds.cc)
-and [Chromium GuessVideoGroupID](https://github.com/chromium/chromium/blob/main/content/browser/renderer_host/media/media_devices_manager.cc).
-
-To package a release, set the version in `src/ScreenCapture.csproj` and run
-`scripts/New-Release.ps1 -SigningKey <private-key-outside-repo>`. Use
-`scripts/Publish-Release.ps1 -ReleaseFolder <generated-folder> -NotesFile <file>`
-with a GitHub token in the environment or Git Credential Manager. It creates a
-draft, uploads all three assets and publishes only after successful uploads.
-Forks must change `Updates.Repository` and the embedded public key together.
-
-Source: MIT. Dependencies retain their own licenses; see THIRD-PARTY-NOTICES.md.
-
+See `LICENSE` and `THIRD-PARTY-NOTICES.md` for dependency terms. NDI and VB-CABLE
+remain their vendors' products. FFmpeg binaries are not redistributed in releases.

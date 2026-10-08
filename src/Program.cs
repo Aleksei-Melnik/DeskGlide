@@ -14,8 +14,13 @@ internal static class Program
             if(args.Contains("--kvm")&&EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var openKvm)){WindowActivation.AllowExisting();using(openKvm)openKvm.Set();return 0;}
             if(args.Contains("--update-tests")){UpdateTests.Run();return 0;}
             if(args.Contains("--ui-tests")){UiTests.Run();return 0;}
+            if(args.Contains("--wpf-ui-tests")){Ui.WpfUiTests.Run();return 0;}
             if(args.Contains("--feature-tests")){FeatureTests.Run();return 0;}
             if(args.Contains("--camera-test")){FeatureTests.Camera();return 0;}
+            if(args.Contains("--camera-2k-test")){FeatureTests.Camera(2560,1440);return 0;}
+            if(args.Contains("--camera-formats-test")){FeatureTests.CameraNativeFormats();return 0;}
+            if(args.Contains("--camera-hold-test")){FeatureTests.CameraHold();return 0;}
+            if(args.Contains("--game-stability-tests")){GameStabilityTests.Run();return 0;}
             if(args.Contains("--camera-ndi-test")){FeatureTests.NdiCamera();return 0;}
             if(args.Contains("--discord-device-test")){DiscordDeviceTests.Run();return 0;}
             if(args.Contains("--verify-cable")){string path=args[Array.IndexOf(args,"--verify-cable")+1];DiscordSetup.VerifySignature(path);Write("cable-signature-test.json",new{Pass=true,AuthenticodeVerified=true,Installed=false});return 0;}
@@ -41,6 +46,7 @@ internal static class Program
             }
             if(args.Contains("--audio-devices")){Write("audio-devices.json",AudioChoice.All());return 0;}
             if(args.Contains("--replay-test")){ReplayTests.Run();return 0;}
+            if(args.Contains("--replay-manual-save-test")){ReplayTests.ManualSaveOnly().GetAwaiter().GetResult();return 0;}
             if(args.Contains("--replay-ui-preview")){ReplayTests.Preview();return 0;}
             if(args.Contains("--replay-live-test")){int i=Array.IndexOf(args,"--seconds"),f=Array.IndexOf(args,"--fps");ReplayTests.Live(i<0?35:int.Parse(args[i+1]),f<0?60:int.Parse(args[f+1]));return 0;}
             if(args.Contains("--self-test")){SelfTest.Run();NdiTests.ColorAndTransport();return 0;}
@@ -54,14 +60,17 @@ internal static class Program
             using var mutex=new Mutex(true,"Local\\SdrCapture.Tray",out bool first);
             if(!first) return 0;
             Application.EnableVisualStyles();
-            using var app=new TrayApp();
+            WindowsFormsSynchronizationContext.AutoInstall=false;
+            var desktop=new System.Windows.Application{ShutdownMode=System.Windows.ShutdownMode.OnExplicitShutdown};
+            desktop.DispatcherUnhandledException+=(_,e)=>{Log.Write("Desktop UI: "+e.Exception);e.Handled=true;MessageBox.Show(e.Exception.Message,"ScreenCapture");};
+            using var app=new TrayApp();app.ThreadExit+=(_,_)=>desktop.Shutdown();
             if(args.Contains("--kvm"))app.OpenKvm();
             if(args.Contains("--updated"))
             {
                 string nonce=args[Array.IndexOf(args,"--updated")+1];
-                EventHandler? ready=null;ready=(_,_)=>{Application.Idle-=ready;UpdateInstaller.Acknowledge(nonce);};Application.Idle+=ready;
+                desktop.Dispatcher.BeginInvoke(()=>UpdateInstaller.Acknowledge(nonce),System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             }
-            Application.Run(app);return 0;
+            desktop.Run();return 0;
         }
         catch(Exception e){Log.Write(e.ToString());Write("error.txt",e.ToString());return 1;}
         finally{NdiNative.Shutdown();}

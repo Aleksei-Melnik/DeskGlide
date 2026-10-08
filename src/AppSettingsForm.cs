@@ -10,7 +10,7 @@ partial class AppSettingsForm:Form
     readonly PageTransition transition=new();
     readonly ToolTip help=new(){AutoPopDelay=14000,InitialDelay=350,ReshowDelay=100};
     bool preview;
-    readonly string[] subtitles=["OBS и Discord","Сохранить последние минуты","Игра, микрофон, второй ПК","Сопряжение компьютеров","Расположение и переходы","Все подключённые ПК","Диагностика и журнал","Резервная копия этого ПК","Своя камера · 1080p60"];
+    readonly string[] subtitles=["OBS и Discord","Сохранить последние минуты","Игра, микрофон, второй ПК","Сопряжение компьютеров","Расположение и переходы","Все подключённые ПК","Диагностика и журнал","Резервная копия этого ПК","Своя камера · разрешение монитора · 60 FPS"];
     readonly List<Control> pages=[];
     readonly CheckBox ndi=new(){Text="Передавать SDR-картинку по NDI"},cursor=new(){Text="Показывать курсор"},replay=new(){Text="Записывать последние минуты в фоне"},startup=new(){Text="Запускать вместе с Windows"};
     readonly CheckBox preventSleep=new(){Text="Не усыплять ПК и не выключать экран"};

@@ -22,18 +22,20 @@ sealed record DiscordOptions
     public void Validate(){if(Source==null||AudioDevice==null||CaptureDevice==null||CameraName==null||Source.Length>1024||Volume is <0 or >100||AudioMode is not("Network" or "Local" or "Silent"))throw new ArgumentException("Некорректные настройки Discord.");if(CameraName.Length>0)CameraInstallation.ValidateName(CameraName);if(Enabled&&string.IsNullOrWhiteSpace(Source))throw new ArgumentException("Выберите NDI-источник игрового ПК для Discord.");}
 }
 
-// Fixed-size IPC contract with the native DirectShow filter. One latest frame, no video queue.
+// Bounded-capacity IPC, with native source dimensions in the header. One latest frame.
 sealed class CameraFrames:IDisposable
 {
     public const int Width=1920,Height=1080,Bytes=Width*Height*4;
-    internal static string Prefix=>@"Local\ScreenCapture.Camera."+WindowsIdentity.GetCurrent().User!.Value+".";
+    public const int MaxBytes=7680*4320*4;
+    internal static string Prefix=>@"Local\ScreenCapture.Camera.v3."+WindowsIdentity.GetCurrent().User!.Value+".";
     readonly MemoryMappedFile mapping;
     readonly MemoryMappedViewAccessor view;
     readonly Mutex mutex;
     long number;
-    public CameraFrames(){mutex=new(false,Prefix+"lock");mapping=MemoryMappedFile.CreateOrOpen(Prefix+"frame",32+Bytes,MemoryMappedFileAccess.ReadWrite);view=mapping.CreateViewAccessor();}
-    public unsafe void Write(IntPtr topRow,int stride)
+    public CameraFrames(){mutex=new(false,Prefix+"lock");mapping=MemoryMappedFile.CreateOrOpen(Prefix+"frame",32+MaxBytes,MemoryMappedFileAccess.ReadWrite);view=mapping.CreateViewAccessor();}
+    public unsafe void Write(IntPtr topRow,int stride,int width=Width,int height=Height)
     {
+        if(width<2||height<2||width>8192||height>8192||(long)width*height*4>MaxBytes||stride<width*4||topRow==IntPtr.Zero)throw new IOException("Некорректный кадр виртуальной камеры.");
         bool held=false;
         try
         {
@@ -44,8 +46,8 @@ sealed class CameraFrames:IDisposable
             {
                 *(uint*)dest=0;
                 // DirectShow RGB DIBs are bottom-up. GDI input is top-down.
-                for(int y=0;y<Height;y++)Buffer.MemoryCopy((byte*)topRow+y*stride,dest+32+(Height-1-y)*Width*4,Width*4,Width*4);
-                *(int*)(dest+4)=Width;*(int*)(dest+8)=Height;*(int*)(dest+12)=Width*4;
+                for(int y=0;y<height;y++)Buffer.MemoryCopy((byte*)topRow+y*stride,dest+32+(height-1-y)*width*4,width*4,width*4);
+                *(int*)(dest+4)=width;*(int*)(dest+8)=height;*(int*)(dest+12)=width*4;
                 *(long*)(dest+16)=Environment.TickCount64;*(long*)(dest+24)=++number;
                 Thread.MemoryBarrier();*(uint*)dest=0x53434331;
             }
@@ -83,7 +85,6 @@ sealed class DiscordReceiver:IDisposable
             receiver=NdiNative.NDIlib_recv_create_v3(ref config);
             if(receiver==IntPtr.Zero)throw new IOException("Не удалось открыть NDI-источник.");
             using var frames=new CameraFrames();
-            using var scaler=new DiscordScaler();
             using var audioStop=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
             var audio=Task.Factory.StartNew(()=>ReceiveAudio(receiver,audioStop.Token),CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
             var clock=Stopwatch.StartNew();long count=0,last=0;double fps=0;
@@ -97,9 +98,12 @@ sealed class DiscordReceiver:IDisposable
                     try
                     {
                         if(video.Width<1||video.Height<1||video.Width>16384||video.Height>16384||video.Data==IntPtr.Zero||video.Stride<video.Width*4||video.FourCC is not (0x41524742 or 0x58524742))throw new IOException("NDI не вернул кадр BGRA/BGRX.");
-                        scaler.Write(video,frames);
+                        // The sender already stretches to the native monitor canvas.
+                        // A second GPU resize/readback was forcing 1080p and stalling reception.
+                        frames.Write(video.Data,video.Stride,video.Width,video.Height);
+                        if(TestFrame!=null){int center=Marshal.ReadInt32(video.Data,(video.Height/2)*video.Stride+video.Width/2*4);TestFrame(center,center);}
                         count++;if(clock.ElapsedMilliseconds-last>=1000){fps=count*1000.0/(clock.ElapsedMilliseconds-last);last=clock.ElapsedMilliseconds;count=0;}
-                        status=$"Камера 1080p60 · вход {fps:F1} FPS · {audioStatus}";
+                        status=$"Камера {video.Width} × {video.Height} · 60 FPS · вход {fps:F1} FPS · {audioStatus}";
                     }
                     finally{NdiNative.NDIlib_recv_free_video_v2(receiver,ref video);}
                 }
