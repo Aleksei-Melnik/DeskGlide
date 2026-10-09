@@ -1,8 +1,9 @@
-DeskGlide 0.7.10
+DeskGlide 0.7.11
 
-- Removed the gray outline around application windows, including after leaving KVM fullscreen. Rounded corners and built-in window controls are preserved.
-- Clicking the selected settings tab now leaves its content, scroll position and current animation untouched. Switching to a different tab keeps the smooth transition.
+- One portable DeskGlide.exe: recording tools, settings and other components stay in the Windows user-data folder. No tools folder or shortcuts are created beside the executable.
+- Old tools folders migrate into %LOCALAPPDATA%\SdrCapture\RecordingTools in the background. Copies are checked before originals are removed. Unrelated user files are preserved; a busy encoder is cleaned up on a later launch. The verified current FFmpeg cache takes priority.
+- Removed the gray window outline, including after leaving KVM fullscreen. Clicking the selected settings tab preserves its content, scrolling and current transition.
 
-Update through Updates → Update all PCs, or download the portable DeskGlide.exe.
+Use Updates → Update all PCs, or download DeskGlide.exe. No running app needs to be restarted while you are playing.
 
-Validation: Windows CI checks settings navigation and scrolling, window borders, native caption controls, KVM fullscreen restoration and the existing normal and portable build suites.
+Validation: recording-tool migration, cancellation, byte preservation, cache selection and unknown-file preservation; Windows CI checks UI navigation, window borders, KVM fullscreen and both normal and single-EXE builds.

@@ -18,12 +18,72 @@ static class RecordingTools
     internal static string CacheRoot=>Environment.GetEnvironmentVariable("SDRCAPTURE_RECORDING_TOOLS_ROOT")??Path.Combine(Log.Folder,"RecordingTools");
     internal static string SharedDirectory=>Path.Combine(CacheRoot,"ffmpeg-"+Version);
     internal static bool Complete(string folder)=>new[]{"ffmpeg.exe","ffprobe.exe"}.All(name=>File.Exists(Path.Combine(folder,name))&&new FileInfo(Path.Combine(folder,name)).Length>0);
-    internal static string? Resolve(string appDirectory,string sharedDirectory)=>Complete(Path.Combine(appDirectory,"tools"))?Path.Combine(appDirectory,"tools"):Complete(sharedDirectory)?sharedDirectory:null;
+    internal static string ImportedDirectory(string appDirectory,string sharedDirectory)
+    {
+        string identity=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(appDirectory).TrimEnd(Path.DirectorySeparatorChar).ToUpperInvariant())));
+        return Path.Combine(Path.GetDirectoryName(Path.GetFullPath(sharedDirectory))!,"Imported",identity[..32]);
+    }
+    internal static string? Resolve(string appDirectory,string sharedDirectory)
+    {
+        string imported=ImportedDirectory(appDirectory,sharedDirectory),legacy=Path.Combine(appDirectory,"tools");
+        return Complete(sharedDirectory)?sharedDirectory:Complete(imported)?imported:Complete(legacy)?legacy:null;
+    }
     public static string? DirectoryPath=>Resolve(AppContext.BaseDirectory,SharedDirectory);
     public static bool Ready=>DirectoryPath!=null;
 
+    // Run in the background: old installations must not leave tools beside the
+    // portable EXE. Preserve their exact binaries, and never touch unknown files.
+    public static async Task MigrateLegacyAsync(CancellationToken token=default)
+    {
+        if(!Directory.Exists(Path.Combine(AppContext.BaseDirectory,"tools")))return;
+        await gate.WaitAsync(token);
+        try
+        {
+            Directory.CreateDirectory(CacheRoot);Updates.RejectReparse(CacheRoot);
+            using var installLock=await LockAsync(Path.Combine(CacheRoot,"install.lock"),token);
+            await Task.Run(()=>RelocateLegacy(AppContext.BaseDirectory,SharedDirectory,token),token);
+        }
+        finally{gate.Release();}
+    }
+    internal static void RelocateLegacy(string appDirectory,string sharedDirectory,CancellationToken token=default)
+    {
+        string source=Path.GetFullPath(Path.Combine(appDirectory,"tools")),destination=ImportedDirectory(appDirectory,sharedDirectory);
+        if(!Directory.Exists(source))return;
+        Updates.RejectReparse(source);Updates.RejectReparse(destination);
+        if(!Complete(source)&&!Complete(destination))return;
+        var present=files.Where(name=>File.Exists(Path.Combine(source,name))).ToArray();
+        foreach(string name in present)Updates.RejectReparse(Path.Combine(source,name));
+        if(!Complete(source))present=present.Where(name=>File.Exists(Path.Combine(destination,name))&&SameFile(Path.Combine(source,name),Path.Combine(destination,name))).ToArray();
+        Directory.CreateDirectory(destination);
+        foreach(string name in present)
+        {
+            token.ThrowIfCancellationRequested();
+            string old=Path.Combine(source,name),saved=Path.Combine(destination,name),temporary=saved+"."+Guid.NewGuid().ToString("N")+".tmp";
+            try
+            {
+                if(File.Exists(saved)&&SameFile(old,saved))continue;
+                File.Copy(old,temporary,false);
+                if(!SameFile(old,temporary))throw new IOException("Recording tools changed during migration.");
+                File.Move(temporary,saved,true);
+            }
+            finally{if(File.Exists(temporary))File.Delete(temporary);}
+        }
+        if(!Complete(destination))throw new IOException("Recording tools migration is incomplete.");
+        token.ThrowIfCancellationRequested();
+        // Verify every copy before removing any original. Busy encoders remain
+        // in place until the next launch; the valid cached pair is used meanwhile.
+        foreach(string name in present)if(!SameFile(Path.Combine(source,name),Path.Combine(destination,name)))throw new IOException("Recording tools copy verification failed.");
+        foreach(string name in present)
+            try{File.Delete(Path.Combine(source,name));}catch(IOException){}catch(UnauthorizedAccessException){}
+        try{Directory.Delete(source,false);}catch(IOException){}catch(UnauthorizedAccessException){}
+    }
+    static bool SameFile(string first,string second)
+    {using var a=File.OpenRead(first);using var b=File.OpenRead(second);return SHA256.HashData(a).AsSpan().SequenceEqual(SHA256.HashData(b));}
+
     public static async Task EnsureAsync(Action<string>? progress=null,CancellationToken token=default,bool retry=false)
     {
+        try{await MigrateLegacyAsync(token);}
+        catch(Exception e) when(Ready&&e is IOException or UnauthorizedAccessException){Log.Write("Recording tools migration deferred: "+e.Message);}
         if(Ready)return;
         await gate.WaitAsync(token);
         bool attempted=false;

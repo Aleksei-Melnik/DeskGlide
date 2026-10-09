@@ -32,6 +32,19 @@ static class RecordingToolsTests
         string incomplete=Path.Combine(root,"incomplete.zip");using(var archive=ZipFile.Open(incomplete,ZipArchiveMode.Create)){using var writer=new StreamWriter(archive.CreateEntry("ffmpeg-"+RecordingTools.Version+"-essentials_build/bin/ffmpeg.exe").Open());writer.Write("encoder only");}
         string incompleteHash;using(var input=File.OpenRead(incomplete))incompleteHash=Convert.ToHexString(SHA256.HashData(input));
         string previous=File.ReadAllText(Path.Combine(shared,"ffmpeg.exe"));Reject(()=>RecordingTools.InstallArchive(incomplete,shared,incompleteHash),"An incomplete archive was installed.");Require(File.ReadAllText(Path.Combine(shared,"ffmpeg.exe"))==previous,"An incomplete archive replaced working tools.");
+        string oldApp=Path.Combine(root,"old-install"),oldTools=Path.Combine(oldApp,"tools"),current=Path.Combine(root,"cache","ffmpeg-current");Directory.CreateDirectory(oldTools);
+        foreach(string name in new[]{"ffmpeg.exe","ffprobe.exe","FFmpeg-LICENSE"})File.WriteAllText(Path.Combine(oldTools,name),"original-"+name);
+        using(var cancelled=new CancellationTokenSource())
+        {cancelled.Cancel();try{RecordingTools.RelocateLegacy(oldApp,current,cancelled.Token);}catch(OperationCanceledException){}Require(RecordingTools.Complete(oldTools),"Cancelled migration removed original tools.");}
+        RecordingTools.RelocateLegacy(oldApp,current);string imported=RecordingTools.ImportedDirectory(oldApp,current);
+        Require(!Directory.Exists(oldTools)&&RecordingTools.Complete(imported)&&RecordingTools.Resolve(oldApp,current)==imported,"Old tools were not relocated outside the app directory.");
+        foreach(string name in new[]{"ffmpeg.exe","ffprobe.exe","FFmpeg-LICENSE"})Require(File.ReadAllText(Path.Combine(imported,name))=="original-"+name,"Imported tool bytes changed.");
+        Directory.CreateDirectory(current);File.WriteAllText(Path.Combine(current,"ffmpeg.exe"),"verified current encoder");File.WriteAllText(Path.Combine(current,"ffprobe.exe"),"verified current probe");
+        Require(RecordingTools.Resolve(oldApp,current)==current,"Verified current tools must take priority over imported tools.");
+        Directory.CreateDirectory(oldTools);foreach(string name in new[]{"ffmpeg.exe","ffprobe.exe","FFmpeg-LICENSE"})File.Copy(Path.Combine(imported,name),Path.Combine(oldTools,name));File.WriteAllText(Path.Combine(oldTools,"user-note.txt"),"keep me");
+        RecordingTools.RelocateLegacy(oldApp,current);Require(Directory.GetFiles(oldTools).Length==1&&File.ReadAllText(Path.Combine(oldTools,"user-note.txt"))=="keep me","Migration removed unknown user files.");
+        File.WriteAllText(Path.Combine(oldTools,"ffmpeg.exe"),"unmatched incomplete tool");RecordingTools.RelocateLegacy(oldApp,current);
+        Require(File.ReadAllText(Path.Combine(oldTools,"ffmpeg.exe"))=="unmatched incomplete tool"&&File.ReadAllText(Path.Combine(imported,"ffmpeg.exe"))=="original-ffmpeg.exe","An incomplete legacy pair changed a working cache.");
         Program.Write("recording-tools-tests.json",new{Pass=true,CompletePairRequired=true,PortableCompatible=true,SharedCacheSurvivesAppMove=true,ChecksumRejected=true,CancelledInstallRejected=true,IncompleteArchiveRejected=true,UnrelatedFilesPreserved=true,UnexpectedEntriesIgnored=true,StagingCleaned=true});
     }
 }

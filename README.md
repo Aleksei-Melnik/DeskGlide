@@ -19,7 +19,7 @@ Install NDI Tools/Runtime x64 on PCs sending or receiving NDI; vendor runtime bi
 4. Under **Instant replay**, choose a save folder, duration, quality and shortcut,
    then enable background recording. Missing FFmpeg tools download automatically
    with a pinned SHA-256 check. They live in your local user-data folder, separate
-   from app updates; existing portable `tools` installations also work. A setup
+   from app updates. Existing `tools` folders are migrated into user data in the background. A setup
    button appears in this page when tools are missing. NVIDIA NVENC is required
    for GPU recording. The first setup needs internet access.
 5. To control another PC, select Host under **KVM & pairing** on the PC with your
@@ -36,7 +36,9 @@ Windows SDR-white brightness is compensated without changing Windows settings.
 The executable contains the Windows Desktop runtime, KVM codec, virtual camera
 and dependency notices. Native runtime files use Windows' internal bundle cache;
 camera components, settings, keys and recording tools use the per-user data folder.
-No libraries need to be kept next to `DeskGlide.exe`. Optional NDI Runtime and
+No libraries or `tools` folder need to be kept next to `DeskGlide.exe`. FFmpeg is
+stored under `%LOCALAPPDATA%\SdrCapture\RecordingTools`, never on the desktop.
+Optional NDI Runtime and
 VB-CABLE requirements stay the same; the audio driver still needs Windows approval.
 Signed updates replace the current EXE. Older folder installations migrate in
 place, preserving the active launcher name, settings, pairing and recording tools.
@@ -138,8 +140,9 @@ The signed updater archive retains the `ScreenCapture-*` name so existing
 clients can migrate; the compatibility `DeskGlide-*` ZIP contains identical files.
 After migration, updates download and replace only the signed portable EXE.
 The renamed GitHub repository redirects old update URLs. Do not recreate a
-repository under the old name. Exit the app before a manual in-place extraction;
-retain the `tools` folder.
+repository under the old name. Exit the app before manually replacing the EXE.
+Legacy recording tools migrate automatically; unrelated files in an old `tools`
+folder are preserved. A busy encoder is cleaned up on a later launch.
 
 ## Building and validation
 
