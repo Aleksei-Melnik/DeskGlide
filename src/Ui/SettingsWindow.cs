@@ -207,7 +207,9 @@ sealed class SettingsWindow:ShellWindow
     internal void SelectPage(int id,bool animate=true)
     {
         if(id==8&&Id("role")=="Host")id=0;
-        if(!pages.ContainsKey(id))id=0;SelectedPage=id;body.Content=pages[id];scroll.ScrollToTop();
+        if(!pages.ContainsKey(id))id=0;
+        if(SelectedPage==id&&ReferenceEquals(body.Content,pages[id]))return;
+        SelectedPage=id;body.Content=pages[id];scroll.ScrollToTop();
         foreach(var pair in links)Kit.Navigation(pair.Value,pair.Key==id,animate);
         if(animate)Kit.Enter(body);else Kit.ResetTransition(body);if(id==6&&IsLoaded)_=RefreshDiagnostics();
     }

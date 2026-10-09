@@ -133,7 +133,7 @@ class ShellWindow:W.Window
     {
         if(header!=null)header.Visibility=enabled?W.Visibility.Collapsed:W.Visibility.Visible;
         System.Windows.Shell.WindowChrome.SetWindowChrome(this,enabled?null:chrome);WindowStyle=enabled?W.WindowStyle.None:W.WindowStyle.SingleBorderWindow;
-        if(Template.FindName("WindowFrame",this) is C.Border frame){frame.CornerRadius=new(enabled?0:12);frame.BorderThickness=new(enabled?0:1);ClipFrame(frame);}
+        if(Template.FindName("WindowFrame",this) is C.Border frame){frame.CornerRadius=new(enabled?0:12);frame.BorderThickness=new(0);ClipFrame(frame);}
         int preference=enabled?1:2;DwmSetWindowAttribute(new System.Windows.Interop.WindowInteropHelper(this).Handle,33,ref preference,4);
     }
     [StructLayout(LayoutKind.Sequential)] readonly record struct Margins(int Left,int Right,int Top,int Bottom);

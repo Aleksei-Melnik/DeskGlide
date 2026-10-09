@@ -42,6 +42,7 @@ static class WpfUiTests
     }
     static void ChromeWorks(ShellWindow window)
     {
+        Require(window.Template.FindName("WindowFrame",window) is C.Border {BorderThickness:var border}&&border==new W.Thickness(0),"Window perimeter border is visible");
         Require(NativeHit(window,new(window.ActualWidth/2,25))==2,"Header cannot drag the window");
         foreach(string tag in new[]{"Minimize window","Close window"})
         {
@@ -76,6 +77,16 @@ static class WpfUiTests
         watch.Restart();while(watch.ElapsedMilliseconds<300){Pump();Thread.Sleep(5);}Pump();
         var pageSurface=Children((W.DependencyObject)form.Content).OfType<C.ContentControl>().Single(c=>c.GetType()==typeof(C.ContentControl));
         Require(pageSurface.Opacity>.999&&pageSurface.RenderTransform.Value.IsIdentity,"Rapid navigation left an incomplete transition");
+        form.SelectPage(1,false);Pump();
+        var pageScroll=Children((W.DependencyObject)form.Content).OfType<C.ScrollViewer>().Single(s=>ReferenceEquals(s.Content,pageSurface));
+        pageScroll.ScrollToEnd();Pump();double offset=pageScroll.VerticalOffset;
+        Require(offset>0,"Replay page must scroll to check repeated selection");
+        var selectedContent=pageSurface.Content;var selectedTransform=pageSurface.RenderTransform;
+        Invoke(ActionButton(form,"Instant replay"));
+        Require(form.SelectedPage==1&&ReferenceEquals(pageSurface.Content,selectedContent)&&ReferenceEquals(pageSurface.RenderTransform,selectedTransform)&&Math.Abs(pageScroll.VerticalOffset-offset)<.1,"Clicking the selected tab restarted its transition or reset scrolling");
+        form.SelectPage(2);form.SelectPage(1);var activeTransition=pageSurface.RenderTransform;
+        Invoke(ActionButton(form,"Instant replay"));
+        Require(ReferenceEquals(pageSurface.RenderTransform,activeTransition),"Clicking the selected tab replaced its active transition");
         Require(form.Collect().NdiAudioDevice=="saved"&&form.Collect().Replay.Microphone=="mic","Navigation lost edits");
         form.WindowState=W.WindowState.Minimized;form.Reveal();Require(form.WindowState==W.WindowState.Normal,"WPF window did not restore");
         Invoke(Children((W.DependencyObject)form.Content).OfType<C.Button>().Single(b=>(string?)b.Tag=="Save changes"));Require(form.Accepted&&form.IsClosed,"Save button failed");
