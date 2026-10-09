@@ -18,6 +18,7 @@ sealed class SettingsWindow:ShellWindow
     readonly Action? openUpdates;
     readonly Func<Task<DiscordDevices.Endpoint[]>> discover;
     readonly CancellationTokenSource lifetime=new();
+    readonly ReplaySaveSound soundPreview=new();
     readonly Dictionary<string,C.ComboBox> choices=[];
     readonly Dictionary<string,C.CheckBox> toggles=[];
     readonly Dictionary<string,C.TextBox> texts=[];
@@ -55,7 +56,7 @@ sealed class SettingsWindow:ShellWindow
             var label=Kit.Text(title,13);label.FontWeight=W.FontWeights.SemiBold;var sub=Kit.Text(subtitle,11,"#B0A9BC");sub.Margin=new(0,4,0,0);
             var button=Kit.Button(title,()=>SelectPage(page));button.Content=Kit.Stack(label,sub);button.Style=(W.Style)FindResource("Nav");links[page]=button;nav.Children.Add(button);
         }
-        Group("CAPTURE & REPLAY");Link(0,"Screen streaming","Video and audio output");Link(8,"Virtual devices","Receive a screen on this PC");Link(1,"Instant replay","Save the last 5–20 minutes");Link(2,"Recording audio","Choose sources and tracks");
+        Group("CAPTURE & REPLAY");Link(0,"Screen streaming","Video and audio output");Link(8,"Virtual devices","Receive a screen on this PC");Link(1,"Instant replay","Save your recent gameplay");Link(2,"Recording audio","Choose sources and tracks");
         Group("YOUR COMPUTERS");Link(3,"KVM & pairing","Connect and control");Link(4,"Monitor layout","Arrange it like your desk");
         Group("APPLICATION");Link(9,"General","Language, startup and power");Link(5,"Updates","Every PC, one place");Link(7,"Backup & restore","Keep your setup safe");Link(6,"Status","Capture and connections");
         var sidebar=new C.Border{Background=Kit.Brush("#AA0E0D16"),BorderBrush=Kit.Brush("#302B3E"),BorderThickness=new(0,0,1,0),Child=new C.ScrollViewer{Content=nav,VerticalScrollBarVisibility=C.ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=C.ScrollBarVisibility.Disabled}};middle.Children.Add(sidebar);
@@ -68,7 +69,7 @@ sealed class SettingsWindow:ShellWindow
         BuildStream(value,autorun);BuildReplay(value);BuildAudio(value);BuildKvm(value);BuildMonitors();BuildUpdates(value);BuildProfile();BuildDiagnostics();BuildDiscord(value);BuildGeneral(value,autorun);
         choices["role"].SelectionChanged+=(_,_)=>ReceiverVisibility();ReceiverVisibility();
         SelectPage(startPage,false);
-        Loaded+=async(_,_)=>{await RefreshAudio();};Closed+=(_,_)=>{lifetime.Cancel();lifetime.Dispose();if(!Accepted)UiStrings.Shared.Language=initial.Language;};
+        Loaded+=async(_,_)=>{await RefreshAudio();};Closed+=(_,_)=>{soundPreview.Dispose();lifetime.Cancel();lifetime.Dispose();if(!Accepted)UiStrings.Shared.Language=initial.Language;};
     }
     C.StackPanel Page(int id,string eyebrow,string title,string description)
     {
@@ -103,6 +104,24 @@ sealed class SettingsWindow:ShellWindow
         var label=Kit.Text(value+"%",12,"#31D1DB");label.Width=48;label.VerticalAlignment=W.VerticalAlignment.Center;label.Margin=new(12,0,0,0);slider.ValueChanged+=(_,_)=>label.Text=((int)slider.Value)+"%";return Kit.Actions(slider,label);
     }
     static Choice[] Options(params string[] values)=>values.Select(v=>new Choice(v,v)).ToArray();
+    C.StackPanel ReplayDuration(int seconds)
+    {
+        var minutes=Input("replayMinutes",(seconds/60).ToString(CultureInfo.InvariantCulture));
+        var remainder=Input("replaySeconds",(seconds%60).ToString("00",CultureInfo.InvariantCulture));
+        foreach(var input in new[]{minutes,remainder})
+        {input.Width=72;input.HorizontalContentAlignment=W.HorizontalAlignment.Center;input.PreviewTextInput+=(_,e)=>e.Handled=e.Text.Any(c=>c is <'0' or >'9');}
+        minutes.MaxLength=3;remainder.MaxLength=2;
+        var minuteLabel=Kit.Text("min",12,"#B0A9BC");minuteLabel.VerticalAlignment=W.VerticalAlignment.Center;
+        var secondLabel=Kit.Text("sec",12,"#B0A9BC");secondLabel.VerticalAlignment=W.VerticalAlignment.Center;
+        var fields=Kit.Actions(minutes,minuteLabel,remainder,secondLabel);
+        var presets=new C.WrapPanel{Margin=new(0,8,0,0)};
+        foreach(var (value,label) in new[]{(30,"30 sec"),(300,"5 min"),(900,"15 min"),(3600,"1 hour"),(7200,"2 hours")})
+        {
+            var button=Kit.Button(label,()=>{minutes.Text=(value/60).ToString(CultureInfo.InvariantCulture);remainder.Text=(value%60).ToString("00",CultureInfo.InvariantCulture);});
+            button.Padding=new(10,5,10,5);button.Margin=new(0,0,6,6);presets.Children.Add(button);
+        }
+        return Kit.Stack(fields,presets,Kit.Text("30 seconds to 2 hours. Longer buffers use more local disk space.",12,"#B0A9BC"));
+    }
     void BuildStream(Settings v,bool autorun)
     {
         var page=Page(0,"Screen","Screen streaming","Send an SDR picture to compatible apps and computers on your network.");
@@ -145,11 +164,17 @@ sealed class SettingsWindow:ShellWindow
             }
             catch(OperationCanceledException) when(lifetime.IsCancellationRequested){}
         }));
-        var main=Section(page,"Instant replay");Row(main,"Replay buffer",Toggle("replay","Record in the background",v.Replay.Enabled));Row(main,"Duration",Choose("minutes",Enumerable.Range(5,16).Select(n=>new Choice(n.ToString(),$"{n} minutes")),v.Replay.Minutes.ToString()));Row(main,"Save shortcut",replayKey);
+        var main=Section(page,"Instant replay");Row(main,"Replay buffer",Toggle("replay","Record in the background",v.Replay.Enabled));Row(main,"Duration",ReplayDuration(v.Replay.BufferSeconds));Row(main,"Save shortcut",replayKey);
         var encoding=Section(page,"Recording quality","NVIDIA NVENC hardware encoding. Streaming stays at 60 FPS.");Row(encoding,"Codec",Choose("codec",Options("HEVC","H264","AV1"),v.Replay.Codec));Row(encoding,"Quality",Choose("quality",Options("Ultra","High","Medium","Low"),v.Replay.Quality));Row(encoding,"Frame rate",Choose("fps",[new("60","60 FPS"),new("120","120 FPS")],v.Replay.Fps.ToString()));
         Row(encoding,"Resolution",Choose("resolution",[new("0","Monitor resolution"),new("1280","1280 × 720 · 720p"),new("1920","1920 × 1080 · 1080p"),new("2560","2560 × 1440 · 1440p"),new("3840","3840 × 2160 · 4K")],v.Replay.Width.ToString()));
         var storage=Section(page,"Save location","Clips are grouped by game automatically. Local and network folders work.");
         var path=Input("folder",v.Replay.Folder);var pathRow=new C.Grid();pathRow.ColumnDefinitions.Add(new());pathRow.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});pathRow.Children.Add(path);var browse=Kit.Button("Browse…",()=>{var picker=new Microsoft.Win32.OpenFolderDialog{Title=UiStrings.T("Choose a recording folder"),InitialDirectory=path.Text};if(picker.ShowDialog(this)==true)path.Text=picker.FolderName;});browse.Margin=new(8,0,0,0);C.Grid.SetColumn(browse,1);pathRow.Children.Add(browse);Row(storage,"Folder",pathRow);
+        var notification=Section(page,"Save notification","A soft two-note chime plays after the clip reaches your save folder.");
+        var sound=Toggle("saveSound","Play a sound after saving",v.Replay.SaveSoundEnabled);Row(notification,"Sound",sound);
+        var soundVolume=Volume("saveSoundVolume",v.Replay.SaveSoundVolume);Row(notification,"Volume",soundVolume);
+        var preview=Kit.Button("Preview sound",()=>soundPreview.Play((int)sliders["saveSoundVolume"].Value));preview.HorizontalAlignment=W.HorizontalAlignment.Left;notification.Children.Add(preview);
+        void SoundEnabled(){soundVolume.IsEnabled=preview.IsEnabled=sound.IsChecked==true;}
+        sound.Checked+=(_,_)=>SoundEnabled();sound.Unchecked+=(_,_)=>SoundEnabled();SoundEnabled();
         page.Children.Add(Kit.Text("Changing recording format starts a fresh buffer. Existing clips are kept.",12,"#B0A9BC"));
     }
     void BuildAudio(Settings v)
@@ -170,6 +195,8 @@ sealed class SettingsWindow:ShellWindow
         var hint=Kit.Text("",12,"#B0A9BC");hint.Margin=new(0,12,0,0);connection.Children.Add(hint);
         var advanced=new C.Expander{Header=Kit.Text("Advanced network settings"),Margin=new(0,16,0,0)};var port=Input("port",v.Kvm.Port.ToString());advanced.Content=port;connection.Children.Add(advanced);
         var control=Section(page,"Control & shortcuts");Row(control,"Edge switching",Toggle("seamless","Move between physical displays",v.Kvm.Seamless));Row(control,"Open KVM",kvmKey);Row(control,"Lock / unlock edges",edgeKey);control.Children.Add(Kit.Text("Ctrl+Alt+Esc always returns control here. Monitor shortcuts are configured in Monitor layout.",12,"#B0A9BC"));
+        Row(control,"Screen corners",Toggle("blockCorners","Block switching near screen corners",v.Kvm.BlockScreenCorners));
+        control.Children.Add(Kit.Text("Protects the first and last 32 pixels of each screen edge. Monitor shortcuts still work.",12,"#B0A9BC"));
         var clipboard=Section(page,"Clipboard");Row(clipboard,"Text",Toggle("clipboardText","Share clipboard text",v.Kvm.ClipboardText));Row(clipboard,"Files",Toggle("clipboardFiles","Share files and folders",v.Kvm.ClipboardFiles));clipboard.Children.Add(Kit.Text("Copy with Ctrl+C on one PC and paste with Ctrl+V on the other. Temporary transfer files expire after 4 hours. Copies pasted into your folders stay.",12,"#B0A9BC"));
         var client=Section(page,"Client permissions");Row(client,"Desktop",Toggle("allowView","Allow remote desktop viewing",v.Kvm.AllowView));Row(client,"Server mode",Toggle("remoteOnly","Remote view only · no edge switching",v.Kvm.RemoteViewOnly));Row(client,"Send audio to host",Audio("remoteAudio",v.Kvm.AudioDevice));
         client.Children.Add(Kit.Text("A headless server needs an active desktop from a virtual display or HDMI dummy plug. Windows lock screens and elevated windows may be unavailable.",12,"#B0A9BC"));
@@ -230,8 +257,9 @@ sealed class SettingsWindow:ShellWindow
         var result=initial.Copy();result.SendOnLaunch=On("ndi");result.Device=Id("display");result.CaptureCursor=On("cursor");result.PreventIdleSleep=On("awake");result.NdiAudioDevice=Id("ndiAudio");result.NdiAudioVolume=(int)sliders["ndiVolume"].Value;
         result.Language=Id("language");
         int width=int.Parse(Id("resolution"),CultureInfo.InvariantCulture);int height=width switch{1280=>720,1920=>1080,2560=>1440,3840=>2160,_=>0};
-        result.Replay=result.Replay with{Enabled=On("replay"),Minutes=int.Parse(Id("minutes")),Codec=Id("codec"),Quality=Id("quality"),Fps=int.Parse(Id("fps")),Width=width,Height=height,Folder=texts["folder"].Text.Trim(),GroupByApp=true,Silent=false,AudioMode=Id("audioMode"),GameAudio=Id("game"),Microphone=Id("mic"),ExtraAudio=Id("extra"),HotkeyModifiers=replayKey.Modifiers,HotkeyKey=replayKey.Key};
-        result.Kvm=result.Kvm with{Role=Id("role"),Host=texts["host"].Text.Trim(),PairingCode=texts["pairing"].Text.Trim(),Port=int.Parse(texts["port"].Text,CultureInfo.InvariantCulture),Seamless=On("seamless"),ClipboardText=On("clipboardText"),ClipboardFiles=On("clipboardFiles"),AllowView=On("allowView"),RemoteViewOnly=On("remoteOnly"),AudioDevice=Id("remoteAudio"),OpenHotkeyModifiers=kvmKey.Modifiers,OpenHotkeyKey=kvmKey.Key,ToggleHotkeyModifiers=edgeKey.Modifiers,ToggleHotkeyKey=edgeKey.Key,Layout=monitors.Result,RemoteOnlyPeers=monitors.RemoteOnlyPeers,ExcludedMonitors=monitors.ExcludedMonitors};
+        int duration=ReplayTime.Parse(texts["replayMinutes"].Text.Trim(),texts["replaySeconds"].Text.Trim());
+        result.Replay=result.Replay with{Enabled=On("replay"),Minutes=(duration+59)/60,DurationSeconds=duration,SaveSoundEnabled=On("saveSound"),SaveSoundVolume=(int)sliders["saveSoundVolume"].Value,Codec=Id("codec"),Quality=Id("quality"),Fps=int.Parse(Id("fps")),Width=width,Height=height,Folder=texts["folder"].Text.Trim(),GroupByApp=true,Silent=false,AudioMode=Id("audioMode"),GameAudio=Id("game"),Microphone=Id("mic"),ExtraAudio=Id("extra"),HotkeyModifiers=replayKey.Modifiers,HotkeyKey=replayKey.Key};
+        result.Kvm=result.Kvm with{Role=Id("role"),Host=texts["host"].Text.Trim(),PairingCode=texts["pairing"].Text.Trim(),Port=int.Parse(texts["port"].Text,CultureInfo.InvariantCulture),Seamless=On("seamless"),BlockScreenCorners=On("blockCorners"),ClipboardText=On("clipboardText"),ClipboardFiles=On("clipboardFiles"),AllowView=On("allowView"),RemoteViewOnly=On("remoteOnly"),AudioDevice=Id("remoteAudio"),OpenHotkeyModifiers=kvmKey.Modifiers,OpenHotkeyKey=kvmKey.Key,ToggleHotkeyModifiers=edgeKey.Modifiers,ToggleHotkeyKey=edgeKey.Key,Layout=monitors.Result,RemoteOnlyPeers=monitors.RemoteOnlyPeers,ExcludedMonitors=monitors.ExcludedMonitors};
         result.Updates=new(){CheckOnStartup=On("checkUpdates"),AllowFromHost=On("remoteUpdates")};
         result.Discord=result.Discord with{Enabled=On("discord")&&result.Kvm.Role!="Host",CameraName=texts["cameraName"].Text.Trim(),Source=texts["source"].Text.Trim(),AudioMode=Id("discordMode"),AudioDevice=Id("discordOutput"),CaptureDevice=Id("discordInput"),Volume=(int)sliders["discordVolume"].Value};
         Validate(result);return result;

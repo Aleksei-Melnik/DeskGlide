@@ -7,6 +7,11 @@ public sealed record ReplayOptions
 {
     public bool Enabled {get;set;}=false;
     public int Minutes {get;set;}=5;
+    // Zero means an older profile still uses Minutes. New profiles store seconds.
+    public int DurationSeconds {get;set;}
+    [System.Text.Json.Serialization.JsonIgnore] public int BufferSeconds=>DurationSeconds==0?(int)Math.Clamp((long)Minutes*60,int.MinValue,int.MaxValue):DurationSeconds;
+    public bool SaveSoundEnabled {get;set;}=true;
+    public int SaveSoundVolume {get;set;}=25;
     public int Fps {get;set;}=60;
     public string Quality {get;set;}="High";
     public string Codec {get;set;}="HEVC";
@@ -24,7 +29,8 @@ public sealed record ReplayOptions
     public uint HotkeyKey {get;set;}=(uint)Keys.F10;
     public void Validate()
     {
-        if(Minutes<5||Minutes>20) throw new ArgumentException("Длина повтора: от 5 до 20 минут.");
+        if(BufferSeconds is <30 or >7200) throw new ArgumentException(UiStrings.T("Replay duration must be between 30 seconds and 2 hours."));
+        if(SaveSoundVolume is <0 or >100)throw new ArgumentException(UiStrings.T("Sound volume must be between 0 and 100%."));
         if(Codec is not ("HEVC" or "H264" or "AV1"))throw new ArgumentException("Неизвестный видеокодек.");
         if(AudioMode is not ("Mixed" or "Separate" or "Silent"))throw new ArgumentException("Неизвестный режим аудио.");
         if(Fps is not (60 or 120)) throw new ArgumentException("Выберите 60 или 120 FPS.");
@@ -33,6 +39,23 @@ public sealed record ReplayOptions
         if(Width!=0 && (Width<320||Width>7680||Height<240||Height>4320||(Width&1)!=0||(Height&1)!=0)) throw new ArgumentException("Недопустимое разрешение записи.");
         var chosen=new[]{Microphone,GameAudio,ExtraAudio}.Where(s=>s.Length>0).ToArray();
         if(chosen.Distinct().Count()!=chosen.Length) throw new ArgumentException("Один источник звука выбран дважды — это создаст эхо.");
+    }
+}
+
+static class ReplayTime
+{
+    public static int Parse(string minutes,string seconds)
+    {
+        if(!int.TryParse(minutes,NumberStyles.None,CultureInfo.InvariantCulture,out int m)||m is <0 or >120||
+           !int.TryParse(seconds,NumberStyles.None,CultureInfo.InvariantCulture,out int s)||s is <0 or >59||
+           (long)m*60+s is <30 or >7200)
+            throw new ArgumentException(UiStrings.T("Replay duration must be between 30 seconds and 2 hours."));
+        return m*60+s;
+    }
+    public static string Format(double seconds)
+    {
+        var time=TimeSpan.FromSeconds(Math.Max(0,seconds));
+        return time.TotalHours>=1?$"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}":$"{(int)time.TotalMinutes}:{time.Seconds:00}";
     }
 }
 

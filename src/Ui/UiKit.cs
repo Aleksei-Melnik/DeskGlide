@@ -69,8 +69,11 @@ static class Kit
 
 class ShellWindow:W.Window
 {
-    readonly System.Windows.Shell.WindowChrome chrome=new(){CaptionHeight=0,ResizeBorderThickness=new(0),GlassFrameThickness=new(0),CornerRadius=new(0),UseAeroCaptionButtons=false};
+    // Let DWM own the silhouette. A zero glass thickness makes WindowChrome
+    // install a GDI window region, which conflicts with native rounded corners.
+    readonly System.Windows.Shell.WindowChrome chrome=new(){CaptionHeight=0,ResizeBorderThickness=new(0),GlassFrameThickness=new(-1),CornerRadius=new(0),UseAeroCaptionButtons=false};
     C.Border? header;
+    bool fullscreenChrome;
     public bool IsClosed {get;private set;}
     public ShellWindow(string title,double width,double height)
     {
@@ -82,8 +85,8 @@ class ShellWindow:W.Window
         Closed+=(_,_)=>{IsClosed=true;UiStrings.Shared.PropertyChanged-=languageChanged;};
         SourceInitialized+=(_,_)=>
         {
-            var handle=new System.Windows.Interop.WindowInteropHelper(this).Handle;int dark=1;DwmSetWindowAttribute(handle,20,ref dark,4);
-            int rounded=2;DwmSetWindowAttribute(handle,33,ref rounded,4);int noSystemBorder=-2;DwmSetWindowAttribute(handle,34,ref noSystemBorder,4);
+            var handle=new System.Windows.Interop.WindowInteropHelper(this).Handle;ApplyNativeFrame();
+            System.Windows.Interop.HwndSource.FromHwnd(handle)?.AddHook(FrameMessage);
             // Native Acrylic uses the compositor; no layered window, input overlay or blur loop.
             int acrylic=3;if(DwmSetWindowAttribute(handle,38,ref acrylic,4)==0)
             {
@@ -98,7 +101,9 @@ class ShellWindow:W.Window
             var bounds=Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).Handle).WorkingArea;
             Width=Math.Min(Width,(bounds.Width-24)/sx);Height=Math.Min(Height,(bounds.Height-24)/sy);
             Left=Math.Clamp(Left,bounds.Left/sx,Math.Max(bounds.Left/sx,(bounds.Right-Width*sx)/sx));Top=Math.Clamp(Top,bounds.Top/sy,Math.Max(bounds.Top/sy,(bounds.Bottom-Height*sy)/sy));
+            ApplyNativeFrame();
         };
+        Activated+=(_,_)=>ApplyNativeFrame();Deactivated+=(_,_)=>ApplyNativeFrame();StateChanged+=(_,_)=>ApplyNativeFrame();DpiChanged+=(_,_)=>ApplyNativeFrame();
     }
     public void Reveal()
     {
@@ -107,12 +112,20 @@ class ShellWindow:W.Window
         if(WindowState==W.WindowState.Minimized)WindowState=W.WindowState.Normal;
         Activate();SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle);
     }
-    public override void OnApplyTemplate()
+    void ApplyNativeFrame()
     {
-        base.OnApplyTemplate();if(Template.FindName("WindowFrame",this) is C.Border frame){frame.SizeChanged+=(_,_)=>ClipFrame(frame);ClipFrame(frame);}
+        if(IsClosed)return;var handle=new System.Windows.Interop.WindowInteropHelper(this).Handle;if(handle==IntPtr.Zero)return;
+        int dark=1;DwmSetWindowAttribute(handle,20,ref dark,4);
+        int rounded=fullscreenChrome||WindowState==W.WindowState.Maximized?1:2;DwmSetWindowAttribute(handle,33,ref rounded,4);
+        int noSystemBorder=-2;DwmSetWindowAttribute(handle,34,ref noSystemBorder,4);
     }
-    static void ClipFrame(C.Border frame)
-    {if(frame.ActualWidth>0&&frame.ActualHeight>0)frame.Clip=new M.RectangleGeometry(new W.Rect(0,0,frame.ActualWidth,frame.ActualHeight),frame.CornerRadius.TopLeft,frame.CornerRadius.TopLeft);}
+    IntPtr FrameMessage(IntPtr handle,int message,IntPtr wParam,IntPtr lParam,ref bool handled)
+    {
+        // Theme and activation can reset the native border policy. This hook is
+        // confined to our own window and does not handle keyboard/mouse input.
+        if((message is 0x86 or 0x31A or 0x31E)&&!IsClosed&&!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(ApplyNativeFrame);
+        return IntPtr.Zero;
+    }
     protected C.Border Header(string title,string subtitle,bool compact=false)
     {
         var heading=Kit.Text(title,compact?17:25);heading.FontWeight=W.FontWeights.SemiBold;
@@ -131,10 +144,10 @@ class ShellWindow:W.Window
     }
     protected void FullscreenChrome(bool enabled)
     {
+        fullscreenChrome=enabled;
         if(header!=null)header.Visibility=enabled?W.Visibility.Collapsed:W.Visibility.Visible;
         System.Windows.Shell.WindowChrome.SetWindowChrome(this,enabled?null:chrome);WindowStyle=enabled?W.WindowStyle.None:W.WindowStyle.SingleBorderWindow;
-        if(Template.FindName("WindowFrame",this) is C.Border frame){frame.CornerRadius=new(enabled?0:12);frame.BorderThickness=new(0);ClipFrame(frame);}
-        int preference=enabled?1:2;DwmSetWindowAttribute(new System.Windows.Interop.WindowInteropHelper(this).Handle,33,ref preference,4);
+        ApplyNativeFrame();
     }
     [StructLayout(LayoutKind.Sequential)] readonly record struct Margins(int Left,int Right,int Top,int Bottom);
     [DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr window,ref Margins margins);

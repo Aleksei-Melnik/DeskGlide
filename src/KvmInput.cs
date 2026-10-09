@@ -181,7 +181,8 @@ sealed class KvmController:IDisposable
         if(remote==null||ViewerActive||(dx==0&&dy==0))return;
         var candidate=new Point((int)Math.Clamp((long)logical.X+dx,-100000,100000),(int)Math.Clamp((long)logical.Y+dy,-100000,100000));
         var target=Seamless?KvmLayout.At(Monitors,candidate):null;
-        if(target!=null&&target.Key!=remote.Key){Activate(target,candidate);return;}
+        bool cornerBlocked=options.BlockScreenCorners&&physicalScreens.TryGetValue(remote.Key,out var screen)&&KvmLayout.ProtectedCorner(remote,screen,candidate);
+        if(target!=null&&target.Key!=remote.Key&&!cornerBlocked){Activate(target,candidate);return;}
         logical=KvmLayout.Clamp(remote,candidate);
         if(!TryPhysical(remote,logical,out var physical)||!service.Send(remote.Peer,new(){Type="mouse",X=physical.X,Y=physical.Y}))ReturnLocal();
     }
@@ -212,7 +213,7 @@ sealed class KvmController:IDisposable
                     var local=Monitors.FirstOrDefault(m=>m.Peer==options.Id&&m.Device==screen?.Device);
                     if(local!=null&&screen!=null)
                     {
-                        var crossing=KvmLayout.EdgeCrossing(Monitors,local,screen,point);
+                        var crossing=KvmLayout.EdgeCrossing(Monitors,local,screen,point,options.BlockScreenCorners);
                         if(crossing is { } edge&&edge.Target.Peer!=options.Id){Activate(edge.Target,edge.Point);return (IntPtr)1;}
                     }
                 }

@@ -43,6 +43,9 @@ static class WpfUiTests
     static void ChromeWorks(ShellWindow window)
     {
         Require(window.Template.FindName("WindowFrame",window) is C.Border {BorderThickness:var border}&&border==new W.Thickness(0),"Window perimeter border is visible");
+        var frame=(C.Border)window.Template.FindName("WindowFrame",window);
+        Require(frame.Clip==null&&frame.CornerRadius==new W.CornerRadius(0),"WPF corner clipping exposes a second outline under DWM rounding");
+        Require(System.Windows.Shell.WindowChrome.GetWindowChrome(window)?.GlassFrameThickness==new W.Thickness(-1),"WindowChrome must let DWM own the window silhouette");
         Require(NativeHit(window,new(window.ActualWidth/2,25))==2,"Header cannot drag the window");
         foreach(string tag in new[]{"Minimize window","Close window"})
         {
@@ -51,6 +54,17 @@ static class WpfUiTests
         }
         var handle=new System.Windows.Interop.WindowInteropHelper(window).Handle;GetWindowRect(handle,out var bounds);var origin=new NativePoint();ClientToScreen(handle,ref origin);
         Require(Math.Abs(origin.Y-bounds.Top)<=2,"Native title bar still reserves space above app content");
+        if(DwmGetWindowAttribute(handle,34,out int color,4)==0)
+        {
+            Require(color==-2,"DWM border color was not suppressed");
+            int resetColor=0x999999;DwmSetWindowAttribute(handle,34,ref resetColor,4);SendMessage(handle,0x31A,IntPtr.Zero,IntPtr.Zero);Pump();
+            Require(DwmGetWindowAttribute(handle,34,out color,4)==0&&color==-2,"Theme change restored the native outline");
+        }
+        if(DwmIsCompositionEnabled(out bool composition)==0&&composition)
+        {
+            var region=CreateRectRgn(0,0,0,0);
+            try{Require(GetWindowRgn(handle,region)==0,"WindowChrome installed a custom region over native DWM rounding");}finally{DeleteObject(region);}
+        }
     }
     static void RunTests()
     {
@@ -68,6 +82,21 @@ static class WpfUiTests
         form.AudioChoice("game").SelectedIndex=0;form.Reveal();Require(calls==1,"WPF repeated activation restarted discovery");
         pending.SetResult([new("mic",NAudio.CoreAudioApi.DataFlow.Capture,"Microphone","Microphone")]);watch.Restart();while(form.AudioStatus!="Audio devices are up to date."&&watch.ElapsedMilliseconds<3000){Pump();Thread.Sleep(5);}
         Require(form.AudioStatus=="Audio devices are up to date.","WPF devices did not populate");var after=form.Collect();Require(after.Replay.GameAudio==""&&after.Replay.Microphone=="mic"&&after.NdiAudioDevice=="saved"&&after.Discord.CaptureDevice=="input","WPF discovery replaced edits or missing devices");
+        form.SelectPage(3,false);Pump();
+        form.AudioChoice("role").SelectedItem=form.AudioChoice("role").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="Host");Pump();
+        var cornerToggle=Children((W.DependencyObject)form.Content).OfType<C.CheckBox>().Single(c=>c.Content is C.TextBlock {Text:"Block switching near screen corners"});
+        Require(cornerToggle.IsEnabled&&cornerToggle.IsChecked==false&&!form.Collect().Kvm.BlockScreenCorners,"WPF corner protection is enabled by default or inaccessible to host");cornerToggle.IsChecked=true;Require(form.Collect().Kvm.BlockScreenCorners,"WPF corner protection preference was not collected");
+        form.SelectPage(1,false);Pump();
+        var durationFields=Children((W.DependencyObject)form.Content).OfType<C.TextBox>().Where(t=>t.MaxLength is 2 or 3).ToArray();
+        var minutes=durationFields.Single(t=>t.MaxLength==3);var seconds=durationFields.Single(t=>t.MaxLength==2);
+        Require(minutes.Text=="5"&&seconds.Text=="00","Duration fields did not retain legacy minutes");
+        minutes.Text="0";seconds.Text="30";Require(form.Collect().Replay.BufferSeconds==30,"WPF duration fields did not accept 30 seconds");
+        minutes.Text="120";seconds.Text="00";Require(form.Collect().Replay.BufferSeconds==7200,"WPF duration fields did not accept 2 hours");
+        minutes.Text="120";seconds.Text="01";bool durationRejected=false;try{form.Collect();}catch(ArgumentException){durationRejected=true;}Require(durationRejected,"WPF duration fields accepted more than 2 hours");
+        var preset=ActionButton(form,"5 min");preset.BringIntoView();Pump();Invoke(preset);Require(form.Collect().Replay.BufferSeconds==300,"Duration preset did not update editable fields");
+        var soundToggle=Children((W.DependencyObject)form.Content).OfType<C.CheckBox>().Single(c=>c.Content is C.TextBlock {Text:"Play a sound after saving"});
+        var soundSlider=Children((W.DependencyObject)form.Content).OfType<C.Slider>().Single();
+        soundSlider.Value=37;soundToggle.IsChecked=false;Require(!form.Collect().Replay.SaveSoundEnabled&&form.Collect().Replay.SaveSoundVolume==37&&!ActionButton(form,"Preview sound").IsEnabled,"Chime controls lost edits or failed to disable preview");
         Invoke(Children((W.DependencyObject)form.Content).OfType<C.Button>().Single(b=>(string?)b.Tag=="General"));Require(form.SelectedPage==9,"Navigation click failed");
         form.AudioChoice("language").SelectedItem=form.AudioChoice("language").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="ru");Pump();
         Require(UiStrings.Shared.Language=="ru"&&Children((W.DependencyObject)form.Content).OfType<C.TextBlock>().Any(t=>t.Text=="Сохранить"),"Live language switch failed");
@@ -118,4 +147,10 @@ static class WpfUiTests
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] struct NativeRect{public int Left,Top,Right,Bottom;}
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window,out NativeRect rectangle);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr window,ref NativePoint point);
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window,int attribute,out int value,int size);
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr window,int attribute,ref int value,int size);
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")] static extern int DwmIsCompositionEnabled(out bool enabled);
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int left,int top,int right,int bottom);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern int GetWindowRgn(IntPtr window,IntPtr region);
+    [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr handle);
 }

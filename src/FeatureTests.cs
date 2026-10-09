@@ -9,6 +9,7 @@ static class FeatureTests
     static void Require(bool value,string message){if(!value)throw new Exception(message);}
     public static void Run()
     {
+        ReplayPreferencesTests.Run();
         Require(JsonSerializer.Deserialize<Settings>("{}")!.PreventIdleSleep,"Existing settings did not enable idle-sleep protection by default");
         var sleepSettings=new Settings{PreventIdleSleep=false};Require(!sleepSettings.Copy().PreventIdleSleep&&!JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(sleepSettings))!.PreventIdleSleep,"Explicit idle-sleep preference lost");
         using(var awake=new KeepAwake())
@@ -33,6 +34,25 @@ static class FeatureTests
         var gameMode=new KvmScreen("center",0,0,1280,1024,true);
         Require(KvmLayout.EdgeCrossing([local,left,right],local,gameMode,new(1279,512))?.Target==right,"Fullscreen resolution broke the right edge");
         Require(KvmLayout.ToPhysical(local,gameMode,new(local.X+2559,local.Y+1439))==new Point(1279,1023),"Fullscreen cursor mapping was not scaled");
+        Require(!new KvmOptions().BlockScreenCorners&&!JsonSerializer.Deserialize<KvmOptions>("{}")!.BlockScreenCorners,"Corner protection must be off for new and existing settings");
+        var protectedOptions=new KvmOptions{BlockScreenCorners=true};Require(protectedOptions.Copy().BlockScreenCorners&&JsonSerializer.Deserialize<KvmOptions>(JsonSerializer.Serialize(protectedOptions))!.BlockScreenCorners,"Corner preference was not preserved");
+        var fullLeft=left with{Height=local.Height};var above=local with{Peer="stream",Device="above",Y=-1080,Height=1080};var below=local with{Peer="stream",Device="below",Y=1440,Height=1080};
+        var desk=new[]{local,fullLeft,right,above,below};
+        foreach(var point in new[]{new Point(0,0),new Point(2559,0),new Point(0,1439),new Point(2559,1439),new Point(-400,31),new Point(2900,1408),new Point(31,-400),new Point(2528,1800)})
+        {Require(KvmLayout.EdgeCrossing(desk,local,screen,point)!=null,"Unprotected corner must retain normal switching");Require(KvmLayout.EdgeCrossing(desk,local,screen,point,true)==null,"Protected corner allowed edge switching");}
+        Require(KvmLayout.EdgeCrossing(desk,local,screen,new(0,32),true)?.Target==fullLeft&&KvmLayout.EdgeCrossing(desk,local,screen,new(2559,1407),true)?.Target==right,"Protection blocked the rest of a vertical edge");
+        Require(KvmLayout.EdgeCrossing(desk,local,screen,new(32,0),true)?.Target==above&&KvmLayout.EdgeCrossing(desk,local,screen,new(2527,1439),true)?.Target==below,"Protection blocked the rest of a horizontal edge");
+        Require(KvmLayout.EdgeCrossing(desk,local,gameMode,new(1279,31),true)==null&&KvmLayout.EdgeCrossing(desk,local,gameMode,new(1279,32),true)?.Target==right,"Fullscreen corner protection must use physical pixels");
+        var remoteScreen=new KvmScreen("left",-1920,-200,1920,1080,true);
+        Require(KvmLayout.ProtectedCorner(left,remoteScreen,new(left.Bounds.Right,left.Y))&&!KvmLayout.ProtectedCorner(left,remoteScreen,new(left.Bounds.Right,left.Y+32)),"Remote-to-host corner protection or negative coordinates failed");
+        Require(KvmLayout.ProtectedCorner(local,gameMode,new(local.Bounds.Right,local.Y+45))&&!KvmLayout.ProtectedCorner(local,gameMode,new(local.Bounds.Right,local.Y+46)),"Scaled remote corner protection failed");
+        foreach(string language in new[]{"en","ru"})
+        {
+            UiStrings.Shared.Language=language;
+            foreach(bool streaming in new[]{false,true})foreach(bool replay in new[]{false,true})
+            {string tooltip=TrayApp.BuildTooltip(streaming,replay);Require(tooltip.Length<=63&&!tooltip.Contains("NDI")&&tooltip.Contains(language=="ru"?"Трансляция":"Streaming"),"Tray tooltip is too long or uses an old/untranslated label");}
+        }
+        UiStrings.Shared.Language="en";
         using(var image=new Bitmap(2560,1440))
         {
             using(var graphics=Graphics.FromImage(image))graphics.Clear(Color.FromArgb(13,91,187));
@@ -46,9 +66,9 @@ static class FeatureTests
             var encoded=KvmImageCodec.Encode(noise,0);Require(encoded.Data.Length<=2800000&&encoded.Description.Contains("JPEG"),"Noisy KVM frame exceeds wire budget");
         }
         string root=Path.Combine(AppContext.BaseDirectory,"profile-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
-        var options=new Settings{Kvm=new(){Role="Host",RemoteOnlyPeers=["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]},Discord=new(){Source="Gaming (SdrCapture SDR)",Volume=75}};
+        var options=new Settings{Kvm=new(){Role="Host",BlockScreenCorners=true,RemoteOnlyPeers=["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]},Discord=new(){Source="Gaming (SdrCapture SDR)",Volume=75}};
         var profile=ConfigurationBackup.Capture(options,true,root);byte[] data=ConfigurationBackup.Encode(profile,"fixture-password");
-        var decodedProfile=ConfigurationBackup.Decode(data,"fixture-password");Require(decodedProfile.Settings.Kvm.RemoteOnlyPeers.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")&&decodedProfile.Settings.Discord.Volume==75,"Profile lost settings");
+        var decodedProfile=ConfigurationBackup.Decode(data,"fixture-password");Require(decodedProfile.Settings.Kvm.BlockScreenCorners&&decodedProfile.Settings.Kvm.RemoteOnlyPeers.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")&&decodedProfile.Settings.Discord.Volume==75,"Profile lost settings");
         bool wrong=false;try{ConfigurationBackup.Decode(data,"wrong-password");}catch{wrong=true;}Require(wrong,"Wrong password accepted");
         string restored=Path.Combine(root,"restore");Directory.CreateDirectory(restored);File.WriteAllText(Path.Combine(restored,"settings.json"),"original");
         bool rollback=false;try{ConfigurationBackup.Restore(decodedProfile,restored,n=>{if(n==1)throw new IOException("fixture");});}catch{rollback=true;}

@@ -33,6 +33,7 @@ sealed class TrayApp:ApplicationContext
     readonly StreamEngine engine=new();
     readonly ReplayRecorder replay;
     readonly ReplayDelivery delivery=new();
+    readonly ReplaySaveSound saveSound=new();
     readonly ReplayHotkey hotkey=new();
     readonly EventWaitHandle saveEvent=new(false,EventResetMode.AutoReset,"Local\\SdrCapture.SaveReplay");
     readonly System.Collections.Concurrent.ConcurrentQueue<string> notifications=new();
@@ -88,14 +89,18 @@ sealed class TrayApp:ApplicationContext
         hotkey.SaveRequested+=SaveReplay;
         if(!hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey))notifications.Enqueue("Горячая клавиша занята. Выберите другую в Replay Buffer → Settings.");
         delivery.Notification+=message=>notifications.Enqueue(message);
+        delivery.Saved+=_=>
+        {
+            if(!closing)try{dispatcher.BeginInvoke(()=>{if(!closing&&settings.Replay.SaveSoundEnabled)saveSound.Play(settings.Replay.SaveSoundVolume);});}catch(InvalidOperationException){}
+        };
         UiStrings.Shared.Language=settings.Language;
-        tray=new NotifyIcon{Icon=appIcon,Text="DeskGlide · NDI · SDR",Visible=true,ContextMenuStrip=new ContextMenuStrip()};
+        tray=new NotifyIcon{Icon=appIcon,Text=BuildTooltip(engine.NdiEnabled,settings.Replay.Enabled),Visible=true,ContextMenuStrip=new ContextMenuStrip()};
         TrayMenuStyle.Apply(tray.ContextMenuStrip);
         tray.ContextMenuStrip.Opening+=(_,_)=>BuildMenu();
         tray.DoubleClick+=(_,_)=>OpenSettings();
         timer.Tick+=(_,_)=>
         {
-            string text=$"DeskGlide · NDI {(engine.NdiEnabled?"ON":"OFF")} · Replay {(settings.Replay.Enabled?"ON":"OFF")}";tray.Text=text[..Math.Min(63,text.Length)];
+            tray.Text=BuildTooltip(engine.NdiEnabled,settings.Replay.Enabled);
             ReplayAppContext.Capture();
             if(++ticks%5==0){kvm?.RefreshScreens();controller?.Refresh();}
             if(ticks==8&&settings.Updates.CheckOnStartup&&!updater.Busy)_=CheckForUpdatesQuietly();
@@ -105,6 +110,11 @@ sealed class TrayApp:ApplicationContext
         timer.Start();engine.Start(settings.Options);StartKvm();StartDiscord();
         _=Task.Run(async()=>{try{await RecordingTools.MigrateLegacyAsync();}catch(Exception e){Log.Write("Recording tools migration: "+e.Message);}});
         if(settings.Kvm.Role!="Host")_=Task.Run(async()=>{for(int i=0;i<30&&!closing;i++){try{DiscordDevices.RecoverDefaults(settings.Kvm.Role);}catch(Exception e){Log.Write("Audio default recovery: "+e.Message);}await Task.Delay(1000);}});
+    }
+    internal static string BuildTooltip(bool streaming,bool replay)
+    {
+        string text=$"DeskGlide · {UiStrings.T("Streaming")}: {UiStrings.T(streaming?"On":"Off")} · {UiStrings.T("Replay")}: {UiStrings.T(replay?"On":"Off")}";
+        return text[..Math.Min(63,text.Length)];
     }
     static Icon LoadAppIcon()
     {
@@ -125,7 +135,7 @@ sealed class TrayApp:ApplicationContext
         ndiToggle.Click+=(_,_)=>Guard(()=>{settings.SendOnLaunch=!settings.SendOnLaunch;settings.Save();engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;});items.Add(ndiToggle);
         var replayToggle=new ToolStripMenuItem(UiStrings.T("Instant replay")){Checked=settings.Replay.Enabled};
         replayToggle.Click+=(_,_)=>Guard(()=>ApplyReplay(settings.Replay with{Enabled=!settings.Replay.Enabled}));items.Add(replayToggle);
-        var save=new ToolStripMenuItem(UiStrings.T("Save replay")){Enabled=replay.BufferedSeconds>0,ShortcutKeyDisplayString=ReplayHotkey.Text(settings.Replay),ToolTipText=UiStrings.F("Save the last {0} minutes",settings.Replay.Minutes)};
+        var save=new ToolStripMenuItem(UiStrings.T("Save replay")){Enabled=replay.BufferedSeconds>0,ShortcutKeyDisplayString=ReplayHotkey.Text(settings.Replay),ToolTipText=UiStrings.F("Save the last {0}",ReplayTime.Format(settings.Replay.BufferSeconds))};
         save.Click+=(_,_)=>SaveReplay();items.Add(save);
         items.Add(UiStrings.T("Open clips folder"),null,async(_,_)=>{try{await RecordingFolder.Open(settings.Replay.Folder);}catch(Exception e){notifications.Enqueue(UiStrings.T("Could not open the recordings folder: ")+e.Message);}});
         items.Add(new ToolStripSeparator());items.Add(UiStrings.T("Updates…"),null,(_,_)=>OpenUpdates());
@@ -171,7 +181,7 @@ sealed class TrayApp:ApplicationContext
         bool discordChanged=settings.Discord!=result.Discord||settings.Kvm.Role!=result.Kvm.Role;
         if(!hotkey.Set(result.Replay.HotkeyModifiers,result.Replay.HotkeyKey))
         {hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey);throw new InvalidOperationException("Клавиша сохранения занята другой программой.");}
-        string priorKvm=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],ExcludedMonitors=[],Seamless=true});
+        string priorKvm=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],ExcludedMonitors=[],Seamless=true,BlockScreenCorners=false});
         if(form.ImportedProfile!=null)
         {
             try{ConfigurationBackup.Restore(form.ImportedProfile,Log.Folder);}
@@ -185,7 +195,7 @@ sealed class TrayApp:ApplicationContext
             using var key=Registry.CurrentUser.CreateSubKey(RunKey);
             if(form.StartWithWindows)key.SetValue("DeskGlide",$"\"{Environment.ProcessPath}\"");else key.DeleteValue("DeskGlide",false);key.DeleteValue("ScreenCapture",false);key.DeleteValue("SdrCapture",false);
         }
-        if(form.ImportedProfile!=null||priorKvm!=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],ExcludedMonitors=[],Seamless=true}))StartKvm();else controller?.UpdateLayout(settings.Kvm);
+        if(form.ImportedProfile!=null||priorKvm!=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],ExcludedMonitors=[],Seamless=true,BlockScreenCorners=false}))StartKvm();else controller?.UpdateLayout(settings.Kvm);
         settings.Discord=result.Discord;settings.Save();if(discordChanged)StartDiscord();
         SelectRemoteAudio();notifications.Enqueue("Настройки применены.");
     }
@@ -251,7 +261,7 @@ sealed class TrayApp:ApplicationContext
     void ShowHelp()=>MessageBox.Show(ConnectionText,"DeskGlide → DistroAV");
     Ui.StatusSection[] StatusOverview()=>[
         new("Screen streaming",("State",UiStrings.T(!engine.NdiEnabled?"Off":engine.Error!=null?"Recovering capture":"On")),("NDI source",engine.SourceName),("Output",string.Join(", ",engine.CaptureSizes)),("Delivery rate",$"{engine.Fps:F1} FPS"),("Capture time",$"{engine.CaptureMs:F1} ms")),
-        new("Instant replay",("State",UiStrings.T(!settings.Replay.Enabled?"Off":replay.Error!=null?"Recording error":!RecordingTools.Ready?"Setting up recording tools…":"On")),("Buffered",$"{replay.BufferedSeconds/60:F1} / {settings.Replay.Minutes} min"),("Buffer size",$"{replay.CacheBytes/1048576.0:F0} MB"),("Error",replay.Error??UiStrings.T("None"))),
+        new("Instant replay",("State",UiStrings.T(!settings.Replay.Enabled?"Off":replay.Error!=null?"Recording error":!RecordingTools.Ready?"Setting up recording tools…":"On")),("Buffered",$"{ReplayTime.Format(replay.BufferedSeconds)} / {ReplayTime.Format(settings.Replay.BufferSeconds)}"),("Buffer size",$"{replay.CacheBytes/1048576.0:F0} MB"),("Error",replay.Error??UiStrings.T("None"))),
         new("KVM & pairing",("This PC",Environment.MachineName),("Role",UiStrings.T(settings.Kvm.Role)),("Connected computers",string.Join(", ",kvm?.Peers.Select(p=>p.Name)??[]) is {Length:>0} peers?peers:UiStrings.T("None"))),
         new("Virtual devices",("Receiver",UiStrings.T(settings.Discord.Enabled?"On":"Off")),("Video",discord?.Status??UiStrings.T("Off")))
     ];
@@ -269,8 +279,8 @@ sealed class TrayApp:ApplicationContext
     async void SaveReplay()
     {
         if(closing)return;
-        try{string app=ReplayAppContext.Capture();notifications.Enqueue($"Сохраняю последние {settings.Replay.Minutes} мин…");var result=await replay.SaveAsync(app);delivery.Wake();}
+        try{string app=ReplayAppContext.Capture();notifications.Enqueue(UiStrings.F("Saving the last {0}…",ReplayTime.Format(settings.Replay.BufferSeconds)));var result=await replay.SaveAsync(app);delivery.Wake();}
         catch(Exception e){notifications.Enqueue("Повтор не сохранён: "+e.Message);}
     }
-    protected override void ExitThreadCore(){closing=true;settingsWindow?.Close();keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();dispatcher.Dispose();tray.Visible=false;tray.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
+    protected override void ExitThreadCore(){closing=true;settingsWindow?.Close();keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();saveSound.Dispose();dispatcher.Dispose();tray.Visible=false;tray.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
 }

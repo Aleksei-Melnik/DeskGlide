@@ -12,6 +12,7 @@ sealed class ReplayDelivery:IDisposable
     readonly HashSet<string> warned=[];
     readonly SemaphoreSlim wake=new(0,1);
     public event Action<string>? Notification;
+    public event Action<DeliveryJob>? Saved;
     public string Status {get;private set;}="";
     public ReplayDelivery(){worker=Task.Run(Run);}
     public void Wake(){if(wake.CurrentCount==0)try{wake.Release();}catch(SemaphoreFullException){}}
@@ -29,10 +30,13 @@ sealed class ReplayDelivery:IDisposable
                     string source=Path.GetFullPath(job.Source);
                     if(!source.StartsWith(Path.GetFullPath(folder)+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)||!source.EndsWith(".mp4",StringComparison.OrdinalIgnoreCase))throw new IOException("Неверный локальный путь клипа");
                     Status="Копирование: "+job.Destination;
-                    using var timeout=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);timeout.CancelAfter(TimeSpan.FromSeconds(60));
+                    using var timeout=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);timeout.CancelAfter(CopyTimeout(new FileInfo(source).Length));
                     await CopyAsync(job,timeout.Token);
                     File.Delete(manifest);File.Delete(source);warned.Remove(manifest);
-                    Status=$"Последние {TimeSpan.FromSeconds(job.Seconds):mm\\:ss} сохранены.\n{job.Destination}";Notification?.Invoke(Status);
+                    Status=UiStrings.F("Saved {0}.\n{1}",ReplayTime.Format(job.Seconds),job.Destination);
+                    // A notification failure must never retry an already delivered clip.
+                    try{Saved?.Invoke(job);}catch(Exception e){Log.Write("Replay save notification: "+e.Message);}
+                    try{Notification?.Invoke(Status);}catch(Exception e){Log.Write("Replay notification: "+e.Message);}
                 }
                 catch(OperationCanceledException) when(stop.IsCancellationRequested){break;}
                 catch(Exception e)
@@ -44,6 +48,7 @@ sealed class ReplayDelivery:IDisposable
             try{await wake.WaitAsync(TimeSpan.FromSeconds(30),stop.Token);}catch(OperationCanceledException){break;}
         }
     }
+    internal static TimeSpan CopyTimeout(long bytes)=>TimeSpan.FromSeconds(Math.Max(60,bytes/(4.0*1024*1024)+30));
     internal static async Task CopyAsync(DeliveryJob job,CancellationToken token)
     {
         string destination=Path.GetFullPath(job.Destination);

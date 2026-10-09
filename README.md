@@ -76,13 +76,22 @@ link remains available in settings.
 
 ## Instant replay
 
-- Duration: 5–20 minutes. Recording: 60/120 FPS; native, 720p, 1080p, 1440p or 4K.
+- Duration: any time from 30 seconds to 2 hours, entered as minutes and seconds.
+  Quick presets are available. Existing replay durations are preserved.
+  Recording: 60/120 FPS; native, 720p, 1080p, 1440p or 4K.
 - HEVC/H.264/AV1 NVENC when supported by the GPU and installed FFmpeg.
 - Game audio, microphone and optional remote-PC audio, mixed or separate tracks.
   Silent is available per source. Track order remains game, microphone, remote PC.
 - Clips are grouped by foreground game or app automatically. Local and UNC
   network folders work. Buffering stays local; a separate worker delivers saved
   clips to the destination without blocking capture.
+- A gentle, two-note save chime plays only after a clip reaches the chosen
+  destination. Enable or disable it, adjust its volume, or preview it under
+  **Instant replay → Save notification**. Default volume is 25%.
+- Buffer storage is local and follows the chosen duration. A long, high-quality
+  buffer can use tens of gigabytes; it requires enough free space. Increasing
+  duration fills the extra history over time. Saved clips use complete video
+  segments and can be up to approximately 2 seconds shorter than the chosen time.
 - Clips are exported only by **Save replay**, the configured shortcut or
   `DeskGlide.exe --save-replay`. Updates, shutdown and settings changes do not
   export a clip. An unsaved buffer is discarded on restart or recording-format

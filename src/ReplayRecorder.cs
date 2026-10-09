@@ -46,7 +46,7 @@ public sealed class ReplayRecorder:IDisposable
     public double MaxWriterLateMs {get;private set;}
     public int EncoderStarts {get;private set;}
     public double BufferedSeconds {get{lock(chunksGate)return Math.Min(WindowSeconds,chunks.Sum(c=>c.End-c.Start));}}
-    double WindowSeconds=>testWindowSeconds??Volatile.Read(ref options).Minutes*60;
+    double WindowSeconds=>testWindowSeconds??Volatile.Read(ref options).BufferSeconds;
     public long CacheBytes {get{lock(chunksGate)return chunks.Sum(c=>c.Bytes);}}
     public static double Now=>Stopwatch.GetTimestamp()/(double)Stopwatch.Frequency;
     public ReplayRecorder(ReplayOptions value,bool syntheticAudio=false,int? testWindowSeconds=null)
@@ -203,7 +203,7 @@ public sealed class ReplayRecorder:IDisposable
                 }
             }
             catch(IOException){}
-            Cleanup(config.Minutes);
+            Cleanup();
         }
         var videoTask=Task.Factory.StartNew(()=>
         {
@@ -262,7 +262,7 @@ public sealed class ReplayRecorder:IDisposable
                 if(videoTask.IsCompleted)await videoTask;
                 if(!config.IsSilent&&audioTask.IsCompleted)await audioTask;
                 if(Now-lastVideo>4)throw new IOException("Кодировщик записи не отвечает.");
-                Error=null;Status=$"{config.Codec} NVENC · {Width}×{Height} · {config.Fps} FPS · буфер {TimeSpan.FromSeconds(BufferedSeconds):mm\\:ss} / {Volatile.Read(ref options).Minutes}:00";
+                Error=null;Status=$"{config.Codec} NVENC · {Width}×{Height} · {config.Fps} FPS · буфер {ReplayTime.Format(BufferedSeconds)} / {ReplayTime.Format(WindowSeconds)}";
             }
         }
         catch(OperationCanceledException) when(stop.IsCancellationRequested){}
@@ -277,16 +277,16 @@ public sealed class ReplayRecorder:IDisposable
         }
         if(failure!=null)throw failure;
     }
-    void Cleanup(int minutes)
+    void Cleanup()
     {
         lock(chunksGate)
         {
-            long bytes=chunks.Sum(c=>c.Bytes);double before=Now-WindowSeconds-8;
+            double before=Now-WindowSeconds-8;
             foreach(var chunk in chunks.ToArray())
             {
                 if(chunk.Pins!=0)continue;
-                if(chunk.End>=before&&bytes<=32L*1024*1024*1024)break;
-                TryDelete(chunk.Path);chunks.Remove(chunk);bytes-=chunk.Bytes;
+                if(chunk.End>=before)break;
+                TryDelete(chunk.Path);chunks.Remove(chunk);
             }
         }
         var drive=new DriveInfo(Path.GetPathRoot(runFolder)!);
@@ -319,7 +319,7 @@ public sealed class ReplayRecorder:IDisposable
             listPath=output+".ffconcat";
             File.WriteAllLines(listPath,selected.SelectMany(c=>new[]{"file '"+c.Path.Replace("\\","/").Replace("'","'\\''")+"'","duration "+ReplayTools.Number(c.End-c.Start)}));
             double duration=selected.Sum(c=>c.End-c.Start)-Math.Max(0,selected[^1].End-pressed);
-            using var timeout=new CancellationTokenSource(TimeSpan.FromMinutes(3));
+            using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(180,selected.Sum(c=>c.Bytes)/(16.0*1024*1024)+60)));
             var exportArgs=new List<string>{"-hide_banner","-loglevel","error","-nostdin","-y","-f","concat","-safe","0","-i",listPath,"-t",ReplayTools.Number(duration),"-map","0","-c","copy","-movflags","+faststart"};
             if(selected[0].Codec=="HEVC")exportArgs.AddRange(["-tag:v","hvc1"]);
             if(config.IsSilent)exportArgs.Add("-an");
