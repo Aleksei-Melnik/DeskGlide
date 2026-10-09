@@ -77,6 +77,7 @@ class ShellWindow:W.Window
     bool appearancePending;
     int appearanceVersion;
     bool fullscreenChrome;
+    bool resizableChrome;
     internal bool AnimateOnReveal {get;set;}
     public bool IsClosed {get;private set;}
     public ShellWindow(string title,double width,double height)
@@ -192,8 +193,14 @@ class ShellWindow:W.Window
     {
         fullscreenChrome=enabled;
         if(header!=null)header.Visibility=enabled?W.Visibility.Collapsed:W.Visibility.Visible;
+        if(resizableChrome)ResizeMode=enabled?W.ResizeMode.NoResize:W.ResizeMode.CanResize;
         System.Windows.Shell.WindowChrome.SetWindowChrome(this,enabled?null:chrome);WindowStyle=W.WindowStyle.None;
         ApplyNativeFrame();
+    }
+    protected void EnableResizing(double minimumWidth,double minimumHeight)
+    {
+        resizableChrome=true;ResizeMode=W.ResizeMode.CanResize;MinWidth=minimumWidth;MinHeight=minimumHeight;
+        chrome.ResizeBorderThickness=new(6);
     }
     [StructLayout(LayoutKind.Sequential)] readonly record struct Margins(int Left,int Right,int Top,int Bottom);
     [DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr window,ref Margins margins);

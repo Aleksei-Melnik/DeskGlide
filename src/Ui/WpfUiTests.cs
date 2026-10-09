@@ -90,6 +90,39 @@ static class WpfUiTests
         window.Hide();window.Reveal();Pump();Invoke(ActionButton(window,"Close window"));
         Require(window.IsClosed&&frame.Opacity==1&&!frame.HasAnimatedProperties,"Closing during an entrance animation left a live clock or delayed close");
     }
+    static void ViewerResizes(ViewerWindow window)
+    {
+        Require(window.ResizeMode==W.ResizeMode.CanResize&&window.MinWidth>=640&&window.MinHeight>=400,"Remote viewer cannot resize or has no usable minimum size");
+        var host=Children((W.DependencyObject)window.Content).OfType<System.Windows.Forms.Integration.WindowsFormsHost>().Single();
+        var toolbar=Children((W.DependencyObject)window.Content).OfType<C.WrapPanel>().Single();
+        var picture=window.NativeSurface.Controls.OfType<KvmViewer.Viewport>().Single();
+        Require(window.NativeSurface.MinimumSize==System.Drawing.Size.Empty&&picture.SizeMode==PictureBoxSizeMode.Zoom,"Embedded viewer retains a fixed minimum or stretches remote video");
+        window.Width=640;window.Height=450;window.UpdateLayout();Pump();
+        double smallWidth=host.ActualWidth,smallHeight=host.ActualHeight;
+        Require(smallWidth>0&&smallHeight>0&&toolbar.ActualHeight>50,"Narrow viewer did not wrap its toolbar or lost its viewport");
+        foreach(var item in toolbar.Children.Cast<W.FrameworkElement>())
+        {
+            var point=item.TranslatePoint(new(),toolbar);
+            Require(point.X>=0&&point.Y>=0&&point.X+item.ActualWidth<=toolbar.ActualWidth+1&&point.Y+item.ActualHeight<=toolbar.ActualHeight+1,"Narrow viewer clips a toolbar control");
+        }
+        void ViewportFits()
+        {
+            var transform=W.PresentationSource.FromVisual(window)!.CompositionTarget!.TransformToDevice;
+            Require(Math.Abs(window.NativeSurface.Width-host.ActualWidth*transform.M11)<=2&&Math.Abs(window.NativeSurface.Height-host.ActualHeight*transform.M22)<=2,"Embedded remote viewport does not follow window size");
+            Require(picture.ClientSize==window.NativeSurface.ClientSize,"Remote image is clipped inside its embedded surface");
+        }
+        ViewportFits();window.Width=1000;window.Height=650;window.UpdateLayout();Pump();ViewportFits();
+        Require(host.ActualWidth>smallWidth&&host.ActualHeight>smallHeight,"Growing the viewer did not enlarge remote video in both dimensions");
+        var edges=new (W.Point Point,int Hit)[]{
+            (new(2,window.ActualHeight/2),10),(new(window.ActualWidth-2,window.ActualHeight/2),11),
+            (new(window.ActualWidth/2,2),12),(new(window.ActualWidth/2,window.ActualHeight-2),15),
+            (new(2,2),13),(new(window.ActualWidth-2,2),14),
+            (new(2,window.ActualHeight-2),16),(new(window.ActualWidth-2,window.ActualHeight-2),17)
+        };
+        foreach(var edge in edges)Require(NativeHit(window,edge.Point)==edge.Hit,"A remote-viewer edge or corner cannot start native resizing: "+edge.Hit);
+        var handle=new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        Require((GetWindowLongPtr(handle,-16).ToInt64()&0x00040000)!=0,"Native resize style is missing from the remote viewer");
+    }
     static void RunTests()
     {
         UiStrings.Shared.Language="en";
@@ -168,12 +201,15 @@ static class WpfUiTests
         var hub=new KvmWindow(()=>null,()=>true,_=>{},()=>{},_=>{},_=>{}){Opacity=0,ShowInTaskbar=false};hub.Reveal();Pump();ChromeWorks(hub);hub.RenderPeers("Host",[peer,server]);Render(hub,Path.Combine(folder,"kvm-connected.png"));Invoke(ActionButton(hub,"Close window"));Require(hub.IsClosed,"KVM custom close failed");
         var empty=new KvmWindow(()=>null,()=>false,_=>{},()=>{},_=>{},_=>{}){Opacity=0,ShowInTaskbar=false};empty.Reveal();Pump();Render(empty,Path.Combine(folder,"kvm-empty.png"));empty.Close();
         using var service=new KvmService(new KvmOptions());var viewer=new ViewerWindow(service,peer){Opacity=0,ShowInTaskbar=false};viewer.Reveal();Pump();Require(viewer.IsVisible,"WPF viewer did not open");
+        ViewerResizes(viewer);var viewerBounds=new W.Rect(viewer.Left,viewer.Top,viewer.Width,viewer.Height);
         var surface=viewer.NativeSurface;var picture=surface.Controls.OfType<KvmViewer.Viewport>().Single();Require(picture.Focus()&&picture.Focused,"Embedded viewport cannot receive keyboard focus");
         var down=new List<Keys>();var up=new List<Keys>();surface.KeyDown+=(_,e)=>{if(e.Handled)down.Add(e.KeyCode);};surface.KeyUp+=(_,e)=>{if(e.Handled)up.Add(e.KeyCode);};
         foreach(var key in new[]{Keys.Tab,Keys.Left,Keys.ControlKey,Keys.A}){PostMessage(picture.Handle,0x100,(IntPtr)(int)key,IntPtr.Zero);PostMessage(picture.Handle,0x101,(IntPtr)(int)key,IntPtr.Zero);}Pump();
         Require(down.SequenceEqual(new[]{Keys.Tab,Keys.Left,Keys.ControlKey,Keys.A})&&up.SequenceEqual(down),"WPF hosting swallowed a remote key or key release");
         ChromeWorks(viewer);PostMessage(picture.Handle,0x100,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x100,(IntPtr)(int)Keys.F11,IntPtr.Zero);Pump();Require(viewer.WindowStyle==W.WindowStyle.None&&System.Windows.Shell.WindowChrome.GetWindowChrome(viewer)==null&&!ActionButton(viewer,"Close window").IsVisible,"WPF fullscreen repeat guard failed");
-        PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x100,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);Pump();Require(viewer.WindowStyle==W.WindowStyle.None&&System.Windows.Shell.WindowChrome.GetWindowChrome(viewer)!=null,"WPF fullscreen did not restore");ChromeWorks(viewer);viewer.Close();
+        PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x100,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);Pump();Require(viewer.WindowStyle==W.WindowStyle.None&&System.Windows.Shell.WindowChrome.GetWindowChrome(viewer)!=null,"WPF fullscreen did not restore");
+        Require(viewer.ResizeMode==W.ResizeMode.CanResize&&Math.Abs(viewer.Width-viewerBounds.Width)<1&&Math.Abs(viewer.Height-viewerBounds.Height)<1&&Math.Abs(viewer.Left-viewerBounds.Left)<1&&Math.Abs(viewer.Top-viewerBounds.Top)<1,"Full screen did not restore the resized window bounds or resize controls");
+        ChromeWorks(viewer);viewer.Close();
         Program.Write("wpf-ui-tests.json",new{Pass=true,SettingsOpenMs=opening,PagesRendered=33,ProductionWpfMessageLoop=true,NavigationAndSaveInvoked=true,LiveLanguageSwitch=true,HostReceiverHidden=true,IndividualMonitorRemoveAndRestore=true,SettingsResponsiveDuringDiscovery=true,SettingsSelectionsPreserved=true,ClosedDuringDiscovery=true,WpfKvmViewerOpened=true,HostedKeyboardAndKeyRelease=true,WpfFullscreenRepeatGuard=true,NativeCaptionHitTesting=true,NativeTitleBarRemoved=true,CustomMinimizeClose=true,RapidAnimatedNavigationPreservedEdits=true});
     }
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
