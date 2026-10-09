@@ -36,8 +36,9 @@ static class RecordingToolsTests
         foreach(string name in new[]{"ffmpeg.exe","ffprobe.exe","FFmpeg-LICENSE"})File.WriteAllText(Path.Combine(oldTools,name),"original-"+name);
         using(var cancelled=new CancellationTokenSource())
         {cancelled.Cancel();try{RecordingTools.RelocateLegacy(oldApp,current,cancelled.Token);}catch(OperationCanceledException){}Require(RecordingTools.Complete(oldTools),"Cancelled migration removed original tools.");}
-        RecordingTools.RelocateLegacy(oldApp,current);string imported=RecordingTools.ImportedDirectory(oldApp,current);
+        RecordingTools.RelocateLegacy(oldApp,current);string imported=RecordingTools.ImportedDirectory(current);
         Require(!Directory.Exists(oldTools)&&RecordingTools.Complete(imported)&&RecordingTools.Resolve(oldApp,current)==imported,"Old tools were not relocated outside the app directory.");
+        Require(RecordingTools.Resolve(Path.Combine(root,"moved-exe"),current)==imported,"Moving the EXE lost imported recording tools.");
         foreach(string name in new[]{"ffmpeg.exe","ffprobe.exe","FFmpeg-LICENSE"})Require(File.ReadAllText(Path.Combine(imported,name))=="original-"+name,"Imported tool bytes changed.");
         Directory.CreateDirectory(current);File.WriteAllText(Path.Combine(current,"ffmpeg.exe"),"verified current encoder");File.WriteAllText(Path.Combine(current,"ffprobe.exe"),"verified current probe");
         Require(RecordingTools.Resolve(oldApp,current)==current,"Verified current tools must take priority over imported tools.");

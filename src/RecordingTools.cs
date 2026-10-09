@@ -18,14 +18,10 @@ static class RecordingTools
     internal static string CacheRoot=>Environment.GetEnvironmentVariable("SDRCAPTURE_RECORDING_TOOLS_ROOT")??Path.Combine(Log.Folder,"RecordingTools");
     internal static string SharedDirectory=>Path.Combine(CacheRoot,"ffmpeg-"+Version);
     internal static bool Complete(string folder)=>new[]{"ffmpeg.exe","ffprobe.exe"}.All(name=>File.Exists(Path.Combine(folder,name))&&new FileInfo(Path.Combine(folder,name)).Length>0);
-    internal static string ImportedDirectory(string appDirectory,string sharedDirectory)
-    {
-        string identity=Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(appDirectory).TrimEnd(Path.DirectorySeparatorChar).ToUpperInvariant())));
-        return Path.Combine(Path.GetDirectoryName(Path.GetFullPath(sharedDirectory))!,"Imported",identity[..32]);
-    }
+    internal static string ImportedDirectory(string sharedDirectory)=>Path.Combine(Path.GetDirectoryName(Path.GetFullPath(sharedDirectory))!,"Imported");
     internal static string? Resolve(string appDirectory,string sharedDirectory)
     {
-        string imported=ImportedDirectory(appDirectory,sharedDirectory),legacy=Path.Combine(appDirectory,"tools");
+        string imported=ImportedDirectory(sharedDirectory),legacy=Path.Combine(appDirectory,"tools");
         return Complete(sharedDirectory)?sharedDirectory:Complete(imported)?imported:Complete(legacy)?legacy:null;
     }
     public static string? DirectoryPath=>Resolve(AppContext.BaseDirectory,SharedDirectory);
@@ -47,7 +43,7 @@ static class RecordingTools
     }
     internal static void RelocateLegacy(string appDirectory,string sharedDirectory,CancellationToken token=default)
     {
-        string source=Path.GetFullPath(Path.Combine(appDirectory,"tools")),destination=ImportedDirectory(appDirectory,sharedDirectory);
+        string source=Path.GetFullPath(Path.Combine(appDirectory,"tools")),destination=ImportedDirectory(sharedDirectory);
         if(!Directory.Exists(source))return;
         Updates.RejectReparse(source);Updates.RejectReparse(destination);
         if(!Complete(source)&&!Complete(destination))return;
