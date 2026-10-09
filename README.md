@@ -92,8 +92,12 @@ link remains available in settings.
   by the GPU and driver. Selection checks the actual requested resolution, frame
   rate and codec. Unsupported choices produce a clear error; the app never
   silently falls back to heavy CPU encoding or changes the selected codec.
-  AMD/Intel encoder selection and arguments are covered by deterministic tests;
-  sustained recording on physical AMD/Intel hardware has not yet been verified.
+  Physical RTX 5070 and Radeon integrated-GPU tests cover 1440p moving-frame
+  replay, muxing and decoding: NVIDIA H.264/HEVC/AV1 and AMD H.264/HEVC at
+  60/120 FPS in the tested configurations. The integrated Radeon does not encode
+  AV1. Intel selection is tested deterministically; physical Intel recording and
+  sustained game-load performance on all GPU models remain unverified.
+  See [hardware validation](HARDWARE-VALIDATION.md) for measurements and limits.
 - Game audio, microphone and optional remote-PC audio, mixed or separate tracks.
   Silent is available per source. Track order remains game, microphone, remote PC.
 - Clips are grouped by foreground game or app automatically. Local and UNC

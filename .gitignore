@@ -9,6 +9,7 @@
 !/LICENSE
 !/THIRD-PARTY-NOTICES.md
 !/RELEASE-NOTES.md
+!/HARDWARE-VALIDATION.md
 !/Build.ps1
 !/Enable-Lan.ps1
 !/Install-RecordingTools.ps1

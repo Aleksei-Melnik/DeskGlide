@@ -19,11 +19,23 @@ static class NdiRuntime
         if(bytes.Length>32*1024*1024||!Convert.ToHexString(SHA256.HashData(bytes)).Equals(Sha256,StringComparison.Ordinal))
             throw new IOException(UiStrings.T("NDI Runtime checksum mismatch. Update DeskGlide or install the official Runtime manually."));
     }
+    internal static bool CachedPackageValid(string file)
+    {
+        try
+        {
+            using var input=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.Read);
+            return input.Length is >0 and <=32*1024*1024 &&
+                Convert.ToHexString(SHA256.HashData(input)).Equals(Sha256,StringComparison.Ordinal);
+        }
+        catch(IOException){return false;}
+    }
     static async Task InstallAsync(Action<string>? progress,CancellationToken token)
     {
         string root=Path.Combine(Log.Folder,"Dependencies","NDI",Version);Updates.RejectReparse(root);Directory.CreateDirectory(root);
         string installer=Path.Combine(root,"NDI-Runtime.exe");Updates.RejectReparse(installer);
-        if(!File.Exists(installer))
+        // A damaged cache must be replaceable on retry, rather than permanently
+        // blocking first-time setup. Replace it only after verifying the download.
+        if(!CachedPackageValid(installer))
         {
             progress?.Invoke(UiStrings.T("Downloading NDI Runtime…"));
             using var response=await http.GetAsync(DownloadUrl,HttpCompletionOption.ResponseHeadersRead,token);

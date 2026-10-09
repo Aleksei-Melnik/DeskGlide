@@ -99,9 +99,9 @@ static class AudioTimingTests
             CapturedSamples=arrived.Count(v=>v),LateSamples=arrived.Where((v,i)=>v&&!read[i]).Count()};}
         public int Late {get{lock(gate)return arrived.Where((v,i)=>v&&!read[i]).Count();}}
     }
-    public static void Live(bool playTone=false)
+    public static void Live(bool playTone=false,string? deviceId=null)
     {
-        string id=Settings.Load().Replay.GameAudio;
+        string id=deviceId??Settings.Load().Replay.GameAudio;
         Require(id.Length>0&&!id.StartsWith("kvm:"),"Select a local PC audio endpoint first");
         using var devices=new MMDeviceEnumerator();
         using var device=id.StartsWith("default:")?devices.GetDefaultAudioEndpoint(id=="default:render"?DataFlow.Render:DataFlow.Capture,Role.Multimedia):devices.GetDevice(id);

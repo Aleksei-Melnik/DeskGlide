@@ -22,6 +22,15 @@ static class DependencyTests
         }
         Require(installs==1,"Cancelled setup installed a dependency");
         bool rejected=false;try{NdiRuntime.VerifyPackage([1,2,3]);}catch(IOException){rejected=true;}Require(rejected,"An untrusted NDI installer was accepted");
+        string cacheFixture=Path.Combine(Path.GetTempPath(),"DeskGlide-cache-test-"+Guid.NewGuid().ToString("N")+".exe");
+        try
+        {
+            Require(!NdiRuntime.CachedPackageValid(cacheFixture),"A missing installer cache was reused");
+            File.WriteAllBytes(cacheFixture,[1,2,3]);Require(!NdiRuntime.CachedPackageValid(cacheFixture),"A corrupted installer cache prevents a fresh download");
+            using(var oversized=new FileStream(cacheFixture,FileMode.Create,FileAccess.Write))oversized.SetLength(32L*1024*1024+1);
+            Require(!NdiRuntime.CachedPackageValid(cacheFixture),"An oversized installer cache was accepted");
+        }
+        finally{if(File.Exists(cacheFixture))File.Delete(cacheFixture);}
         var candidates=NdiNative.RuntimeCandidates(@"C:\Program Files",@"C:\App",(key,target)=>key=="NDI_RUNTIME_DIR_V6"&&target==EnvironmentVariableTarget.Machine?@"C:\InstalledAfterLaunch":null).ToArray();
         Require(candidates.Contains(@"C:\InstalledAfterLaunch\Processing.NDI.Lib.x64.dll")&&candidates.Contains(@"C:\Program Files\NDI\NDI 6 Runtime\v6\Processing.NDI.Lib.x64.dll"),"Newly installed runtime could not be found without restarting the application");
         foreach(string codec in new[]{"H264","HEVC","AV1"})
@@ -46,7 +55,7 @@ static class DependencyTests
             try{await RecordingEncoders.FindAsync(RecordingEncoders.Candidates(new(),1920,1080),(_,_)=>{probed=true;return Task.FromResult(true);},cancellation.Token);throw new Exception("Cancelled encoder probe was run");}catch(OperationCanceledException){}
             Require(!probed,"A cancelled replay startup used the GPU");
         }
-        Program.Write("dependency-tests.json",new{Pass=true,ExistingRuntimeReused=true,OneInstallerPerProcess=true,NoRepeatedUacOnCancellation=true,FreshMachineEnvironmentRead=true,RuntimeIntegrity=true,NvidiaAmdIntelSelection=true,NoImplicitSoftwareEncoder=true});
+        Program.Write("dependency-tests.json",new{Pass=true,ExistingRuntimeReused=true,OneInstallerPerProcess=true,NoRepeatedUacOnCancellation=true,FreshMachineEnvironmentRead=true,RuntimeIntegrity=true,CorruptedCacheReplaceable=true,NvidiaAmdIntelSelection=true,NoImplicitSoftwareEncoder=true});
     }
     public static async Task VerifyRuntimeDownloadAsync()
     {
@@ -54,7 +63,13 @@ static class DependencyTests
         byte[] bytes=await http.GetByteArrayAsync(NdiRuntime.DownloadUrl);NdiRuntime.VerifyPackage(bytes);
         string folder=Path.Combine(Log.Folder,"DependencyTests",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
         string file=Path.Combine(folder,"NDI-Runtime.exe");
-        try{await File.WriteAllBytesAsync(file,bytes);DiscordSetup.VerifySignature(file,"NDI Runtime");Program.Write("ndi-runtime-package-test.json",new{Pass=true,Version=NdiRuntime.Version,Sha256=NdiRuntime.Sha256,Bytes=bytes.Length,WindowsSignatureVerified=true,InstallerLaunched=false});}
+        try
+        {
+            await File.WriteAllBytesAsync(file,bytes);Require(NdiRuntime.CachedPackageValid(file),"The verified runtime could not be reused from cache");
+            DiscordSetup.VerifySignature(file,"NDI Runtime");
+            await File.WriteAllBytesAsync(file,[1,2,3]);Require(!NdiRuntime.CachedPackageValid(file),"A damaged cached runtime did not request a fresh download");
+            Program.Write("ndi-runtime-package-test.json",new{Pass=true,Version=NdiRuntime.Version,Sha256=NdiRuntime.Sha256,Bytes=bytes.Length,WindowsSignatureVerified=true,ValidCacheReused=true,DamagedCacheRejected=true,InstallerLaunched=false});
+        }
         finally{File.Delete(file);Directory.Delete(folder,false);}
     }
 }

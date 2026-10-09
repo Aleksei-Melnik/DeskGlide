@@ -42,7 +42,7 @@ internal static class Program
             if(args.Contains("--ndi-audio-probe")){NdiAudioTests.Probe();return 0;}
             if(args.Contains("--ndi-audio-test")){NdiAudioTests.Run();return 0;}
             if(args.Contains("--audio-timing-test")){AudioTimingTests.Run();return 0;}
-            if(args.Contains("--audio-live-test")){AudioTimingTests.Live(args.Contains("--play-tone"));return 0;}
+            if(args.Contains("--audio-live-test")){int d=Array.IndexOf(args,"--audio-device");AudioTimingTests.Live(args.Contains("--play-tone"),d<0?null:args[d+1]);return 0;}
             if(args.Contains("--kvm-test")){KvmTests.Run();return 0;}
             if(args.Contains("--kvm-video-test")){KvmVideoTests.Codec();return 0;}
             if(args.Contains("--kvm-video-live-test")){KvmVideoTests.Live();return 0;}
