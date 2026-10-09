@@ -173,7 +173,7 @@ static class CameraInstallation
     {
         RequireReceiver(role);
         string name=Name(configured);ValidateName(name);
-        string source=Path.Combine(AppContext.BaseDirectory,"camera","ScreenCapture.Camera.dll");
+        string source=PortableResources.FilePath("camera/ScreenCapture.Camera.dll");
         string hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source)))[..16];
         string directory=Path.Combine(Log.Folder,"Discord","Camera",hash);Directory.CreateDirectory(directory);
         string target=Path.Combine(directory,"ScreenCapture.Camera.dll");if(!File.Exists(target))File.Copy(source,target);

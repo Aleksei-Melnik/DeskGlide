@@ -26,3 +26,19 @@ jobs:
               throw "$flag failed"
             }
           }
+      - name: Build portable executable
+        shell: pwsh
+        run: |
+          ./scripts/Build-Portable.ps1 -Payload ./app -Output ./portable-build
+          New-Item -ItemType Directory -Path ./portable-check | Out-Null
+          Copy-Item ./portable-build/DeskGlide.exe ./portable-check/DeskGlide.exe
+      - name: Test portable executable without adjacent libraries
+        shell: pwsh
+        run: |
+          foreach ($flag in @('--portable-tests', '--update-tests', '--restart-tests', '--recording-tools-tests', '--audio-timing-test', '--wpf-ui-tests', '--feature-tests', '--kvm-video-test', '--kvm-test')) {
+            $p=Start-Process ./portable-check/DeskGlide.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
+            if($p.ExitCode -ne 0){
+              if(Test-Path "$env:LOCALAPPDATA/SdrCapture/Diagnostics/error.txt"){Get-Content "$env:LOCALAPPDATA/SdrCapture/Diagnostics/error.txt"}
+              throw "Portable $flag failed"
+            }
+          }

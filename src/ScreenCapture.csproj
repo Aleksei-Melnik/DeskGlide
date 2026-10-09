@@ -5,7 +5,7 @@
     <Product>DeskGlide</Product><AssemblyTitle>DeskGlide</AssemblyTitle><Description>KVM, screen sharing and instant replay for Windows</Description>
     <UseWindowsForms>true</UseWindowsForms><UseWPF>true</UseWPF><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><PlatformTarget>x64</PlatformTarget>
-    <Version>0.7.8</Version><AssemblyVersion>0.7.8.0</AssemblyVersion><FileVersion>0.7.8.0</FileVersion>
+    <Version>0.7.9</Version><AssemblyVersion>0.7.9.0</AssemblyVersion><FileVersion>0.7.9.0</FileVersion>
     <ApplicationIcon>Assets\DeskGlide.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup><PackageReference Include="Vortice.Direct3D11" Version="3.8.3" /><PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" /></ItemGroup>
@@ -15,4 +15,5 @@
   <ItemGroup><PackageReference Include="NAudio.Wasapi" Version="2.3.0" /></ItemGroup>
   <ItemGroup><Content Include="..\native\TurboJpeg\libturbojpeg.dll" Link="libturbojpeg.dll" CopyToOutputDirectory="PreserveNewest" /><Content Include="..\licenses\libjpeg-turbo\*" Link="licenses\libjpeg-turbo\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" /></ItemGroup>
   <ItemGroup><EmbeddedResource Include="Assets\release-public.pem" LogicalName="SdrCapture.ReleasePublicKey" /></ItemGroup>
+  <ItemGroup Condition="'$(PublishSingleFile)' == 'true'"><EmbeddedResource Include="$(PortableResourcesArchive)" LogicalName="DeskGlide.PortableResources" /></ItemGroup>
 </Project>

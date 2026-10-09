@@ -8,7 +8,8 @@ The interface supports English and Russian.
 
 Install NDI Tools/Runtime x64 on PCs sending or receiving NDI; vendor runtime binaries are not redistributed here.
 
-1. Extract the Windows release and run `DeskGlide.exe`. Settings opens from
+1. Download the single `DeskGlide.exe` from Releases and run it. No app installer
+   or separate .NET installation is needed. Settings opens from
    a tray double-click or **Settings** in the tray menu.
 2. Under **Screen streaming**, choose a monitor and enable NDI. Output is SDR,
    at the monitor's preferred native resolution, with a 60 FPS delivery clock.
@@ -31,6 +32,15 @@ hardware recording choices; NDI streaming does not use the recording codec.
 SDR/HDR desktop capture is converted on the GPU into bounded SDR. SDR shadows
 retain their display brightness. HDR highlights use a fixed tone-mapping curve;
 Windows SDR-white brightness is compensated without changing Windows settings.
+
+The executable contains the Windows Desktop runtime, KVM codec, virtual camera
+and dependency notices. Native runtime files use Windows' internal bundle cache;
+camera components, settings, keys and recording tools use the per-user data folder.
+No libraries need to be kept next to `DeskGlide.exe`. Optional NDI Runtime and
+VB-CABLE requirements stay the same; the audio driver still needs Windows approval.
+Signed updates replace the current EXE. Older folder installations migrate in
+place, preserving the active launcher name, settings, pairing and recording tools.
+Only files owned by the signed app package are removed; unknown user files remain.
 
 ## Virtual camera and audio
 
@@ -120,12 +130,13 @@ updated camera DLL. Releases are published at:
 https://github.com/Aleksei-Melnik/DeskGlide/releases
 
 Existing installs retain `%LOCALAPPDATA%\SdrCapture`, pairing and the NDI source
-name. `ScreenCapture.exe` and `SdrCapture.exe` are compatibility launchers for
-old shortcuts and firewall rules; new installs use `DeskGlide.exe`. All three
-launch the same app and share a singleton, so they cannot start duplicate senders.
+name. Folder updates retain the name of the running launcher (`ScreenCapture.exe`,
+`SdrCapture.exe` or `DeskGlide.exe`) to preserve its shortcut and firewall rules.
+Fresh downloads use a single `DeskGlide.exe`; the singleton prevents duplicate senders.
 Old `.scprofile` backups remain readable. Custom camera/audio names are kept.
 The signed updater archive retains the `ScreenCapture-*` name so existing
-clients can update; the public `DeskGlide-*` download contains identical files.
+clients can migrate; the compatibility `DeskGlide-*` ZIP contains identical files.
+After migration, updates download and replace only the signed portable EXE.
 The renamed GitHub repository redirects old update URLs. Do not recreate a
 repository under the old name. Exit the app before a manual in-place extraction;
 retain the `tools` folder.
@@ -133,6 +144,7 @@ retain the `tools` folder.
 ## Building and validation
 
 Build with .NET 10 and Visual Studio C++ Windows SDK: `./Build.ps1`.
+Build the single executable with `./scripts/Build-Portable.ps1 -Payload ./app`.
 Managed deterministic tests cover update integrity/rollback, audio timing, KVM,
 UI responsiveness and language switching. Camera probes exercise real DirectShow
 negotiation, RGB24/32, 30/60 FPS, native dimensions and source pauses. GPU tests

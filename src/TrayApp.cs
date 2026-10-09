@@ -68,6 +68,11 @@ sealed class TrayApp:ApplicationContext
         catch(Exception e){Log.Write("Initial display enumeration will be retried: "+e.Message);}
         if(string.IsNullOrEmpty(settings.Device)) settings.Device=@"\\.\DISPLAY1";
         settings.Save();
+        // Follow the executable the user actually launched, keeping an existing
+        // autorun preference when switching from a folder to the portable file.
+        try{if(PortableResources.Bundled&&IsAutorun())
+        {using var run=Registry.CurrentUser.CreateSubKey(RunKey);run.SetValue("DeskGlide",$"\"{Environment.ProcessPath}\"");run.DeleteValue("ScreenCapture",false);run.DeleteValue("SdrCapture",false);}}
+        catch(Exception e){Log.Write("Portable autorun migration: "+e.Message);}
         try{keepAwake.Set(settings.PreventIdleSleep);}catch(Exception e){Log.Write(e.ToString());notifications.Enqueue(e.Message);}
         replay=new ReplayRecorder(settings.Replay);
         engine.FrameAvailable=replay.Offer;engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;engine.ReplayEnabled=settings.Replay.Enabled;engine.ReplayFrameRate=settings.Replay.Fps;

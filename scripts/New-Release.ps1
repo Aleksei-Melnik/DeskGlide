@@ -32,6 +32,13 @@ foreach($lib in $assets.libraries.GetEnumerator()){
     }
 }
 # Only a fresh publish directory is packaged; no profiles, keys, tests or clips.
+$portableBuild=Join-Path $release 'portable-build'
+& (Join-Path $repo 'scripts/Build-Portable.ps1') -Payload $payload -Output $portableBuild | Out-Host
+$portableExe=Join-Path $release 'DeskGlide.exe'
+Copy-Item -LiteralPath (Join-Path $portableBuild 'DeskGlide.exe') -Destination $portableExe
+# Old signed clients require the folder manifest and all three launcher names.
+# Their new helper migrates only owned package files into one executable.
+foreach($launcher in @('DeskGlide.exe','ScreenCapture.exe','SdrCapture.exe')){Copy-Item -LiteralPath $portableExe -Destination (Join-Path $payload $launcher) -Force}
 $files=[ordered]@{}
 foreach($item in Get-ChildItem -LiteralPath $payload -Recurse -File | Sort-Object FullName){
     $relative=[IO.Path]::GetRelativePath($payload,$item.FullName).Replace('\','/')
@@ -41,7 +48,8 @@ foreach($item in Get-ChildItem -LiteralPath $payload -Recurse -File | Sort-Objec
 $name="ScreenCapture-$version-win-x64.zip";$zip=Join-Path $release $name
 [IO.Compression.ZipFile]::CreateFromDirectory($payload,$zip,[IO.Compression.CompressionLevel]::Optimal,$false)
 Copy-Item -LiteralPath $zip -Destination (Join-Path $release "DeskGlide-$version-win-x64.zip")
-$manifest=[ordered]@{Version=$version;File=$name;Size=(Get-Item -LiteralPath $zip).Length;Sha256=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash;Files=$files}
+$portable=[ordered]@{File='DeskGlide.exe';Size=(Get-Item -LiteralPath $portableExe).Length;Sha256=(Get-FileHash -LiteralPath $portableExe -Algorithm SHA256).Hash}
+$manifest=[ordered]@{Version=$version;File=$name;Size=(Get-Item -LiteralPath $zip).Length;Sha256=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash;Files=$files;Portable=$portable}
 $json=[Text.Encoding]::UTF8.GetBytes(($manifest | ConvertTo-Json -Depth 8))
 [IO.File]::WriteAllBytes((Join-Path $release 'update.json'),$json)
 [IO.File]::WriteAllBytes((Join-Path $release 'update.sig'),$rsa.SignData($json,[Security.Cryptography.HashAlgorithmName]::SHA256,[Security.Cryptography.RSASignaturePadding]::Pkcs1))

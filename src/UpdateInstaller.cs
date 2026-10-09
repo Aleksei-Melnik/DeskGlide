@@ -24,7 +24,8 @@ static class UpdateInstaller
             Updates.RejectReparse(stage);Updates.RejectReparse(job.Destination);
             var manifest=Updates.VerifyManifest(File.ReadAllBytes(Path.Combine(stage,"update.json")),File.ReadAllBytes(Path.Combine(stage,"update.sig")),Updates.PublicKey);
             if(Updates.ParseVersion(manifest.Version)!=Updates.Current)throw new IOException("Версия установщика не совпадает с пакетом.");
-            Updates.VerifyPayload(payload,manifest);
+            if(job.Portable)Updates.VerifyArtifact(Path.Combine(payload,"ScreenCapture.exe"),manifest.Portable??throw new IOException("В релизе отсутствует переносимый EXE."));
+            else Updates.VerifyPayload(payload,manifest);
             using(var parent=Process.GetProcessById(job.ParentPid))
             {
                 if(parent.StartTime.ToUniversalTime().Ticks!=job.ParentStarted||!Path.GetDirectoryName(parent.MainModule!.FileName)!.Equals(job.Destination,StringComparison.OrdinalIgnoreCase))throw new IOException("Исходный процесс изменился.");
@@ -38,7 +39,8 @@ static class UpdateInstaller
             // A second copy must not start while files are being replaced.
             WithInstallationLock(()=>
             {
-                InstallFiles(payload,job.Destination,Path.Combine(stage,"backup"),manifest);
+                if(manifest.Portable!=null)InstallPortable(Path.Combine(payload,"ScreenCapture.exe"),job.Destination,Path.Combine(stage,"backup"),manifest,job.Executable);
+                else InstallFiles(payload,job.Destination,Path.Combine(stage,"backup"),manifest);
                 installed=true;
             });
             using var health=new EventWaitHandle(false,EventResetMode.ManualReset,"Local\\SdrCapture.UpdateHealth."+job.Nonce);
@@ -56,6 +58,7 @@ static class UpdateInstaller
                 throw new IOException("Новая версия не запустилась; предыдущая восстановлена.");
             }
             restartPrevious=false;
+            if(manifest.Portable!=null)RemoveEmptyComponentFolders(job.Destination,manifest);
             File.WriteAllText(resultPath,JsonSerializer.Serialize(new{Success=true,Version=manifest.Version,At=DateTimeOffset.UtcNow,Backup=Path.Combine(stage,"backup")}));
             return 0;
         }
@@ -93,6 +96,43 @@ static class UpdateInstaller
         finally{if(acquired)applicationMutex.ReleaseMutex();}
     }
     sealed record Change(string Path,bool Existed);
+    public static void InstallPortable(string source,string destination,string backup,ReleaseManifest manifest,string executable,Action<int>? afterFile=null)
+    {
+        if(!SupportedExecutable(executable))throw new IOException("Неверное имя приложения.");
+        Updates.VerifyArtifact(source,manifest.Portable??throw new IOException("Отсутствует переносимый пакет."));
+        Updates.RejectReparse(destination);Directory.CreateDirectory(backup);var journal=new List<Change>();
+        void Remember(string relative)
+        {
+            string target=Updates.Under(destination,relative),saved=Updates.Under(backup,relative);Updates.RejectReparse(target);
+            bool existed=File.Exists(target);
+            if(existed){Directory.CreateDirectory(Path.GetDirectoryName(saved)!);File.Copy(target,saved,false);}
+            journal.Add(new(relative,existed));File.WriteAllText(Path.Combine(backup,"journal.json"),JsonSerializer.Serialize(journal));
+        }
+        try
+        {
+            Remember(executable);Directory.CreateDirectory(destination);
+            string target=Updates.Under(destination,executable),temporary=target+".new-"+Guid.NewGuid().ToString("N");
+            try{File.Copy(source,temporary,false);File.Move(temporary,target,true);}
+            finally{if(File.Exists(temporary))File.Delete(temporary);}
+            afterFile?.Invoke(journal.Count);
+            // The signed folder payload owns these paths. Unknown files, tools,
+            // recordings, settings and keys are never removed during migration.
+            foreach(string relative in manifest.Files.Keys.Where(p=>!p.Equals(executable,StringComparison.OrdinalIgnoreCase)))
+            {
+                string old=Updates.Under(destination,relative);if(!File.Exists(old))continue;
+                Remember(relative);File.Delete(old);afterFile?.Invoke(journal.Count);
+            }
+        }
+        catch{Restore(destination,backup);throw;}
+    }
+    static void RemoveEmptyComponentFolders(string destination,ReleaseManifest manifest)
+    {
+        var directories=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach(string relative in manifest.Files.Keys)
+            for(string? directory=Path.GetDirectoryName(Updates.Under(destination,relative));directory!=null&&!directory.Equals(destination,StringComparison.OrdinalIgnoreCase);directory=Path.GetDirectoryName(directory))directories.Add(directory);
+        foreach(string directory in directories.OrderByDescending(p=>p.Length))
+            try{Updates.RejectReparse(directory);if(Directory.Exists(directory))Directory.Delete(directory,false);}catch(IOException){}catch(UnauthorizedAccessException){}
+    }
     public static void InstallFiles(string payload,string destination,string backup,ReleaseManifest manifest,Action<int>? afterFile=null)
     {
         Updates.VerifyPayload(payload,manifest);Updates.RejectReparse(destination);
@@ -121,7 +161,7 @@ static class UpdateInstaller
         foreach(var change in journal.AsEnumerable().Reverse())
         {
             string target=Updates.Under(destination,change.Path);Updates.RejectReparse(target);
-            if(change.Existed)File.Copy(Updates.Under(backup,change.Path),target,true);
+            if(change.Existed){Directory.CreateDirectory(Path.GetDirectoryName(target)!);File.Copy(Updates.Under(backup,change.Path),target,true);}
             else if(File.Exists(target))File.Delete(target);
         }
     }

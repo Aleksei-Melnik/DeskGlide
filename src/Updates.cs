@@ -13,10 +13,11 @@ public sealed record UpdateOptions
     public bool CheckOnStartup {get;set;}=true;
     public bool AllowFromHost {get;set;}=true;
 }
-sealed record ReleaseManifest(string Version,string File,long Size,string Sha256,Dictionary<string,string> Files);
+sealed record ReleaseArtifact(string File,long Size,string Sha256);
+sealed record ReleaseManifest(string Version,string File,long Size,string Sha256,Dictionary<string,string> Files,ReleaseArtifact? Portable=null);
 sealed record AvailableRelease(ReleaseManifest Manifest,byte[] Json,byte[] Signature,string Notes);
 sealed record PreparedUpdate(string Folder,ReleaseManifest Manifest);
-sealed record UpdateJob(string Destination,int ParentPid,long ParentStarted,string Nonce,string Executable);
+sealed record UpdateJob(string Destination,int ParentPid,long ParentStarted,string Nonce,string Executable,bool Portable=false);
 
 static class Updates
 {
@@ -51,6 +52,11 @@ static class Updates
         var names=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach(var file in m.Files){ValidateRelative(file.Key);if(!HashValid(file.Value)||!names.Add(file.Key))throw new IOException("Некорректный список файлов.");}
         foreach(string name in new[]{"ScreenCapture.exe","ScreenCapture.dll","ScreenCapture.runtimeconfig.json"})if(!m.Files.ContainsKey(name))throw new IOException("Неполный пакет DeskGlide.");
+        if(m.Portable is {} portable)
+        {
+            if(portable.File!="DeskGlide.exe"||portable.Size<1||portable.Size>536870912||!HashValid(portable.Sha256)||
+                !m.Files["ScreenCapture.exe"].Equals(portable.Sha256,StringComparison.OrdinalIgnoreCase))throw new IOException("Некорректный переносимый пакет DeskGlide.");
+        }
         return m;
     }
     static bool HashValid(string hash)=>hash!=null&&System.Text.RegularExpressions.Regex.IsMatch(hash,"^[A-Fa-f0-9]{64}$");
@@ -99,21 +105,24 @@ static class Updates
         string folder=Path.Combine(Root,"stage",Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
         await File.WriteAllBytesAsync(Path.Combine(folder,"update.json"),release.Json,token);
         await File.WriteAllBytesAsync(Path.Combine(folder,"update.sig"),release.Signature,token);
-        string zip=Path.Combine(folder,"package.zip");
-        using(var response=await http.GetAsync(AssetUrl(release.Manifest.Version,release.Manifest.File),HttpCompletionOption.ResponseHeadersRead,token))
+        var portable=PortableResources.Bundled?release.Manifest.Portable:null;
+        string payload=Path.Combine(folder,"payload");Directory.CreateDirectory(payload);
+        string download=portable==null?Path.Combine(folder,"package.zip"):Path.Combine(payload,"ScreenCapture.exe");
+        long expectedSize=portable?.Size??release.Manifest.Size;
+        using(var response=await http.GetAsync(AssetUrl(release.Manifest.Version,portable?.File??release.Manifest.File),HttpCompletionOption.ResponseHeadersRead,token))
         {
-            response.EnsureSuccessStatusCode();await using var input=await response.Content.ReadAsStreamAsync(token);await using var output=File.Create(zip);
+            response.EnsureSuccessStatusCode();await using var input=await response.Content.ReadAsStreamAsync(token);await using var output=File.Create(download);
             byte[] chunk=new byte[131072];long count=0;int got,last=-1;
             while((got=await input.ReadAsync(chunk,token))>0)
             {
-                count+=got;if(count>release.Manifest.Size)throw new IOException("Пакет больше подписанного размера.");
-                await output.WriteAsync(chunk.AsMemory(0,got),token);int percent=(int)(100*count/release.Manifest.Size);
+                count+=got;if(count>expectedSize)throw new IOException("Пакет больше подписанного размера.");
+                await output.WriteAsync(chunk.AsMemory(0,got),token);int percent=(int)(100*count/expectedSize);
                 if(percent!=last){last=percent;progress?.Invoke($"Скачивание {release.Manifest.Version}: {percent}%");}
             }
-            if(count!=release.Manifest.Size)throw new IOException("Обновление скачалось не полностью.");
+            if(count!=expectedSize)throw new IOException("Обновление скачалось не полностью.");
         }
         progress?.Invoke("Проверка подписи и файлов…");
-        await Task.Run(()=>ExtractVerified(zip,Path.Combine(folder,"payload"),release.Manifest),token);
+        await Task.Run(()=>{if(portable==null)ExtractVerified(download,payload,release.Manifest);else VerifyArtifact(download,portable);},token);
         return new(folder,release.Manifest);
     }
     public static void ExtractVerified(string zip,string destination,ReleaseManifest manifest)
@@ -140,6 +149,11 @@ static class Updates
             if(!Convert.ToHexString(SHA256.HashData(input)).Equals(file.Value,StringComparison.OrdinalIgnoreCase))throw new IOException("Файл обновления изменён: "+file.Key);
         }
     }
+    public static void VerifyArtifact(string file,ReleaseArtifact artifact)
+    {
+        RejectReparse(file);using var input=File.OpenRead(file);
+        if(input.Length!=artifact.Size||!Convert.ToHexString(SHA256.HashData(input)).Equals(artifact.Sha256,StringComparison.OrdinalIgnoreCase))throw new IOException("Переносимый EXE изменён или скачан не полностью.");
+    }
     public static void RejectReparse(string path)
     {
         for(string? p=Path.GetFullPath(path);p!=null;p=Path.GetDirectoryName(p))
@@ -147,10 +161,10 @@ static class Updates
     }
     public static async Task LaunchInstaller(PreparedUpdate prepared)
     {
-        string target=Path.GetFullPath(AppContext.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar);RejectReparse(target);
+        string target=Path.GetDirectoryName(Environment.ProcessPath!)!;RejectReparse(target);
         string probe=Path.Combine(target,".update-write-test-"+Guid.NewGuid().ToString("N"));File.WriteAllText(probe,"");File.Delete(probe);
         using var process=Process.GetCurrentProcess();string nonce=Guid.NewGuid().ToString("N");
-        var job=new UpdateJob(target,process.Id,process.StartTime.ToUniversalTime().Ticks,nonce,Path.GetFileName(Environment.ProcessPath!));
+        var job=new UpdateJob(target,process.Id,process.StartTime.ToUniversalTime().Ticks,nonce,Path.GetFileName(Environment.ProcessPath!),PortableResources.Bundled&&prepared.Manifest.Portable!=null);
         string jobPath=Path.Combine(prepared.Folder,"job.json");File.WriteAllText(jobPath,JsonSerializer.Serialize(job));
         using var ready=new EventWaitHandle(false,EventResetMode.ManualReset,"Local\\SdrCapture.UpdateReady."+nonce);
         var start=new ProcessStartInfo(Path.Combine(prepared.Folder,"payload","ScreenCapture.exe")){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden};
