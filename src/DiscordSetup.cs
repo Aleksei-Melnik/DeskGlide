@@ -39,7 +39,7 @@ static class DiscordSetup
         finally{if(launched)await DiscordDevices.AfterInstall(role);else DiscordDevices.CancelBeforeLaunch(role);}
     }
     internal static void VerifyPackage(byte[] zip){if(zip.Length>4*1024*1024||!Convert.ToHexString(SHA256.HashData(zip)).Equals(PackageHash,StringComparison.Ordinal))throw new IOException("Контрольная сумма VB-CABLE не совпала. Установка отменена.");}
-    internal static void VerifySignature(string file)
+    internal static void VerifySignature(string file,string product="VB-CABLE")
     {
         var info=new WintrustFile{Size=(uint)Marshal.SizeOf<WintrustFile>(),Path=file};
         IntPtr ptr=Marshal.AllocHGlobal(Marshal.SizeOf<WintrustFile>());
@@ -48,7 +48,7 @@ static class DiscordSetup
             Marshal.StructureToPtr(info,ptr,false);
             var data=new WintrustData{Size=(uint)Marshal.SizeOf<WintrustData>(),Ui=2,Union=1,File=ptr,Flags=0x1000};
             var policy=new Guid("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
-            if(WinVerifyTrust(new IntPtr(-1),ref policy,ref data)!=0)throw new IOException("Подпись установщика VB-CABLE не прошла проверку Windows.");
+            if(WinVerifyTrust(new IntPtr(-1),ref policy,ref data)!=0)throw new IOException(UiStrings.F("Windows could not verify the {0} installer signature.",product));
         }
         finally{Marshal.DestroyStructure<WintrustFile>(ptr);Marshal.FreeHGlobal(ptr);}
     }

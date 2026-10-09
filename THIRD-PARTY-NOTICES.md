@@ -27,8 +27,11 @@ Dependency license texts from the restored NuGet packages are included in the
 release's dependency-licenses directory when available.
 
 NDI is a trademark of Vizrt NDI AB. DeskGlide is an independent project,
-not an official NDI application. The NDI runtime is installed separately under
-its vendor terms: https://ndi.video/ and https://docs.ndi.video/
+not an official NDI application. When needed, DeskGlide downloads the unmodified
+NDI Runtime installer directly from downloads.ndi.tv, verifies its pinned hash
+and Windows signature, and opens the original vendor license wizard. Runtime
+binaries are not included in the app release. Installation remains subject to
+the vendor terms: https://ndi.video/ and https://docs.ndi.video/
 
 FFmpeg is a separate optional executable, downloaded directly by the user from
 https://www.gyan.dev/ffmpeg/builds/ . The pinned Gyan build is GPLv3; its license

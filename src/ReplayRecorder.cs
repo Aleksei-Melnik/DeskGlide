@@ -136,8 +136,11 @@ public sealed class ReplayRecorder:IDisposable
                 await RecordingTools.EnsureAsync(message=>Status=message,stop.Token);
                 // Setup may outlive a settings change. Re-read on the next pass.
                 if(!Volatile.Read(ref options).Enabled||Volatile.Read(ref version)!=currentVersion)continue;
+                Status=UiStrings.T("Checking GPU recording support…");
+                var encoder=await RecordingEncoders.SelectAsync(config,Width,Height,stop.Token);
+                if(!Volatile.Read(ref options).Enabled||Volatile.Read(ref version)!=currentVersion)continue;
                 using var captureAudio=new ReplayAudio(config,syntheticAudio);audio=captureAudio;
-                await RecordSession(config,currentVersion,captureAudio);
+                await RecordSession(config,currentVersion,captureAudio,encoder);
                 audio=null;
             }
             catch(OperationCanceledException) when(stop.IsCancellationRequested){break;}
@@ -148,7 +151,7 @@ public sealed class ReplayRecorder:IDisposable
             }
         }
     }
-    async Task RecordSession(ReplayOptions config,int currentVersion,ReplayAudio captureAudio)
+    async Task RecordSession(ReplayOptions config,int currentVersion,ReplayAudio captureAudio,RecordingEncoder encoder)
     {
         Volatile.Write(ref warmupUntil,Stopwatch.GetTimestamp()+Stopwatch.Frequency*2);
         string folder=Path.Combine(runFolder,Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
@@ -159,9 +162,6 @@ public sealed class ReplayRecorder:IDisposable
         var token=sessionStop.Token;
         double epoch=0,lastVideo=Now;int parsed=-1;
         var started=new TaskCompletionSource<double>(TaskCreationOptions.RunContinuationsAsynchronously);
-        int cq=config.Quality switch{"Ultra"=>18,"Medium"=>25,"Low"=>29,_=>21};
-        int baseRate=config.Quality switch{"Ultra"=>60,"Medium"=>24,"Low"=>14,_=>40};
-        int maxRate=Math.Clamp((int)Math.Ceiling(baseRate*Width*(double)Height/(2560*1440)*config.Fps/60),6,200);
         var args=new List<string>{"-hide_banner","-loglevel","warning","-nostdin","-y",
             "-thread_queue_size","4","-probesize","32","-analyzeduration","0","-f","rawvideo","-pixel_format","uyvy422","-video_size",$"{Width}x{Height}","-framerate",config.Fps.ToString(),"-i",@"\\.\pipe\"+videoName,
             "-thread_queue_size","16","-probesize","32","-analyzeduration","0","-f","f32le","-ar","48000","-ac","6","-i",@"\\.\pipe\"+audioName};
@@ -171,10 +171,8 @@ public sealed class ReplayRecorder:IDisposable
             else args.AddRange(["-filter_complex","[1:a]pan=stereo|c0=c0+c2+c4|c1=c1+c3+c5,alimiter=limit=0.95:level=0:latency=1[mix]","-map","0:v","-map","[mix]","-metadata:s:a:0","title=Mixed audio"]);
         }
         else args.AddRange(["-map","0:v"]);
-        // Some drivers choose AV1 level 7.3 automatically, which common decoders reject.
-        if(config.Codec=="AV1")args.AddRange(["-level","6.2","-tier","1"]);
+        args.AddRange(encoder.Arguments);
         args.AddRange([
-            "-c:v",config.Codec switch{"H264"=>"h264_nvenc","AV1"=>"av1_nvenc",_=>"hevc_nvenc"},"-preset","p4","-tune","hq","-rc","vbr","-cq",cq.ToString(),"-b:v","0","-maxrate",$"{maxRate}M","-bufsize",$"{maxRate*2}M","-g",(config.Fps*2).ToString(),"-bf","0","-rc-lookahead","0","-pix_fmt","nv12",
             "-color_range","tv","-colorspace","bt709","-color_primaries","bt709","-color_trc","bt709",
             "-c:a","aac","-b:a","192k","-ar","48000",
             "-f","segment","-segment_format","matroska","-segment_time","2","-reset_timestamps","1","-segment_list_size","8","-segment_list_type","csv","-segment_list",Path.Combine(folder,"chunks.csv"),Path.Combine(folder,"seg-%06d.mkv")]);
@@ -223,7 +221,7 @@ public sealed class ReplayRecorder:IDisposable
                     pacing.WaitUntil((long)((due+playout)*Stopwatch.Frequency),token);
                     token.ThrowIfCancellationRequested();
                     MaxWriterLateMs=Math.Max(MaxWriterLateMs,(Now-due)*1000);
-                    if(Now-due>1)throw new IOException($"NVENC не успевает за {config.Fps} FPS. Уменьшите разрешение или FPS записи.");
+                    if(Now-due>1)throw new IOException(UiStrings.F("{0} cannot keep up with {1} FPS. Lower recording resolution or frame rate.",encoder.Label,config.Fps));
                     using var frame=GetFrame((long)(due*Stopwatch.Frequency));if(frame==null){Thread.Sleep(1);continue;}
                     if(frame.CapturedAt==previousCapture)RepeatedInputFrames++;previousCapture=frame.CapturedAt;
                     byte[] data=frame.Data;
@@ -262,7 +260,7 @@ public sealed class ReplayRecorder:IDisposable
                 if(videoTask.IsCompleted)await videoTask;
                 if(!config.IsSilent&&audioTask.IsCompleted)await audioTask;
                 if(Now-lastVideo>4)throw new IOException("Кодировщик записи не отвечает.");
-                Error=null;Status=$"{config.Codec} NVENC · {Width}×{Height} · {config.Fps} FPS · буфер {ReplayTime.Format(BufferedSeconds)} / {ReplayTime.Format(WindowSeconds)}";
+                Error=null;Status=$"{config.Codec} · {encoder.Label} · {Width}×{Height} · {config.Fps} FPS · буфер {ReplayTime.Format(BufferedSeconds)} / {ReplayTime.Format(WindowSeconds)}";
             }
         }
         catch(OperationCanceledException) when(stop.IsCancellationRequested){}

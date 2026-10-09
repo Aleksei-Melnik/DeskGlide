@@ -127,6 +127,25 @@ sealed class SettingsWindow:ShellWindow
         var audio=Section(page,"Stream audio","This volume affects only the audio sent to your streaming PC.");Row(audio,"Audio source",Audio("ndiAudio",v.NdiAudioDevice));Row(audio,"Volume",Volume("ndiVolume",v.NdiAudioVolume));
         var sourceRow=audio.Children.OfType<C.Grid>().First();var source=choices["ndiAudio"];sourceRow.Children.Remove(source);var sourceWithRefresh=new C.Grid();sourceWithRefresh.ColumnDefinitions.Add(new());sourceWithRefresh.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});C.Grid.SetColumn(source,0);sourceWithRefresh.Children.Add(source);var refresh=Kit.AsyncButton("↻",RefreshAudio);refresh.Width=36;refresh.Padding=new(8);refresh.ToolTip=UiStrings.T("Refresh devices");refresh.Margin=new(6,0,0,0);C.Grid.SetColumn(refresh,1);sourceWithRefresh.Children.Add(refresh);C.Grid.SetColumn(sourceWithRefresh,1);sourceRow.Children.Add(sourceWithRefresh);
         audioStatus.Visibility=W.Visibility.Collapsed;audio.Children.Add(audioStatus);
+        var runtime=Section(page,"NDI Runtime","Set up automatically when sending or receiving video. The official installer asks you to accept its license and may request administrator permission.");
+        var runtimeStatus=Kit.Text("",12,"#B0A9BC");runtime.Children.Add(runtimeStatus);
+        var runtimeCard=(W.UIElement)runtime.Parent;runtimeCard.Visibility=W.Visibility.Collapsed;
+        Loaded+=async(_,_)=>
+        {
+            try
+            {
+                bool ready=await Task.Run(()=>NdiRuntime.Ready).WaitAsync(TimeSpan.FromSeconds(5),lifetime.Token);
+                if(!IsClosed){runtimeStatus.Text=UiStrings.T(ready?"NDI Runtime is ready.":"NDI Runtime is not installed.");runtimeCard.Visibility=ready?W.Visibility.Collapsed:W.Visibility.Visible;}
+            }
+            catch(OperationCanceledException){}
+            catch(Exception e){if(!IsClosed){runtimeStatus.Text=e.Message;runtimeCard.Visibility=W.Visibility.Visible;}}
+        };
+        runtime.Children.Add(Kit.AsyncButton("Set up NDI Runtime",async()=>
+        {
+            var progress=new Progress<string>(message=>{if(!IsClosed)runtimeStatus.Text=message;});
+            await NdiRuntime.EnsureAsync(((IProgress<string>)progress).Report,lifetime.Token,retry:true);
+            if(!IsClosed)runtimeCard.Visibility=W.Visibility.Collapsed;
+        }));
         var help=new C.Expander{Header=Kit.Text("Connect a receiving app"),Margin=new(0,4,0,0)};help.Content=Kit.Text("On the receiving PC, choose this computer's NDI source in your app. In OBS, add an NDI source with Limited range and BT.709. For our virtual camera, open Virtual devices on the receiving PC.",12,"#B0A9BC");page.Children.Add(help);
     }
     void BuildGeneral(Settings v,bool autorun)
@@ -161,7 +180,7 @@ sealed class SettingsWindow:ShellWindow
             catch(OperationCanceledException) when(lifetime.IsCancellationRequested){}
         }));
         var main=Section(page,"Instant replay");Row(main,"Replay buffer",Toggle("replay","Record in the background",v.Replay.Enabled));Row(main,"Duration",ReplayDuration(v.Replay.BufferSeconds));Row(main,"Save shortcut",replayKey);
-        var encoding=Section(page,"Recording quality","NVIDIA NVENC hardware encoding. Streaming stays at 60 FPS.");Row(encoding,"Codec",Choose("codec",Options("HEVC","H264","AV1"),v.Replay.Codec));Row(encoding,"Quality",Choose("quality",Options("Ultra","High","Medium","Low"),v.Replay.Quality));Row(encoding,"Frame rate",Choose("fps",[new("60","60 FPS"),new("120","120 FPS")],v.Replay.Fps.ToString()));
+        var encoding=Section(page,"Recording quality","GPU encoding is selected automatically: NVIDIA NVENC, AMD AMF or Intel Quick Sync. Codec and resolution support depend on your graphics card and driver.");Row(encoding,"Codec",Choose("codec",Options("HEVC","H264","AV1"),v.Replay.Codec));Row(encoding,"Quality",Choose("quality",Options("Ultra","High","Medium","Low"),v.Replay.Quality));Row(encoding,"Frame rate",Choose("fps",[new("60","60 FPS"),new("120","120 FPS")],v.Replay.Fps.ToString()));
         Row(encoding,"Resolution",Choose("resolution",[new("0","Monitor resolution"),new("1280","1280 × 720 · 720p"),new("1920","1920 × 1080 · 1080p"),new("2560","2560 × 1440 · 1440p"),new("3840","3840 × 2160 · 4K")],v.Replay.Width.ToString()));
         var storage=Section(page,"Save location","Clips are grouped by game automatically. Local and network folders work.");
         var path=Input("folder",v.Replay.Folder);var pathRow=new C.Grid();pathRow.ColumnDefinitions.Add(new());pathRow.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});pathRow.Children.Add(path);var browse=Kit.Button("Browse…",()=>{var picker=new Microsoft.Win32.OpenFolderDialog{Title=UiStrings.T("Choose a recording folder"),InitialDirectory=path.Text};if(picker.ShowDialog(this)==true)path.Text=picker.FolderName;});browse.Margin=new(8,0,0,0);C.Grid.SetColumn(browse,1);pathRow.Children.Add(browse);Row(storage,"Folder",pathRow);
@@ -284,7 +303,7 @@ sealed class SettingsWindow:ShellWindow
         var page=Page(8,"Receiver","Virtual camera & audio","Receive another PC's screen as a camera at its native resolution and 60 FPS.");
         var camera=Section(page,"Receive a screen");Row(camera,"Receiver",Toggle("discord","Receive the gaming PC screen",v.Discord.Enabled));Row(camera,"Device name",Input("cameraName",CameraInstallation.Name(v.Discord.CameraName)));var source=Input("source",v.Discord.Source);Row(camera,"NDI source",source);
         var found=new C.ComboBox{Visibility=W.Visibility.Collapsed,Margin=new(0,8,0,0)};found.SelectionChanged+=(_,_)=>{if(found.SelectedItem is string value)source.Text=value;};camera.Children.Add(found);
-        var find=Kit.AsyncButton("Find screens",async()=>{try{var sources=await Task.Run(NdiDiscovery.Sources).WaitAsync(TimeSpan.FromSeconds(8),lifetime.Token);if(IsClosed)return;found.ItemsSource=sources;found.Visibility=W.Visibility.Visible;if(sources.Length==1)found.SelectedIndex=0;}catch(Exception e){if(!IsClosed)error.Text=e.Message;}});camera.Children.Add(find);
+        var find=Kit.AsyncButton("Find screens",async()=>{try{await NdiRuntime.EnsureAsync(token:lifetime.Token,retry:true);var sources=await Task.Run(NdiDiscovery.Sources).WaitAsync(TimeSpan.FromSeconds(8),lifetime.Token);if(IsClosed)return;found.ItemsSource=sources;found.Visibility=W.Visibility.Visible;if(sources.Length==1)found.SelectedIndex=0;}catch(Exception e){if(!IsClosed)error.Text=e.Message;}});camera.Children.Add(find);
         var sound=Section(page,"Share the right sound");var mode=Choose("discordMode",[new("Network","Game audio via virtual cable"),new("Local","Local input or mixer"),new("Silent","Silent — no audio")],v.Discord.AudioMode);Row(sound,"Audio source",mode);
         var output=Audio("discordOutput",v.Discord.AudioDevice);var outputRow=Row(sound,"Cable output",output);var inputRow=Row(sound,"Discord input",Audio("discordInput",v.Discord.CaptureDevice,true));var volumeRow=Row(sound,"Volume",Volume("discordVolume",v.Discord.Volume));
         output.SelectionChanged+=(_,_)=>{if(replacingAudio||Id("discordMode")!="Network")return;try{Select(choices["discordInput"],DiscordDevices.Pair(Id("discordOutput"),endpoints).Capture.Id);}catch(IOException){}};

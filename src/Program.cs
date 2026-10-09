@@ -19,6 +19,8 @@ internal static class Program
             if(args.Contains("--kvm")&&EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var openKvm)){WindowActivation.AllowExisting();using(openKvm)openKvm.Set();return 0;}
             if(args.Contains("--update-tests")){UpdateTests.Run();return 0;}
             if(args.Contains("--recording-tools-tests")){RecordingToolsTests.Run();return 0;}
+            if(args.Contains("--dependency-tests")){DependencyTests.RunAsync().GetAwaiter().GetResult();return 0;}
+            if(args.Contains("--ndi-runtime-package-test")){DependencyTests.VerifyRuntimeDownloadAsync().GetAwaiter().GetResult();return 0;}
             if(args.Contains("--install-recording-tools")){RecordingTools.EnsureAsync().GetAwaiter().GetResult();Write("recording-tools-setup.json",new{Pass=RecordingTools.Ready,Folder=RecordingTools.DirectoryPath});return 0;}
             if(args.Contains("--ui-tests")){UiTests.Run();return 0;}
             if(args.Contains("--wpf-ui-tests")){Ui.WpfUiTests.Run();return 0;}

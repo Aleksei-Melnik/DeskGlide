@@ -141,6 +141,19 @@ public sealed class StreamEngine:IDisposable
                 }
                 if(sender==null)
                 {
+                    try
+                    {
+                        NdiRuntime.EnsureAsync(message=>Status=message,stop.Token).GetAwaiter().GetResult();
+                        if(!NdiEnabled)continue;
+                    }
+                    catch(OperationCanceledException)when(stop.IsCancellationRequested){break;}
+                    catch(Exception e)
+                    {
+                        Status=e.Message;Connections=0;
+                        // Local capture/replay and KVM remain usable if setup is
+                        // declined. A manual retry can enable this sender later.
+                        if(stop.Token.WaitHandle.WaitOne(2000))break;continue;
+                    }
                     sender=new NdiSender(name,()=>NdiAudioDevice,()=>NdiAudioVolume);SourceName=sender.SourceName;
                     Log.Write($"NDI source created: {SourceName}; runtime={NdiNative.RuntimePath}");
                 }

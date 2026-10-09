@@ -78,6 +78,7 @@ sealed class DiscordReceiver:IDisposable
     }
     async Task Session()
     {
+        await NdiRuntime.EnsureAsync(message=>status=message,stop.Token);
         NdiNative.EnsureInitialized();IntPtr text=Marshal.StringToCoTaskMemUTF8(options.Source),receiver=IntPtr.Zero;
         try
         {

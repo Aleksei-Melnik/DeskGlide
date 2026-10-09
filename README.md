@@ -6,7 +6,13 @@ The interface supports English and Russian.
 
 ## Getting started
 
-Install NDI Tools/Runtime x64 on PCs sending or receiving NDI; vendor runtime binaries are not redistributed here.
+NDI Runtime is set up automatically when an NDI sender, receiver or source search
+first needs it. The app downloads the original NDI 6 Runtime installer, checks
+its pinned SHA-256 and Windows signature, and opens the vendor's license wizard.
+Complete that one-time wizard and Windows' administrator prompt. Existing NDI
+Tools/Runtime installations are reused. A cancelled setup can be retried under
+**Screen streaming → Set up NDI Runtime**; it will not keep reopening by itself.
+KVM and local replay do not require NDI Runtime.
 
 1. Download the single `DeskGlide.exe` from Releases and run it. No app installer
    or separate .NET installation is needed. Settings opens from
@@ -20,8 +26,9 @@ Install NDI Tools/Runtime x64 on PCs sending or receiving NDI; vendor runtime bi
    then enable background recording. Missing FFmpeg tools download automatically
    with a pinned SHA-256 check. They live in your local user-data folder, separate
    from app updates. Existing `tools` folders are migrated into user data in the background. A setup
-   button appears in this page when tools are missing. NVIDIA NVENC is required
-   for GPU recording. The first setup needs internet access.
+   button appears in this page when tools are missing. GPU recording selects
+   NVIDIA NVENC, AMD AMF or Intel Quick Sync after a short encoder preflight.
+   The first dependency setup needs internet access.
 5. To control another PC, select Host under **KVM & pairing** on the PC with your
    keyboard and mouse. Select Client on the other PC and enter the host name and
    generated pairing code. `Enable-Lan.ps1` can add private wired-LAN firewall
@@ -38,8 +45,9 @@ and dependency notices. Native runtime files use Windows' internal bundle cache;
 camera components, settings, keys and recording tools use the per-user data folder.
 No libraries or `tools` folder need to be kept next to `DeskGlide.exe`. FFmpeg is
 stored under `%LOCALAPPDATA%\SdrCapture\RecordingTools`, never on the desktop.
-Optional NDI Runtime and
-VB-CABLE requirements stay the same; the audio driver still needs Windows approval.
+NDI's setup download also stays in the user-data folder. Its vendor installer
+installs the Runtime into Program Files. VB-CABLE remains optional; the audio
+driver still needs explicit setup and Windows approval.
 Signed updates replace the current EXE. Older folder installations migrate in
 place, preserving the active launcher name, settings, pairing and recording tools.
 Only files owned by the signed app package are removed; unknown user files remain.
@@ -80,7 +88,12 @@ link remains available in settings.
   The selected time is shown beside it. Old sub-minute profiles use a one-minute
   buffer; existing minute-based durations are preserved.
   Recording: 60/120 FPS; native, 720p, 1080p, 1440p or 4K.
-- HEVC/H.264/AV1 NVENC when supported by the GPU and installed FFmpeg.
+- HEVC/H.264/AV1 through NVIDIA NVENC, AMD AMF or Intel Quick Sync, when supported
+  by the GPU and driver. Selection checks the actual requested resolution, frame
+  rate and codec. Unsupported choices produce a clear error; the app never
+  silently falls back to heavy CPU encoding or changes the selected codec.
+  AMD/Intel encoder selection and arguments are covered by deterministic tests;
+  sustained recording on physical AMD/Intel hardware has not yet been verified.
 - Game audio, microphone and optional remote-PC audio, mixed or separate tracks.
   Silent is available per source. Track order remains game, microphone, remote PC.
 - Clips are grouped by foreground game or app automatically. Local and UNC

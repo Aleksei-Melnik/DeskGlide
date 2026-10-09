@@ -9,6 +9,7 @@ internal static class NdiNative
 {
     const string Dll="Processing.NDI.Lib.x64.dll";
     static bool initialized;
+    static IntPtr nativeLibrary;
     static readonly object gate=new();
     public static string RuntimePath {get;private set;}="";
     static NdiNative()
@@ -16,19 +17,33 @@ internal static class NdiNative
         NativeLibrary.SetDllImportResolver(typeof(NdiNative).Assembly,(name,assembly,path)=>
         {
             if(name!=Dll) return IntPtr.Zero;
-            var candidates=new List<string>();
-            foreach(string version in new[]{"V6","V5","V4"})
-            {
-                string? folder=Environment.GetEnvironmentVariable("NDI_RUNTIME_DIR_"+version);
-                if(!string.IsNullOrEmpty(folder)) candidates.Add(Path.Combine(folder,Dll));
-            }
-            string pf=Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            foreach(string version in new[]{"NDI 6 Tools","NDI 5 Tools"}) candidates.Add(Path.Combine(pf,"NDI",version,"Runtime",Dll));
-            candidates.Add(Path.Combine(AppContext.BaseDirectory,Dll));
-            foreach(string file in candidates.Distinct())
-                if(File.Exists(file) && NativeLibrary.TryLoad(file,out var library)){RuntimePath=file;return library;}
-            throw new DllNotFoundException("Не найдена библиотека NDI x64. Установите NDI Tools/Runtime на этом ПК.");
+            var library=TryLoadRuntime();if(library!=IntPtr.Zero)return library;
+            throw new DllNotFoundException(UiStrings.T("NDI Runtime is still unavailable. Retry setup in Screen streaming."));
         });
+    }
+    internal static IEnumerable<string> RuntimeCandidates(string programFiles,string appFolder,Func<string,EnvironmentVariableTarget,string?> readEnvironment)
+    {
+        foreach(string version in new[]{"V6","V5","V4"})
+        foreach(var target in new[]{EnvironmentVariableTarget.Process,EnvironmentVariableTarget.User,EnvironmentVariableTarget.Machine})
+        {
+            string? folder=readEnvironment("NDI_RUNTIME_DIR_"+version,target);
+            if(!string.IsNullOrWhiteSpace(folder))yield return Path.Combine(folder,Dll);
+        }
+        foreach(string version in new[]{"NDI 6 Runtime","NDI 5 Runtime"})yield return Path.Combine(programFiles,"NDI",version,version.Contains('6')?"v6":"v5",Dll);
+        foreach(string version in new[]{"NDI 6 Tools","NDI 5 Tools"})yield return Path.Combine(programFiles,"NDI",version,"Runtime",Dll);
+        yield return Path.Combine(appFolder,Dll);
+    }
+    internal static IntPtr TryLoadRuntime()
+    {
+        lock(gate)
+        {
+            if(nativeLibrary!=IntPtr.Zero)return nativeLibrary;
+            // The installer updates persistent environment variables; the running
+            // process's environment still has its pre-install snapshot.
+            foreach(string file in RuntimeCandidates(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),AppContext.BaseDirectory,Environment.GetEnvironmentVariable).Distinct(StringComparer.OrdinalIgnoreCase))
+                if(File.Exists(file)&&NativeLibrary.TryLoad(file,out nativeLibrary)){RuntimePath=file;return nativeLibrary;}
+            return IntPtr.Zero;
+        }
     }
     public static void EnsureInitialized()
     {
