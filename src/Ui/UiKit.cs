@@ -73,7 +73,11 @@ class ShellWindow:W.Window
     // install a GDI window region, which conflicts with native rounded corners.
     readonly System.Windows.Shell.WindowChrome chrome=new(){CaptionHeight=0,ResizeBorderThickness=new(0),GlassFrameThickness=new(-1),CornerRadius=new(0),UseAeroCaptionButtons=false};
     C.Border? header;
+    C.Border? appearanceFrame;
+    bool appearancePending;
+    int appearanceVersion;
     bool fullscreenChrome;
+    internal bool AnimateOnReveal {get;set;}
     public bool IsClosed {get;private set;}
     public ShellWindow(string title,double width,double height)
     {
@@ -82,7 +86,7 @@ class ShellWindow:W.Window
         System.Windows.Shell.WindowChrome.SetWindowChrome(this,chrome);
         System.ComponentModel.PropertyChangedEventHandler languageChanged=(_,_)=>Title="DeskGlide · "+UiStrings.T(title);UiStrings.Shared.PropertyChanged+=languageChanged;
         Icon=System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/ScreenCapture;component/Assets/DeskGlide.ico"));
-        Closed+=(_,_)=>{IsClosed=true;UiStrings.Shared.PropertyChanged-=languageChanged;};
+        Closed+=(_,_)=>{IsClosed=true;ResetAppearance();UiStrings.Shared.PropertyChanged-=languageChanged;};
         SourceInitialized+=(_,_)=>
         {
             var handle=new System.Windows.Interop.WindowInteropHelper(this).Handle;ApplyNativeFrame();
@@ -103,14 +107,47 @@ class ShellWindow:W.Window
             Left=Math.Clamp(Left,bounds.Left/sx,Math.Max(bounds.Left/sx,(bounds.Right-Width*sx)/sx));Top=Math.Clamp(Top,bounds.Top/sy,Math.Max(bounds.Top/sy,(bounds.Bottom-Height*sy)/sy));
             ApplyNativeFrame();
         };
-        Activated+=(_,_)=>ApplyNativeFrame();Deactivated+=(_,_)=>ApplyNativeFrame();StateChanged+=(_,_)=>ApplyNativeFrame();DpiChanged+=(_,_)=>ApplyNativeFrame();
+        Activated+=(_,_)=>ApplyNativeFrame();Deactivated+=(_,_)=>ApplyNativeFrame();StateChanged+=(_,_)=>{if(WindowState==W.WindowState.Minimized)ResetAppearance();ApplyNativeFrame();};DpiChanged+=(_,_)=>ApplyNativeFrame();
+    }
+    public override void OnApplyTemplate()
+    {
+        base.OnApplyTemplate();if(appearancePending)PrepareAppearance();
     }
     public void Reveal()
     {
         if(IsClosed)return;
+        bool opening=!IsVisible||WindowState==W.WindowState.Minimized;
+        bool animate=opening&&AnimateOnReveal&&W.SystemParameters.ClientAreaAnimation&&Opacity>0;
+        if(opening)
+        {
+            ResetAppearance();
+            if(animate){appearancePending=true;ApplyTemplate();PrepareAppearance();}
+        }
         if(!IsVisible){if(W.Application.Current==null)System.Windows.Forms.Integration.ElementHost.EnableModelessKeyboardInterop(this);Show();}
         if(WindowState==W.WindowState.Minimized)WindowState=W.WindowState.Normal;
+        if(animate)StartAppearance();
         Activate();SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle);
+    }
+    void PrepareAppearance()
+    {
+        if(Template.FindName("WindowFrame",this) is not C.Border frame)return;
+        appearanceFrame=frame;frame.BeginAnimation(W.UIElement.OpacityProperty,null);frame.SetCurrentValue(W.UIElement.OpacityProperty,0.0);
+    }
+    void StartAppearance()
+    {
+        appearancePending=false;
+        if(IsClosed||appearanceFrame is not {} frame){ResetAppearance();return;}
+        int version=++appearanceVersion;
+        var animation=new DoubleAnimation(0,1,TimeSpan.FromMilliseconds(200)){EasingFunction=new QuadraticEase{EasingMode=EasingMode.EaseOut},FillBehavior=FillBehavior.Stop};
+        animation.Completed+=(_,_)=>{if(version==appearanceVersion)ResetAppearance();};
+        // Animate the WPF frame, keeping the native window, rounded corners,
+        // hit testing and keyboard message pump unchanged throughout the fade.
+        frame.BeginAnimation(W.UIElement.OpacityProperty,animation,HandoffBehavior.SnapshotAndReplace);
+    }
+    void ResetAppearance()
+    {
+        ++appearanceVersion;appearancePending=false;
+        if(appearanceFrame is {} frame){frame.BeginAnimation(W.UIElement.OpacityProperty,null);frame.SetCurrentValue(W.UIElement.OpacityProperty,1.0);appearanceFrame=null;}
     }
     void ApplyNativeFrame()
     {

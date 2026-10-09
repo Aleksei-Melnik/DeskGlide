@@ -70,10 +70,38 @@ static class WpfUiTests
             try{Require(GetWindowRgn(handle,region)==0,"WindowChrome installed a custom region over native DWM rounding");}finally{DeleteObject(region);}
         }
     }
+    static void SmoothAppearance(ShellWindow window)
+    {
+        var clock=Stopwatch.StartNew();window.Reveal();Pump();
+        var frame=(C.Border)window.Template.FindName("WindowFrame",window);
+        Require(window.IsVisible&&frame.IsHitTestVisible&&window.IsEnabled,"Opening animation delayed or disabled the window");
+        if(W.SystemParameters.ClientAreaAnimation)
+        {
+            Require(frame.HasAnimatedProperties||clock.ElapsedMilliseconds>=200,"Window did not start its entrance animation");
+            if(clock.ElapsedMilliseconds<150)Require(frame.Opacity<1,"Window appeared fully opaque before the fade completed");
+            double before=frame.Opacity;window.Reveal();Pump();Require(frame.Opacity+.001>=before,"Reopening a visible window restarted its entrance");
+        }
+        while(frame.HasAnimatedProperties&&clock.ElapsedMilliseconds<3000){Pump();Thread.Sleep(5);}Pump();
+        Require(!frame.HasAnimatedProperties&&frame.Opacity==1&&frame.RenderTransform.Value.IsIdentity,"Opening animation left an invisible or displaced window");ChromeWorks(window);
+        window.WindowState=W.WindowState.Minimized;window.Reveal();Pump();
+        Require(window.WindowState==W.WindowState.Normal,"Animated window did not restore from the taskbar");
+        clock.Restart();while(frame.HasAnimatedProperties&&clock.ElapsedMilliseconds<3000){Pump();Thread.Sleep(5);}Pump();
+        Require(frame.Opacity==1&&!frame.HasAnimatedProperties,"Restoring an animated window left it transparent");
+        window.Hide();window.Reveal();Pump();Invoke(ActionButton(window,"Close window"));
+        Require(window.IsClosed&&frame.Opacity==1&&!frame.HasAnimatedProperties,"Closing during an entrance animation left a live clock or delayed close");
+    }
     static void RunTests()
     {
         UiStrings.Shared.Language="en";
         string folder=Path.Combine(AppContext.BaseDirectory,"wpf-preview");Directory.CreateDirectory(folder);
+        var appearanceSettings=new SettingsWindow(new(){Device=Screen.PrimaryScreen?.DeviceName??"DISPLAY1"},discoverAudio:()=>Task.FromResult<DiscordDevices.Endpoint[]>([])){ShowInTaskbar=false};SmoothAppearance(appearanceSettings);
+        var appearanceKvm=new KvmWindow(()=>null,()=>false,_=>{},()=>{},_=>{},_=>{}){ShowInTaskbar=false};SmoothAppearance(appearanceKvm);
+        using(var updateDispatcher=new Control())
+        {
+            _=updateDispatcher.Handle;var updateCoordinator=new UpdateCoordinator(updateDispatcher,()=>null,()=>new UpdateOptions(),()=>Task.CompletedTask,()=>{});
+            var appearanceUpdates=new UpdatesWindow(updateCoordinator,()=>null,checkOnOpen:false){ShowInTaskbar=false};SmoothAppearance(appearanceUpdates);
+        }
+        var noAnimation=new ShellWindow("Motion disabled",420,240){Content=new C.Grid(),AnimateOnReveal=false,ShowInTaskbar=false};noAnimation.Reveal();Pump();var instantFrame=(C.Border)noAnimation.Template.FindName("WindowFrame",noAnimation);Require(instantFrame.Opacity==1&&!instantFrame.HasAnimatedProperties,"Disabling window motion did not show it immediately");noAnimation.Close();
         var pending=new TaskCompletionSource<DiscordDevices.Endpoint[]>(TaskCreationOptions.RunContinuationsAsynchronously);int calls=0;
         var settings=new Settings{Device=Screen.PrimaryScreen?.DeviceName??"DISPLAY1",NdiAudioDevice="saved",Replay=new(){GameAudio="game",Microphone="mic",ExtraAudio="extra"},Discord=new(){AudioDevice="cable",CaptureDevice="input"}};
         var watch=Stopwatch.StartNew();

@@ -19,6 +19,7 @@ sealed class KvmWindow:ShellWindow
     string signature="";
     public KvmWindow(Func<KvmService?> network,Func<bool> seamless,Action<bool> setSeamless,Action returnHome,Action<KvmPeerInfo> open,Action<int> settings,Func<KvmPeerInfo,bool>? remoteOnly=null,Action<KvmPeerInfo,bool>? setRemoteOnly=null):base("KVM",900,660)
     {
+        AnimateOnReveal=true;
         this.network=network;this.seamless=seamless;this.open=open;this.remoteOnly=remoteOnly??(p=>p.RemoteViewOnly);this.setRemoteOnly=setRemoteOnly;
         var root=new C.DockPanel();var header=Header("Your computers","Choose a computer to open its desktop.");C.DockPanel.SetDock(header,C.Dock.Top);root.Children.Add(header);
         var footer=new C.StackPanel{Margin=new(28,12,28,20)};status.Margin=new(0,0,0,12);footer.Children.Add(status);footer.Children.Add(edges);

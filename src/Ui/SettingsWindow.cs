@@ -43,6 +43,7 @@ sealed class SettingsWindow:ShellWindow
     internal C.Slider SliderControl(string id)=>sliders[id];
     public SettingsWindow(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action? openUpdates=null,int startPage=0,Func<Task<DiscordDevices.Endpoint[]>>? discoverAudio=null,Func<StatusSection[]>? overview=null):base("Settings",1120,820)
     {
+        AnimateOnReveal=true;
         initial=value.Copy();ResultSettings=value.Copy();this.service=service;this.diagnostics=diagnostics;this.overview=overview;this.openUpdates=openUpdates;discover=discoverAudio??SettingsAudioDiscovery.Load;
         replayKey=new(value.Replay.HotkeyModifiers,value.Replay.HotkeyKey);kvmKey=new(value.Kvm.OpenHotkeyModifiers,value.Kvm.OpenHotkeyKey);edgeKey=new(value.Kvm.ToggleHotkeyModifiers,value.Kvm.ToggleHotkeyKey);
         var peers=new[]{new KvmPeerInfo(value.Kvm.Id,Environment.MachineName,KvmScreen.Local())}.Concat(service?.Peers??[]).ToArray();
