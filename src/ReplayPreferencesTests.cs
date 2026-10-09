@@ -11,16 +11,22 @@ static class ReplayPreferencesTests
     {
         Require(new ReplayOptions().BufferSeconds==300,"Default replay duration changed");
         foreach(int minutes in new[]{5,13,20})Require(JsonSerializer.Deserialize<ReplayOptions>($"{{\"Minutes\":{minutes}}}")!.BufferSeconds==minutes*60,"Legacy duration was not migrated");
-        foreach(int seconds in new[]{30,31,3599,3600,7199,7200})
+        foreach(int seconds in new[]{30,31,59,60,61,3599,3600,7199,7200})
         {
             var options=new ReplayOptions{DurationSeconds=seconds,SaveSoundEnabled=false,SaveSoundVolume=37};options.Validate();
             var copy=JsonSerializer.Deserialize<ReplayOptions>(JsonSerializer.Serialize(options))!;
-            Require(copy.BufferSeconds==seconds&&!copy.SaveSoundEnabled&&copy.SaveSoundVolume==37,"Replay duration or sound preferences lost during serialization");
-            Require(ReplayTime.Parse((seconds/60).ToString(),(seconds%60).ToString())==seconds,"Duration fields changed seconds");
+            Require(copy.BufferSeconds==Math.Max(60,seconds)&&!copy.SaveSoundEnabled&&copy.SaveSoundVolume==37,"Replay duration or sound preferences lost during serialization");
+            Require(ReplayTime.SliderMinutes(copy.BufferSeconds)==(int)Math.Ceiling(Math.Max(60,seconds)/60.0),"Legacy durations did not map to valid minute steps");
         }
         foreach(int seconds in new[]{-1,1,29,7201,int.MaxValue})Reject(()=>(new ReplayOptions{DurationSeconds=seconds}).Validate(),"Out-of-range replay duration accepted");
         Reject(()=>(new ReplayOptions{Minutes=int.MaxValue}).Validate(),"Legacy duration overflow accepted");
-        foreach(var (minutes,seconds) in new[]{("0","29"),("120","1"),("1","60"),("-1","30"),("text","0"),("","30"),("9999999999","0")})Reject(()=>ReplayTime.Parse(minutes,seconds),"Invalid duration input accepted");
+        Require(ReplayTime.SliderMinutes(-1)==1&&ReplayTime.SliderMinutes(30)==1&&ReplayTime.SliderMinutes(7201)==120&&ReplayTime.SliderMinutes(int.MaxValue)==120,"Slider conversion did not enforce its range");
+        foreach(string language in new[]{"en","ru"})
+        {
+            UiStrings.Shared.Language=language;
+            Require(ReplayTime.DurationLabel(5)==(language=="ru"?"5 мин":"5 min")&&ReplayTime.DurationLabel(60)==(language=="ru"?"1 ч":"1 h")&&ReplayTime.DurationLabel(73)==(language=="ru"?"1 ч 13 мин":"1 h 13 min")&&ReplayTime.DurationLabel(120)==(language=="ru"?"2 ч":"2 h"),"Slider duration label is not localized");
+        }
+        UiStrings.Shared.Language="en";
         Require(ReplayTime.Format(30)=="0:30"&&ReplayTime.Format(3600)=="1:00:00"&&ReplayTime.Format(7200)=="2:00:00","Durations wrapped at an hour");
         Reject(()=>(new ReplayOptions{SaveSoundVolume=-1}).Validate(),"Negative chime volume accepted");Reject(()=>(new ReplayOptions{SaveSoundVolume=101}).Validate(),"Invalid chime volume accepted");
         using(var memory=new MemoryStream(ReplaySaveSound.CreateWave()))using(var reader=new WaveFileReader(memory))

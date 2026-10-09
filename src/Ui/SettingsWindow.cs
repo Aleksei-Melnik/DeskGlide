@@ -40,6 +40,7 @@ sealed class SettingsWindow:ShellWindow
     internal int SelectedPage {get;private set;}
     internal string AudioStatus=>audioStatus.Text;
     internal C.ComboBox AudioChoice(string id)=>choices[id];
+    internal C.Slider SliderControl(string id)=>sliders[id];
     public SettingsWindow(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action? openUpdates=null,int startPage=0,Func<Task<DiscordDevices.Endpoint[]>>? discoverAudio=null,Func<StatusSection[]>? overview=null):base("Settings",1120,820)
     {
         initial=value.Copy();ResultSettings=value.Copy();this.service=service;this.diagnostics=diagnostics;this.overview=overview;this.openUpdates=openUpdates;discover=discoverAudio??SettingsAudioDiscovery.Load;
@@ -106,21 +107,15 @@ sealed class SettingsWindow:ShellWindow
     static Choice[] Options(params string[] values)=>values.Select(v=>new Choice(v,v)).ToArray();
     C.StackPanel ReplayDuration(int seconds)
     {
-        var minutes=Input("replayMinutes",(seconds/60).ToString(CultureInfo.InvariantCulture));
-        var remainder=Input("replaySeconds",(seconds%60).ToString("00",CultureInfo.InvariantCulture));
-        foreach(var input in new[]{minutes,remainder})
-        {input.Width=72;input.HorizontalContentAlignment=W.HorizontalAlignment.Center;input.PreviewTextInput+=(_,e)=>e.Handled=e.Text.Any(c=>c is <'0' or >'9');}
-        minutes.MaxLength=3;remainder.MaxLength=2;
-        var minuteLabel=Kit.Text("min",12,"#B0A9BC");minuteLabel.VerticalAlignment=W.VerticalAlignment.Center;
-        var secondLabel=Kit.Text("sec",12,"#B0A9BC");secondLabel.VerticalAlignment=W.VerticalAlignment.Center;
-        var fields=Kit.Actions(minutes,minuteLabel,remainder,secondLabel);
-        var presets=new C.WrapPanel{Margin=new(0,8,0,0)};
-        foreach(var (value,label) in new[]{(30,"30 sec"),(300,"5 min"),(900,"15 min"),(3600,"1 hour"),(7200,"2 hours")})
-        {
-            var button=Kit.Button(label,()=>{minutes.Text=(value/60).ToString(CultureInfo.InvariantCulture);remainder.Text=(value%60).ToString("00",CultureInfo.InvariantCulture);});
-            button.Padding=new(10,5,10,5);button.Margin=new(0,0,6,6);presets.Children.Add(button);
-        }
-        return Kit.Stack(fields,presets,Kit.Text("30 seconds to 2 hours. Longer buffers use more local disk space.",12,"#B0A9BC"));
+        var slider=new C.Slider{Minimum=1,Maximum=120,Value=ReplayTime.SliderMinutes(seconds),TickFrequency=1,IsSnapToTickEnabled=true,IsMoveToPointEnabled=true,SmallChange=1,LargeChange=5};
+        sliders["replayDuration"]=slider;
+        slider.SetBinding(System.Windows.Automation.AutomationProperties.NameProperty,new System.Windows.Data.Binding(nameof(UiStrings.Language)){Source=UiStrings.Shared,Converter=new UiTextConverter(),ConverterParameter="Replay duration"});
+        var current=new C.TextBlock{FontSize=14,FontWeight=W.FontWeights.SemiBold,Foreground=Kit.Brush("#31D1DB"),VerticalAlignment=W.VerticalAlignment.Center,HorizontalAlignment=W.HorizontalAlignment.Right,Margin=new(18,0,0,0)};
+        void UpdateLabel()=>current.Text=ReplayTime.DurationLabel((int)slider.Value);
+        slider.ValueChanged+=(_,_)=>UpdateLabel();System.ComponentModel.PropertyChangedEventHandler languageChanged=(_,_)=>UpdateLabel();UiStrings.Shared.PropertyChanged+=languageChanged;Closed+=(_,_)=>UiStrings.Shared.PropertyChanged-=languageChanged;UpdateLabel();
+        var line=new C.Grid();line.ColumnDefinitions.Add(new());line.ColumnDefinitions.Add(new(){Width=new(116)});line.Children.Add(slider);C.Grid.SetColumn(current,1);line.Children.Add(current);
+        var limits=new C.Grid();limits.Children.Add(Kit.Text("1 min",11,"#B0A9BC"));var maximum=Kit.Text("2 hours",11,"#B0A9BC");maximum.HorizontalAlignment=W.HorizontalAlignment.Right;limits.Children.Add(maximum);
+        return Kit.Stack(line,limits);
     }
     void BuildStream(Settings v,bool autorun)
     {
@@ -257,7 +252,7 @@ sealed class SettingsWindow:ShellWindow
         var result=initial.Copy();result.SendOnLaunch=On("ndi");result.Device=Id("display");result.CaptureCursor=On("cursor");result.PreventIdleSleep=On("awake");result.NdiAudioDevice=Id("ndiAudio");result.NdiAudioVolume=(int)sliders["ndiVolume"].Value;
         result.Language=Id("language");
         int width=int.Parse(Id("resolution"),CultureInfo.InvariantCulture);int height=width switch{1280=>720,1920=>1080,2560=>1440,3840=>2160,_=>0};
-        int duration=ReplayTime.Parse(texts["replayMinutes"].Text.Trim(),texts["replaySeconds"].Text.Trim());
+        int duration=(int)sliders["replayDuration"].Value*60;
         result.Replay=result.Replay with{Enabled=On("replay"),Minutes=(duration+59)/60,DurationSeconds=duration,SaveSoundEnabled=On("saveSound"),SaveSoundVolume=(int)sliders["saveSoundVolume"].Value,Codec=Id("codec"),Quality=Id("quality"),Fps=int.Parse(Id("fps")),Width=width,Height=height,Folder=texts["folder"].Text.Trim(),GroupByApp=true,Silent=false,AudioMode=Id("audioMode"),GameAudio=Id("game"),Microphone=Id("mic"),ExtraAudio=Id("extra"),HotkeyModifiers=replayKey.Modifiers,HotkeyKey=replayKey.Key};
         result.Kvm=result.Kvm with{Role=Id("role"),Host=texts["host"].Text.Trim(),PairingCode=texts["pairing"].Text.Trim(),Port=int.Parse(texts["port"].Text,CultureInfo.InvariantCulture),Seamless=On("seamless"),BlockScreenCorners=On("blockCorners"),ClipboardText=On("clipboardText"),ClipboardFiles=On("clipboardFiles"),AllowView=On("allowView"),RemoteViewOnly=On("remoteOnly"),AudioDevice=Id("remoteAudio"),OpenHotkeyModifiers=kvmKey.Modifiers,OpenHotkeyKey=kvmKey.Key,ToggleHotkeyModifiers=edgeKey.Modifiers,ToggleHotkeyKey=edgeKey.Key,Layout=monitors.Result,RemoteOnlyPeers=monitors.RemoteOnlyPeers,ExcludedMonitors=monitors.ExcludedMonitors};
         result.Updates=new(){CheckOnStartup=On("checkUpdates"),AllowFromHost=On("remoteUpdates")};

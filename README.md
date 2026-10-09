@@ -76,8 +76,9 @@ link remains available in settings.
 
 ## Instant replay
 
-- Duration: any time from 30 seconds to 2 hours, entered as minutes and seconds.
-  Quick presets are available. Existing replay durations are preserved.
+- Duration: one slider from 1 minute to 2 hours, in one-minute steps.
+  The selected time is shown beside it. Old sub-minute profiles use a one-minute
+  buffer; existing minute-based durations are preserved.
   Recording: 60/120 FPS; native, 720p, 1080p, 1440p or 4K.
 - HEVC/H.264/AV1 NVENC when supported by the GPU and installed FFmpeg.
 - Game audio, microphone and optional remote-PC audio, mixed or separate tracks.

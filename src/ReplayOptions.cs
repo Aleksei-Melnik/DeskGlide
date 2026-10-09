@@ -9,7 +9,15 @@ public sealed record ReplayOptions
     public int Minutes {get;set;}=5;
     // Zero means an older profile still uses Minutes. New profiles store seconds.
     public int DurationSeconds {get;set;}
-    [System.Text.Json.Serialization.JsonIgnore] public int BufferSeconds=>DurationSeconds==0?(int)Math.Clamp((long)Minutes*60,int.MinValue,int.MaxValue):DurationSeconds;
+    [System.Text.Json.Serialization.JsonIgnore] public int BufferSeconds
+    {
+        get
+        {
+            int seconds=DurationSeconds==0?(int)Math.Clamp((long)Minutes*60,int.MinValue,int.MaxValue):DurationSeconds;
+            // Preserve 0.7.12 profiles while applying the new one-minute minimum.
+            return seconds is >=30 and <60?60:seconds;
+        }
+    }
     public bool SaveSoundEnabled {get;set;}=true;
     public int SaveSoundVolume {get;set;}=25;
     public int Fps {get;set;}=60;
@@ -29,7 +37,7 @@ public sealed record ReplayOptions
     public uint HotkeyKey {get;set;}=(uint)Keys.F10;
     public void Validate()
     {
-        if(BufferSeconds is <30 or >7200) throw new ArgumentException(UiStrings.T("Replay duration must be between 30 seconds and 2 hours."));
+        if(BufferSeconds is <60 or >7200) throw new ArgumentException(UiStrings.T("Replay duration must be between 1 minute and 2 hours."));
         if(SaveSoundVolume is <0 or >100)throw new ArgumentException(UiStrings.T("Sound volume must be between 0 and 100%."));
         if(Codec is not ("HEVC" or "H264" or "AV1"))throw new ArgumentException("Неизвестный видеокодек.");
         if(AudioMode is not ("Mixed" or "Separate" or "Silent"))throw new ArgumentException("Неизвестный режим аудио.");
@@ -44,13 +52,11 @@ public sealed record ReplayOptions
 
 static class ReplayTime
 {
-    public static int Parse(string minutes,string seconds)
+    public static int SliderMinutes(int seconds)=>(int)Math.Clamp(Math.Ceiling(seconds/60.0),1,120);
+    public static string DurationLabel(int minutes)
     {
-        if(!int.TryParse(minutes,NumberStyles.None,CultureInfo.InvariantCulture,out int m)||m is <0 or >120||
-           !int.TryParse(seconds,NumberStyles.None,CultureInfo.InvariantCulture,out int s)||s is <0 or >59||
-           (long)m*60+s is <30 or >7200)
-            throw new ArgumentException(UiStrings.T("Replay duration must be between 30 seconds and 2 hours."));
-        return m*60+s;
+        if(minutes<60)return UiStrings.F("{0} min",minutes);
+        return minutes%60==0?UiStrings.F("{0} h",minutes/60):UiStrings.F("{0} h {1} min",minutes/60,minutes%60);
     }
     public static string Format(double seconds)
     {

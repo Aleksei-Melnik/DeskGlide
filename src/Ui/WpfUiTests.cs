@@ -54,6 +54,10 @@ static class WpfUiTests
         }
         var handle=new System.Windows.Interop.WindowInteropHelper(window).Handle;GetWindowRect(handle,out var bounds);var origin=new NativePoint();ClientToScreen(handle,ref origin);
         Require(Math.Abs(origin.Y-bounds.Top)<=2,"Native title bar still reserves space above app content");
+        const long nativeCaption=0x00C00000|0x00080000|0x00020000|0x00010000;
+        Require(window.WindowStyle==W.WindowStyle.None&&(GetWindowLongPtr(handle,-16).ToInt64()&nativeCaption)==0,"Native caption buttons are still painted under the custom header");
+        long priorStyle=GetWindowLongPtr(handle,-16).ToInt64();SetWindowLongPtr(handle,-16,(IntPtr)(priorStyle|nativeCaption));SetWindowPos(handle,IntPtr.Zero,0,0,0,0,0x37);Pump();
+        Require((GetWindowLongPtr(handle,-16).ToInt64()&nativeCaption)==0,"Style change restored the ghost caption buttons");
         if(DwmGetWindowAttribute(handle,34,out int color,4)==0)
         {
             Require(color==-2,"DWM border color was not suppressed");
@@ -87,15 +91,18 @@ static class WpfUiTests
         var cornerToggle=Children((W.DependencyObject)form.Content).OfType<C.CheckBox>().Single(c=>c.Content is C.TextBlock {Text:"Block switching near screen corners"});
         Require(cornerToggle.IsEnabled&&cornerToggle.IsChecked==false&&!form.Collect().Kvm.BlockScreenCorners,"WPF corner protection is enabled by default or inaccessible to host");cornerToggle.IsChecked=true;Require(form.Collect().Kvm.BlockScreenCorners,"WPF corner protection preference was not collected");
         form.SelectPage(1,false);Pump();
-        var durationFields=Children((W.DependencyObject)form.Content).OfType<C.TextBox>().Where(t=>t.MaxLength is 2 or 3).ToArray();
-        var minutes=durationFields.Single(t=>t.MaxLength==3);var seconds=durationFields.Single(t=>t.MaxLength==2);
-        Require(minutes.Text=="5"&&seconds.Text=="00","Duration fields did not retain legacy minutes");
-        minutes.Text="0";seconds.Text="30";Require(form.Collect().Replay.BufferSeconds==30,"WPF duration fields did not accept 30 seconds");
-        minutes.Text="120";seconds.Text="00";Require(form.Collect().Replay.BufferSeconds==7200,"WPF duration fields did not accept 2 hours");
-        minutes.Text="120";seconds.Text="01";bool durationRejected=false;try{form.Collect();}catch(ArgumentException){durationRejected=true;}Require(durationRejected,"WPF duration fields accepted more than 2 hours");
-        var preset=ActionButton(form,"5 min");preset.BringIntoView();Pump();Invoke(preset);Require(form.Collect().Replay.BufferSeconds==300,"Duration preset did not update editable fields");
+        var duration=form.SliderControl("replayDuration");
+        Require(duration.Minimum==1&&duration.Maximum==120&&duration.TickFrequency==1&&duration.IsSnapToTickEnabled&&duration.IsMoveToPointEnabled&&duration.Value==5,"Replay duration is not a 1-to-120 minute slider");
+        Require(!Children((W.DependencyObject)form.Content).OfType<C.TextBox>().Any(t=>t.MaxLength is 2 or 3)&&!Children((W.DependencyObject)form.Content).OfType<C.Button>().Any(b=>(string?)b.Tag is "30 sec" or "5 min" or "15 min" or "1 hour" or "2 hours"),"Replay duration fields/presets were not removed");
+        duration.BringIntoView();Pump();
+        var durationPeer=new System.Windows.Automation.Peers.SliderAutomationPeer(duration);var range=(System.Windows.Automation.Provider.IRangeValueProvider)durationPeer.GetPattern(System.Windows.Automation.Peers.PatternInterface.RangeValue);
+        range.SetValue(1);Pump();Require(form.Collect().Replay.BufferSeconds==60,"Replay slider did not save one minute");
+        range.SetValue(120);Pump();Require(form.Collect().Replay.BufferSeconds==7200&&Children((W.DependencyObject)form.Content).OfType<C.TextBlock>().Any(t=>t.Text=="2 h"),"Replay slider did not save/display two hours");
+        UiStrings.Shared.Language="ru";Pump();Require(Children((W.DependencyObject)form.Content).OfType<C.TextBlock>().Any(t=>t.Text=="2 ч"),"Duration value did not follow live language changes");UiStrings.Shared.Language="en";Pump();
+        duration.Value=0;Require(duration.Value==1&&form.Collect().Replay.BufferSeconds==60,"Slider accepted less than one minute");duration.Value=121;Require(duration.Value==120&&form.Collect().Replay.BufferSeconds==7200,"Slider accepted more than two hours");
+        range.SetValue(5);Pump();
         var soundToggle=Children((W.DependencyObject)form.Content).OfType<C.CheckBox>().Single(c=>c.Content is C.TextBlock {Text:"Play a sound after saving"});
-        var soundSlider=Children((W.DependencyObject)form.Content).OfType<C.Slider>().Single();
+        var soundSlider=form.SliderControl("saveSoundVolume");
         soundSlider.Value=37;soundToggle.IsChecked=false;Require(!form.Collect().Replay.SaveSoundEnabled&&form.Collect().Replay.SaveSoundVolume==37&&!ActionButton(form,"Preview sound").IsEnabled,"Chime controls lost edits or failed to disable preview");
         Invoke(Children((W.DependencyObject)form.Content).OfType<C.Button>().Single(b=>(string?)b.Tag=="General"));Require(form.SelectedPage==9,"Navigation click failed");
         form.AudioChoice("language").SelectedItem=form.AudioChoice("language").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="ru");Pump();
@@ -138,7 +145,7 @@ static class WpfUiTests
         foreach(var key in new[]{Keys.Tab,Keys.Left,Keys.ControlKey,Keys.A}){PostMessage(picture.Handle,0x100,(IntPtr)(int)key,IntPtr.Zero);PostMessage(picture.Handle,0x101,(IntPtr)(int)key,IntPtr.Zero);}Pump();
         Require(down.SequenceEqual(new[]{Keys.Tab,Keys.Left,Keys.ControlKey,Keys.A})&&up.SequenceEqual(down),"WPF hosting swallowed a remote key or key release");
         ChromeWorks(viewer);PostMessage(picture.Handle,0x100,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x100,(IntPtr)(int)Keys.F11,IntPtr.Zero);Pump();Require(viewer.WindowStyle==W.WindowStyle.None&&System.Windows.Shell.WindowChrome.GetWindowChrome(viewer)==null&&!ActionButton(viewer,"Close window").IsVisible,"WPF fullscreen repeat guard failed");
-        PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x100,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);Pump();Require(viewer.WindowStyle==W.WindowStyle.SingleBorderWindow&&System.Windows.Shell.WindowChrome.GetWindowChrome(viewer)!=null,"WPF fullscreen did not restore");ChromeWorks(viewer);viewer.Close();
+        PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x100,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);Pump();Require(viewer.WindowStyle==W.WindowStyle.None&&System.Windows.Shell.WindowChrome.GetWindowChrome(viewer)!=null,"WPF fullscreen did not restore");ChromeWorks(viewer);viewer.Close();
         Program.Write("wpf-ui-tests.json",new{Pass=true,SettingsOpenMs=opening,PagesRendered=33,ProductionWpfMessageLoop=true,NavigationAndSaveInvoked=true,LiveLanguageSwitch=true,HostReceiverHidden=true,IndividualMonitorRemoveAndRestore=true,SettingsResponsiveDuringDiscovery=true,SettingsSelectionsPreserved=true,ClosedDuringDiscovery=true,WpfKvmViewerOpened=true,HostedKeyboardAndKeyRelease=true,WpfFullscreenRepeatGuard=true,NativeCaptionHitTesting=true,NativeTitleBarRemoved=true,CustomMinimizeClose=true,RapidAnimatedNavigationPreservedEdits=true});
     }
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
@@ -153,4 +160,7 @@ static class WpfUiTests
     [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern IntPtr CreateRectRgn(int left,int top,int right,int bottom);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern int GetWindowRgn(IntPtr window,IntPtr region);
     [System.Runtime.InteropServices.DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr handle);
+    [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")] static extern IntPtr GetWindowLongPtr(IntPtr window,int index);
+    [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")] static extern IntPtr SetWindowLongPtr(IntPtr window,int index,IntPtr value);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
 }

@@ -78,7 +78,7 @@ class ShellWindow:W.Window
     public ShellWindow(string title,double width,double height)
     {
         Resources.MergedDictionaries.Add(new W.ResourceDictionary{Source=new Uri("/ScreenCapture;component/Ui/Theme.xaml",UriKind.Relative)});
-        Style=(W.Style)FindResource(typeof(W.Window));Title="DeskGlide · "+UiStrings.T(title);Width=width;Height=height;WindowStartupLocation=W.WindowStartupLocation.CenterScreen;
+        Style=(W.Style)FindResource(typeof(W.Window));WindowStyle=W.WindowStyle.None;Title="DeskGlide · "+UiStrings.T(title);Width=width;Height=height;WindowStartupLocation=W.WindowStartupLocation.CenterScreen;
         System.Windows.Shell.WindowChrome.SetWindowChrome(this,chrome);
         System.ComponentModel.PropertyChangedEventHandler languageChanged=(_,_)=>Title="DeskGlide · "+UiStrings.T(title);UiStrings.Shared.PropertyChanged+=languageChanged;
         Icon=System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/ScreenCapture;component/Assets/DeskGlide.ico"));
@@ -115,6 +115,15 @@ class ShellWindow:W.Window
     void ApplyNativeFrame()
     {
         if(IsClosed)return;var handle=new System.Windows.Interop.WindowInteropHelper(this).Handle;if(handle==IntPtr.Zero)return;
+        // Full-client glass otherwise lets DWM paint a second set of caption
+        // buttons beneath the WPF header. Keep only our own caption controls.
+        const long nativeCaption=0x00C00000|0x00080000|0x00020000|0x00010000;
+        long style=GetWindowLongPtr(handle,-16).ToInt64();
+        if((style&nativeCaption)!=0)
+        {
+            SetWindowLongPtr(handle,-16,(IntPtr)(style&~nativeCaption));
+            SetWindowPos(handle,IntPtr.Zero,0,0,0,0,0x37); // Frame refresh; no move, size, activation or Z-order change.
+        }
         int dark=1;DwmSetWindowAttribute(handle,20,ref dark,4);
         int rounded=fullscreenChrome||WindowState==W.WindowState.Maximized?1:2;DwmSetWindowAttribute(handle,33,ref rounded,4);
         int noSystemBorder=-2;DwmSetWindowAttribute(handle,34,ref noSystemBorder,4);
@@ -123,7 +132,7 @@ class ShellWindow:W.Window
     {
         // Theme and activation can reset the native border policy. This hook is
         // confined to our own window and does not handle keyboard/mouse input.
-        if((message is 0x86 or 0x31A or 0x31E)&&!IsClosed&&!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(ApplyNativeFrame);
+        if((message is 0x7D or 0x86 or 0x31A or 0x31E)&&!IsClosed&&!Dispatcher.HasShutdownStarted)Dispatcher.BeginInvoke(ApplyNativeFrame);
         return IntPtr.Zero;
     }
     protected C.Border Header(string title,string subtitle,bool compact=false)
@@ -134,7 +143,7 @@ class ShellWindow:W.Window
         var grid=new C.Grid();grid.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});grid.ColumnDefinitions.Add(new());grid.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});
         var mark=new C.Image{Width=compact?28:42,Height=compact?28:42,Margin=new(0,0,14,0),Source=System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/ScreenCapture;component/Assets/DeskGlide.png")),ToolTip="DeskGlide"};grid.Children.Add(mark);C.Grid.SetColumn(copy,1);grid.Children.Add(copy);
         var controls=new C.StackPanel{Orientation=C.Orientation.Horizontal,VerticalAlignment=W.VerticalAlignment.Top,Margin=new(20,0,0,0)};
-        var minimize=Kit.IconButton("Minimize window","M0 6 H12",()=>System.Windows.SystemCommands.MinimizeWindow(this));
+        var minimize=Kit.IconButton("Minimize window","M0 6 H12",()=>WindowState=W.WindowState.Minimized);
         minimize.Visibility=ResizeMode==W.ResizeMode.NoResize?W.Visibility.Collapsed:W.Visibility.Visible;
         var close=Kit.IconButton("Close window","M1 1 L11 11 M11 1 L1 11",Close,"CloseWindowButton");close.Margin=new(4,0,0,0);
         foreach(var button in new[]{minimize,close}){System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(button,true);controls.Children.Add(button);}
@@ -146,13 +155,16 @@ class ShellWindow:W.Window
     {
         fullscreenChrome=enabled;
         if(header!=null)header.Visibility=enabled?W.Visibility.Collapsed:W.Visibility.Visible;
-        System.Windows.Shell.WindowChrome.SetWindowChrome(this,enabled?null:chrome);WindowStyle=enabled?W.WindowStyle.None:W.WindowStyle.SingleBorderWindow;
+        System.Windows.Shell.WindowChrome.SetWindowChrome(this,enabled?null:chrome);WindowStyle=W.WindowStyle.None;
         ApplyNativeFrame();
     }
     [StructLayout(LayoutKind.Sequential)] readonly record struct Margins(int Left,int Right,int Top,int Bottom);
     [DllImport("dwmapi.dll")] static extern int DwmExtendFrameIntoClientArea(IntPtr window,ref Margins margins);
     [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr window,int attribute,ref int value,int size);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")] static extern IntPtr GetWindowLongPtr(IntPtr window,int index);
+    [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")] static extern IntPtr SetWindowLongPtr(IntPtr window,int index,IntPtr value);
+    [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
 }
 
 sealed class ShortcutBox:C.StackPanel
