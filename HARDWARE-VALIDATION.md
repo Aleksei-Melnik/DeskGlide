@@ -1,5 +1,18 @@
 # DeskGlide hardware validation — 0.7.17, 2026-10-11
 
+## Tray interaction update — 0.7.18, 2026-10-12
+
+The tray-only update adds a single left click for Settings, creates the menu
+before publishing the icon and enables WinForms message filtering in WPF from
+startup. The isolated Windows CI posts native callbacks to the test NotifyIcon,
+reproduces the previous empty-menu first-opening cancellation, then verifies
+first and repeated menu opening, Settings actions, Escape dismissal and no
+extra Settings request from the double-click notification. Folder and portable
+builds run this suite alongside the existing WPF window tests. It uses no global
+keyboard/mouse injection. These checks do not replace a Windows boot/login test
+on every user's installation. The capture/recording implementation is unchanged
+from the measurements below.
+
 Windows 11, Ryzen 7 7800X3D, RTX 5070 and integrated AMD Radeon, 32 GB RAM.
 The installed 0.7.16 utility and its profile were preserved. Its HEVC 120 FPS
 recorder continued running alongside the isolated tests. No input was injected

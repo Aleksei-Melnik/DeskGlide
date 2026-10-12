@@ -24,6 +24,7 @@ internal static class Program
             if(args.Contains("--install-recording-tools")){RecordingTools.EnsureAsync().GetAwaiter().GetResult();Write("recording-tools-setup.json",new{Pass=RecordingTools.Ready,Folder=RecordingTools.DirectoryPath});return 0;}
             if(args.Contains("--ui-tests")){UiTests.Run();return 0;}
             if(args.Contains("--wpf-ui-tests")){Ui.WpfUiTests.Run();return 0;}
+            if(args.Contains("--tray-ui-tests")){TrayInteractionTests.Run();return 0;}
             if(args.Contains("--feature-tests")){FeatureTests.Run();return 0;}
             if(args.Contains("--camera-test")){FeatureTests.Camera();return 0;}
             if(args.Contains("--camera-2k-test")){FeatureTests.Camera(2560,1440);return 0;}
@@ -72,7 +73,7 @@ internal static class Program
             using var mutex=new Mutex(true,"Local\\SdrCapture.Tray",out bool first);
             if(!first) return 0;
             Application.EnableVisualStyles();
-            WindowsFormsSynchronizationContext.AutoInstall=false;
+            DesktopMessageLoop.EnableFormsInterop();
             var desktop=new System.Windows.Application{ShutdownMode=System.Windows.ShutdownMode.OnExplicitShutdown};
             desktop.DispatcherUnhandledException+=(_,e)=>{Log.Write("Desktop UI: "+e.Exception);e.Handled=true;MessageBox.Show(e.Exception.Message,"DeskGlide");};
             using var app=new TrayApp();app.ThreadExit+=(_,_)=>desktop.Shutdown();

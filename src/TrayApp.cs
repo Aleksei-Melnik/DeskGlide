@@ -94,10 +94,9 @@ sealed class TrayApp:ApplicationContext
             if(!closing)try{dispatcher.BeginInvoke(()=>{if(!closing&&settings.Replay.SaveSoundEnabled)saveSound.Play(settings.Replay.SaveSoundVolume);});}catch(InvalidOperationException){}
         };
         UiStrings.Shared.Language=settings.Language;
-        tray=new NotifyIcon{Icon=appIcon,Text=BuildTooltip(engine.NdiEnabled,settings.Replay.Enabled),Visible=true,ContextMenuStrip=new ContextMenuStrip()};
+        tray=new NotifyIcon{Icon=appIcon,Text=BuildTooltip(engine.NdiEnabled,settings.Replay.Enabled),ContextMenuStrip=new ContextMenuStrip()};
         TrayMenuStyle.Apply(tray.ContextMenuStrip);
-        tray.ContextMenuStrip.Opening+=(_,_)=>BuildMenu();
-        tray.DoubleClick+=(_,_)=>OpenSettings();
+        TrayInteraction.Configure(tray,()=>OpenSettings(),BuildMenu);
         timer.Tick+=(_,_)=>
         {
             tray.Text=BuildTooltip(engine.NdiEnabled,settings.Replay.Enabled);
@@ -110,6 +109,9 @@ sealed class TrayApp:ApplicationContext
         timer.Start();engine.Start(settings.Options);StartKvm();StartDiscord();
         _=Task.Run(async()=>{try{await RecordingTools.MigrateLegacyAsync();}catch(Exception e){Log.Write("Recording tools migration: "+e.Message);}});
         if(settings.Kvm.Role!="Host")_=Task.Run(async()=>{for(int i=0;i<30&&!closing;i++){try{DiscordDevices.RecoverDefaults(settings.Kvm.Role);}catch(Exception e){Log.Write("Audio default recovery: "+e.Message);}await Task.Delay(1000);}});
+        // Publish only after startup wiring is complete; the WPF loop can now
+        // dispatch the very first tray callback without waiting for KVM setup.
+        tray.Visible=true;
     }
     internal static string BuildTooltip(bool streaming,bool replay)
     {
@@ -282,5 +284,5 @@ sealed class TrayApp:ApplicationContext
         try{string app=ReplayAppContext.Capture();notifications.Enqueue(UiStrings.F("Saving the last {0}…",ReplayTime.Format(settings.Replay.BufferSeconds)));var result=await replay.SaveAsync(app);delivery.Wake();}
         catch(Exception e){notifications.Enqueue("Повтор не сохранён: "+e.Message);}
     }
-    protected override void ExitThreadCore(){closing=true;settingsWindow?.Close();keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();saveSound.Dispose();dispatcher.Dispose();tray.Visible=false;tray.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
+    protected override void ExitThreadCore(){closing=true;settingsWindow?.Close();keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();saveSound.Dispose();dispatcher.Dispose();tray.Visible=false;var menu=tray.ContextMenuStrip;tray.Dispose();menu?.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
 }

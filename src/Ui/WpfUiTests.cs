@@ -19,7 +19,7 @@ static class WpfUiTests
     {
         if(EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var running))
         {running.Dispose();throw new InvalidOperationException("Close DeskGlide before running UI tests: they activate test windows and can interrupt keyboard focus.");}
-        WindowsFormsSynchronizationContext.AutoInstall=false;
+        DesktopMessageLoop.EnableFormsInterop();
         var app=new W.Application{ShutdownMode=W.ShutdownMode.OnExplicitShutdown};Exception? failure=null;
         app.Dispatcher.BeginInvoke(()=>{try{RunTests();}catch(Exception e){failure=e;}finally{foreach(W.Window window in app.Windows.Cast<W.Window>().ToArray())window.Close();app.Shutdown();}});
         app.Run();if(failure!=null)throw failure;

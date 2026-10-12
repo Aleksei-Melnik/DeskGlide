@@ -16,7 +16,7 @@ KVM and local replay do not require NDI Runtime.
 
 1. Download the single `DeskGlide.exe` from Releases and run it. No app installer
    or separate .NET installation is needed. Settings opens from
-   a tray double-click or **Settings** in the tray menu.
+   one left click on the tray icon or **Settings** in its right-click menu.
 2. Under **Screen streaming**, choose a monitor and enable NDI. Output is SDR,
    at the monitor's preferred native resolution, with a 60 FPS delivery clock.
    Lower-resolution fullscreen games stretch to that canvas without letterboxing.

@@ -19,12 +19,13 @@ jobs:
       - name: Test update integrity, rollback, audio clock and windows
         shell: pwsh
         run: |
-          foreach ($flag in @('--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--update-tests', '--restart-tests', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--ui-tests', '--wpf-ui-tests', '--feature-tests', '--camera-test', '--camera-2k-test', '--camera-hold-test', '--camera-formats-test', '--kvm-video-test', '--kvm-test')) {
+          foreach ($flag in @('--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--update-tests', '--restart-tests', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--ui-tests', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--camera-test', '--camera-2k-test', '--camera-hold-test', '--camera-formats-test', '--kvm-video-test', '--kvm-test')) {
             $p=Start-Process ./app/DeskGlide.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){
               if(Test-Path ./app/error.txt){Get-Content ./app/error.txt}
               throw "$flag failed"
             }
+            if($flag -eq '--tray-ui-tests'){Get-Content ./app/tray-ui-tests.json}
           }
       - name: Build portable executable
         shell: pwsh
@@ -35,10 +36,11 @@ jobs:
       - name: Test portable executable without adjacent libraries
         shell: pwsh
         run: |
-          foreach ($flag in @('--portable-tests', '--update-tests', '--restart-tests', '--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--wpf-ui-tests', '--feature-tests', '--kvm-video-test', '--kvm-test')) {
+          foreach ($flag in @('--portable-tests', '--update-tests', '--restart-tests', '--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--kvm-video-test', '--kvm-test')) {
             $p=Start-Process ./portable-check/DeskGlide.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){
               if(Test-Path "$env:LOCALAPPDATA/SdrCapture/Diagnostics/error.txt"){Get-Content "$env:LOCALAPPDATA/SdrCapture/Diagnostics/error.txt"}
               throw "Portable $flag failed"
             }
+            if($flag -eq '--tray-ui-tests'){Get-Content "$env:LOCALAPPDATA/SdrCapture/Diagnostics/tray-ui-tests.json"}
           }
