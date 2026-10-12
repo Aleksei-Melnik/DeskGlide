@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 namespace SdrCapture;
 static class MonitorNames
 {
-    public sealed record Entry(string Device,string Label);
+    public sealed record Entry(string Device,string Label,int Width,int Height);
     [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] struct DeviceInfo
     {
         public uint Size;
@@ -18,6 +18,6 @@ static class MonitorNames
         var d=new DeviceInfo{Size=(uint)Marshal.SizeOf<DeviceInfo>()};
         string name=EnumDisplayDevices(s.DeviceName,0,ref d,0)&&!string.IsNullOrWhiteSpace(d.Description)?d.Description:s.DeviceName.Replace(@"\\.\","");
         var native=PreferredResolution.Read(s.DeviceName,s.Bounds.Width,s.Bounds.Height);
-        return new Entry(s.DeviceName,$"{name} · {native.Width} × {native.Height} · {s.DeviceName.Replace(@"\\.\","")}");
+        return new Entry(s.DeviceName,$"{name} · {native.Width} × {native.Height} · {s.DeviceName.Replace(@"\\.\","")}",native.Width,native.Height);
     }).ToArray();
 }

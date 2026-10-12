@@ -6,12 +6,17 @@ static class RecordingEncoders
 {
     static readonly SemaphoreSlim gate=new(1,1);
     static readonly Dictionary<string,(RecordingEncoder? Encoder,DateTimeOffset Retry,string? Error)> cache=[];
+    internal static int QualityTarget(string quality)=>quality switch{"Ultra"=>18,"Medium"=>25,"Low"=>29,_=>21};
+    internal static int MaximumBitrate(string quality,int width,int height,int fps)
+    {
+        int baseRate=quality switch{"Ultra"=>60,"Medium"=>24,"Low"=>14,_=>40};
+        return Math.Clamp((int)Math.Ceiling(baseRate*width*(double)height/(2560*1440)*fps/60),6,200);
+    }
     internal static RecordingEncoder[] Candidates(ReplayOptions options,int width,int height)
     {
         string codec=options.Codec switch{"H264"=>"h264","HEVC"=>"hevc","AV1"=>"av1",_=>throw new ArgumentException("Unknown recording codec.")};
-        int cq=options.Quality switch{"Ultra"=>18,"Medium"=>25,"Low"=>29,_=>21};
-        int baseRate=options.Quality switch{"Ultra"=>60,"Medium"=>24,"Low"=>14,_=>40};
-        int maxRate=Math.Clamp((int)Math.Ceiling(baseRate*width*(double)height/(2560*1440)*options.Fps/60),6,200);
+        int cq=QualityTarget(options.Quality);
+        int maxRate=MaximumBitrate(options.Quality,width,height,options.Fps);
         string[] common=["-g",(options.Fps*2).ToString(),"-bf","0","-pix_fmt","nv12"];
         var nvidia=new List<string>{"-c:v",codec+"_nvenc","-preset","p4","-tune","hq","-rc","vbr","-cq",cq.ToString(),"-b:v","0","-maxrate",$"{maxRate}M","-bufsize",$"{maxRate*2}M","-rc-lookahead","0"};
         // Preserve the working NVIDIA path, including its AV1 decoder limit.

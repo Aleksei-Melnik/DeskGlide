@@ -84,6 +84,33 @@ link remains available in settings.
 
 ## Instant replay
 
+Start with **High** quality. For 2560 × 1440 at 120 FPS, use AV1 when your GPU
+supports hardware AV1 recording; HEVC is the alternative. For 1920 × 1080 at
+60 FPS, High with AV1 or HEVC is also a good starting point. Choose H.264 for
+broader compatibility with players and editing software. Unsupported hardware
+choices report an error rather than switching to CPU encoding.
+
+| Quality | When to use it | NVIDIA quality target | Maximum bitrate at 1440p60 |
+| --- | --- | --- | --- |
+| Ultra | More detail in difficult motion; larger clips | CQ 18 | 60 Mbps |
+| High | Recommended starting point | CQ 21 | 40 Mbps |
+| Medium | Smaller clips with more visible compression | CQ 25 | 24 Mbps |
+| Low | Save disk space when image detail is less important | CQ 29 | 14 Mbps |
+
+NVIDIA uses variable bitrate: these are ceilings, not a fixed bitrate. The
+ceiling scales with pixel count and frame rate, within 6–200 Mbps. At 1440p120,
+the ceilings are 120/80/48/28 Mbps; at 1080p60 they are 34/23/14/8 Mbps. Actual
+file size depends on the scene and codec. AMD uses constant quantizer settings
+and Intel uses its quality control, so their bitrates can differ. Quality does
+not select resolution or FPS, and Ultra does not fix recording stutter. If
+your hardware cannot sustain a format, lower FPS or resolution. High at 60 FPS
+is the safer starting point on older GPUs. Recording has some capture and GPU
+overhead; zero game-FPS impact is not guaranteed.
+
+The quality menu in the app explains each level and shows the NVIDIA bitrate
+ceiling for the selected resolution and FPS. The numbers update when these
+settings change. Both English and Russian labels are available.
+
 - Duration: one slider from 1 minute to 2 hours, in one-minute steps.
   The selected time is shown beside it. Old sub-minute profiles use a one-minute
   buffer; existing minute-based durations are preserved.
@@ -108,8 +135,11 @@ link remains available in settings.
   **Instant replay → Save notification**. Default volume is 25%.
 - Buffer storage is local and follows the chosen duration. A long, high-quality
   buffer can use tens of gigabytes; it requires enough free space. Increasing
-  duration fills the extra history over time. Saved clips use complete video
-  segments and can be up to approximately 2 seconds shorter than the chosen time.
+  duration fills the extra history over time. Saves are trimmed to complete
+  frames without re-encoding. After a successful Save, the next clip contains
+  only new footage since that Save, up to the chosen duration. A failed export
+  does not discard unsaved footage. Recording continues without restarting its
+  encoder when you save.
 - Clips are exported only by **Save replay**, the configured shortcut or
   `DeskGlide.exe --save-replay`. Updates, shutdown and settings changes do not
   export a clip. An unsaved buffer is discarded on restart or recording-format

@@ -42,12 +42,15 @@ internal static class Program
             if(args.Contains("--ndi-audio-probe")){NdiAudioTests.Probe();return 0;}
             if(args.Contains("--ndi-audio-test")){NdiAudioTests.Run();return 0;}
             if(args.Contains("--audio-timing-test")){AudioTimingTests.Run();return 0;}
+            if(args.Contains("--recording-pixels-test")){RecordingPixelTests.Run();return 0;}
+            if(args.Contains("--recording-pipe-test")){RecordingPipeTests.Run();return 0;}
             if(args.Contains("--audio-live-test")){int d=Array.IndexOf(args,"--audio-device");AudioTimingTests.Live(args.Contains("--play-tone"),d<0?null:args[d+1]);return 0;}
             if(args.Contains("--kvm-test")){KvmTests.Run();return 0;}
             if(args.Contains("--kvm-video-test")){KvmVideoTests.Codec();return 0;}
             if(args.Contains("--kvm-video-live-test")){KvmVideoTests.Live();return 0;}
             if(args.Contains("--replay-local-test")){int i=Array.IndexOf(args,"--seconds"),f=Array.IndexOf(args,"--fps");ReplayTests.LiveLocal(i<0?35:int.Parse(args[i+1]),f<0?120:int.Parse(args[f+1]));return 0;}
             if(args.Contains("--cadence-test")){int f=Array.IndexOf(args,"--fps"),c=Array.IndexOf(args,"--codec"),a=Array.IndexOf(args,"--audio");ReplayCadenceTest.Run(f<0?60:int.Parse(args[f+1]),c<0?"HEVC":args[c+1],a<0?"Mixed":args[a+1],args.Contains("--live-audio"));return 0;}
+            if(args.Contains("--replay-load-test")){int f=Array.IndexOf(args,"--fps"),c=Array.IndexOf(args,"--codec"),s=Array.IndexOf(args,"--seconds"),e=Array.IndexOf(args,"--encoder"),w=Array.IndexOf(args,"--window");ReplayLoadTests.Run(f<0?60:int.Parse(args[f+1]),c<0?"AV1":args[c+1],args.Contains("--stress"),s<0?30:int.Parse(args[s+1]),e<0?null:args[e+1],args.Contains("--hdr"),args.Contains("--sync"),w<0?12:int.Parse(args[w+1]));return 0;}
             if(args.Contains("--save-replay"))
             {
                 if(!EventWaitHandle.TryOpenExisting("Local\\SdrCapture.SaveReplay",out var signal))return 2;

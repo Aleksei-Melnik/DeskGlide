@@ -10,6 +10,7 @@ sealed class SettingsWindow:ShellWindow
 {
     internal sealed record Choice(string Id,string Label){public override string ToString()=>Label;}
     readonly Settings initial;
+    readonly MonitorNames.Entry[] availableDisplays=MonitorNames.Choices();
     readonly KvmService? service;
     readonly Func<string>? diagnostics;
     readonly Func<StatusSection[]>? overview;
@@ -123,7 +124,7 @@ sealed class SettingsWindow:ShellWindow
         var page=Page(0,"Screen","Screen streaming","Send an SDR picture to compatible apps and computers on your network.");
         var video=Section(page,"Video","Native monitor resolution · 60 FPS · always SDR");
         Row(video,"NDI output",Toggle("ndi","Send video over NDI",v.SendOnLaunch));
-        Row(video,"Monitor",Choose("display",MonitorNames.Choices().Select(s=>new Choice(s.Device,s.Label)),v.Device));Row(video,"Mouse cursor",Toggle("cursor","Show cursor in the video",v.CaptureCursor));
+        Row(video,"Monitor",Choose("display",availableDisplays.Select(s=>new Choice(s.Device,s.Label)),v.Device));Row(video,"Mouse cursor",Toggle("cursor","Show cursor in the video",v.CaptureCursor));
         var audio=Section(page,"Stream audio","This volume affects only the audio sent to your streaming PC.");Row(audio,"Audio source",Audio("ndiAudio",v.NdiAudioDevice));Row(audio,"Volume",Volume("ndiVolume",v.NdiAudioVolume));
         var sourceRow=audio.Children.OfType<C.Grid>().First();var source=choices["ndiAudio"];sourceRow.Children.Remove(source);var sourceWithRefresh=new C.Grid();sourceWithRefresh.ColumnDefinitions.Add(new());sourceWithRefresh.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});C.Grid.SetColumn(source,0);sourceWithRefresh.Children.Add(source);var refresh=Kit.AsyncButton("↻",RefreshAudio);refresh.Width=36;refresh.Padding=new(8);refresh.ToolTip=UiStrings.T("Refresh devices");refresh.Margin=new(6,0,0,0);C.Grid.SetColumn(refresh,1);sourceWithRefresh.Children.Add(refresh);C.Grid.SetColumn(sourceWithRefresh,1);sourceRow.Children.Add(sourceWithRefresh);
         audioStatus.Visibility=W.Visibility.Collapsed;audio.Children.Add(audioStatus);
@@ -164,7 +165,7 @@ sealed class SettingsWindow:ShellWindow
     }
     void BuildReplay(Settings v)
     {
-        var page=Page(1,"Recording","Instant replay","Record in the background. A clip is saved only when you press Save or its shortcut.");
+        var page=Page(1,"Recording","Instant replay","Save the buffered footage on demand. The next clip contains only new footage since your last save.");
         var setup=Section(page,"Recording tools","Installed automatically when replay starts. You can also set them up here.");
         var setupStatus=Kit.Text(RecordingTools.Ready?"Recording tools are ready.":"Recording tools are not installed.",12,"#B0A9BC");setup.Children.Add(setupStatus);
         var setupCard=(W.UIElement)setup.Parent;
@@ -182,6 +183,24 @@ sealed class SettingsWindow:ShellWindow
         var main=Section(page,"Instant replay");Row(main,"Replay buffer",Toggle("replay","Record in the background",v.Replay.Enabled));Row(main,"Duration",ReplayDuration(v.Replay.BufferSeconds));Row(main,"Save shortcut",replayKey);
         var encoding=Section(page,"Recording quality","GPU encoding is selected automatically: NVIDIA NVENC, AMD AMF or Intel Quick Sync. Codec and resolution support depend on your graphics card and driver.");Row(encoding,"Codec",Choose("codec",Options("HEVC","H264","AV1"),v.Replay.Codec));Row(encoding,"Quality",Choose("quality",Options("Ultra","High","Medium","Low"),v.Replay.Quality));Row(encoding,"Frame rate",Choose("fps",[new("60","60 FPS"),new("120","120 FPS")],v.Replay.Fps.ToString()));
         Row(encoding,"Resolution",Choose("resolution",[new("0","Monitor resolution"),new("1280","1280 × 720 · 720p"),new("1920","1920 × 1080 · 1080p"),new("2560","2560 × 1440 · 1440p"),new("3840","3840 × 2160 · 4K")],v.Replay.Width.ToString()));
+        encoding.Children.Add(Kit.Text("NVIDIA: variable bitrate up to the shown limit. AMD and Intel use quality targets instead. High is recommended; Ultra creates larger files. Quality does not change FPS.",12,"#B0A9BC"));
+        void RefreshQuality()
+        {
+            string selected=Id("quality");
+            int width=int.Parse(Id("resolution")),height=width switch{1280=>720,1920=>1080,2560=>1440,3840=>2160,_=>0};
+            if(width==0&&availableDisplays.FirstOrDefault(d=>d.Device==Id("display")) is {} display){width=display.Width;height=display.Height;}
+            int fps=int.Parse(Id("fps"));
+            choices["quality"].ItemsSource=new[]{("Ultra","maximum detail"),("High","recommended"),("Medium","smaller files"),("Low","minimum size")}.Select(level=>
+            {
+                string label=width>0?UiStrings.F("{0} ({1} · NVIDIA ≤{2} Mbps)",UiStrings.T(level.Item1),UiStrings.T(level.Item2),RecordingEncoders.MaximumBitrate(level.Item1,width,height,fps)):
+                    UiStrings.F("{0} ({1})",UiStrings.T(level.Item1),UiStrings.T(level.Item2));
+                return new Choice(level.Item1,label);
+            }).ToArray();
+            Select(choices["quality"],selected);
+        }
+        foreach(string name in new[]{"display","resolution","fps"})choices[name].SelectionChanged+=(_,_)=>RefreshQuality();
+        System.ComponentModel.PropertyChangedEventHandler qualityLanguage=(_,_)=>RefreshQuality();UiStrings.Shared.PropertyChanged+=qualityLanguage;Closed+=(_,_)=>UiStrings.Shared.PropertyChanged-=qualityLanguage;
+        RefreshQuality();
         var storage=Section(page,"Save location","Clips are grouped by game automatically. Local and network folders work.");
         var path=Input("folder",v.Replay.Folder);var pathRow=new C.Grid();pathRow.ColumnDefinitions.Add(new());pathRow.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});pathRow.Children.Add(path);var browse=Kit.Button("Browse…",()=>{var picker=new Microsoft.Win32.OpenFolderDialog{Title=UiStrings.T("Choose a recording folder"),InitialDirectory=path.Text};if(picker.ShowDialog(this)==true)path.Text=picker.FolderName;});browse.Margin=new(8,0,0,0);C.Grid.SetColumn(browse,1);pathRow.Children.Add(browse);Row(storage,"Folder",pathRow);
         var notification=Section(page,"Save notification","A soft two-note chime plays after the clip reaches your save folder.");

@@ -67,11 +67,13 @@ static class ReplayTests
         {
             await Task.Delay(24000);
             if(recorder.Error!=null||recorder.BufferedSeconds<8)throw new Exception("Replay failed: "+recorder.Error+" "+recorder.Status);
+            double firstPressed=ReplayRecorder.Now;
             var first=await recorder.SaveAsync();
             var info=await Probe(first.LocalPath);
             var streams=info.RootElement.GetProperty("streams").EnumerateArray().ToArray();
             if(streams.Count(s=>s.GetProperty("codec_type").GetString()=="audio")!=1)throw new Exception("Expected one mixed audio track.");
             var video=streams.Single(s=>s.GetProperty("codec_type").GetString()=="video");
+            if(video.TryGetProperty("start_time",out var videoStart)&&double.Parse(videoStart.GetString()!,System.Globalization.CultureInfo.InvariantCulture)>.001)throw new Exception("AAC preroll shifted the exported video clock");
             if(video.GetProperty("codec_name").GetString()!="hevc"||video.GetProperty("width").GetInt32()!=640||video.GetProperty("height").GetInt32()!=360||video.GetProperty("color_space").GetString()!="bt709"||video.GetProperty("color_range").GetString()!="tv")throw new Exception("Unexpected video format/color.");
             double duration=double.Parse(info.RootElement.GetProperty("format").GetProperty("duration").GetString()!,System.Globalization.CultureInfo.InvariantCulture);
             if(duration<7||duration>10.3)throw new Exception("Replay trim/window failure: "+duration);
@@ -83,6 +85,15 @@ static class ReplayTests
             string invalid=Path.Combine(root,"not-a-folder");File.WriteAllText(invalid,"test");
             bool copyFailed=false;try{await ReplayDelivery.CopyAsync(new(first.LocalPath,Path.Combine(invalid,"clip.mp4")),CancellationToken.None);}catch(IOException){copyFailed=true;}
             if(!copyFailed||!File.Exists(first.LocalPath))throw new Exception("Failed destination lost local clip.");
+            bool saveFailed=false;
+            Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",invalid);
+            try{await recorder.SaveAsync();}catch(IOException){saveFailed=true;}
+            finally{Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",root);}
+            double secondPressed=ReplayRecorder.Now;
+            var second=await recorder.SaveAsync();
+            double expected=Math.Min(10,secondPressed-firstPressed);
+            if(!saveFailed||Math.Abs(second.Seconds-expected)>.05||recorder.EncoderStarts!=1)throw new Exception("A failed save consumed footage or restarted recording");
+            observations.Add(new{Phase="failed-save-and-next-clip",saveFailed,ExpectedSeconds=expected,ActualSeconds=second.Seconds,recorder.EncoderStarts});
             recorder.Update(config with{Silent=true});await Task.Delay(7000);
             var silent=await recorder.SaveAsync();var silentInfo=await Probe(silent.LocalPath);
             if(silentInfo.RootElement.GetProperty("streams").EnumerateArray().Any(s=>s.GetProperty("codec_type").GetString()=="audio"))throw new Exception("Silent file contains an audio track.");

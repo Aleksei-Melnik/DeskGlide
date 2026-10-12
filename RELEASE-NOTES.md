@@ -1,11 +1,13 @@
-DeskGlide 0.7.16
+DeskGlide 0.7.17
 
-- Fixed NDI Runtime setup retry when its cached installer is damaged or incomplete. The original installer is downloaded again and verified before replacement; invalid or oversized cache files are not reused.
-- Includes automatic NDI Runtime setup and NVIDIA NVENC / AMD AMF / Intel Quick Sync replay selection from 0.7.15. An existing Runtime is reused. First installation still requires the vendor's license wizard and Windows permission prompt. No drivers or dependencies are placed beside the portable EXE.
-- Added an explicit audio-device option for the live diagnostic, so testing an active endpoint does not alter the user's recording profile.
+- Improved replay stability under CPU/GPU pressure. Video uses a direct NV12 path with 25% fewer pipe bytes, bounded frame history and dedicated video/audio writers that wake without waiting for normal-priority thread-pool callbacks.
+- Improved recording audio continuity: larger WASAPI capture buffers and a shared, delayed recording clock give complete packets time to arrive. NDI transmission keeps its existing timing.
+- A successful Save starts a new unsaved interval. The next clip contains only new footage since the previous Save, up to the chosen duration. Failed exports retain unsaved footage; saving does not restart the encoder. Updates, shutdown and settings changes still do not export clips automatically.
+- Fixed frame boundaries when assembling clips with AAC audio. Export keeps decoding preroll without shifting the visible video or skipping frames between consecutive saves.
+- The quality dropdown now explains Ultra, High, Medium and Low and shows the NVIDIA bitrate ceiling for the selected resolution and FPS. Labels update with the settings and support English/Russian. AMD/Intel use quality targets; their bitrate is not a fixed ceiling.
 
-Hardware validation: native 1440p replay passed decoded moving-frame checks with no repeats or skips for NVIDIA H.264/HEVC at 60 FPS, HEVC/AV1 at 120 FPS, and AMD H.264 at 60 FPS and HEVC at 60/120 FPS. Mixed, three-track and silent audio modes passed. A 180-second NVIDIA HDR desktop recording completed without an encoder restart; local NDI delivery ran for 90 seconds without receive timeouts. Real RODECaster Duo audio met the recording deadline with zero late samples. Local KVM video reached 30/60 FPS, and replay still exports only after an explicit Save.
+For 1440p120, start with **AV1 + High** on hardware that supports it, or HEVC + High. High's NVIDIA ceiling is 80 Mbps; Ultra is 120 Mbps. For 1080p60, High's ceiling is 23 Mbps. H.264 remains available for broader player/editor compatibility. The [quality guide](https://github.com/Aleksei-Melnik/DeskGlide#instant-replay) explains every level.
 
-These measurements cover the tested RTX 5070 and integrated Radeon. They do not establish physical Intel support, every GPU generation, sustained game-load performance, remote LAN performance, interactive first-time NDI installation or 4K/8K throughput. Full details: [hardware validation](https://github.com/Aleksei-Melnik/DeskGlide/blob/main/HARDWARE-VALIDATION.md).
+Validation results and limits: [hardware validation](https://github.com/Aleksei-Melnik/DeskGlide/blob/main/HARDWARE-VALIDATION.md). These checks do not establish zero game-FPS overhead, every GPU generation, physical Intel support or 4K/8K performance.
 
-Update through Updates → Update all PCs, or download DeskGlide.exe. Existing profiles, pairing, virtual camera setup and recording tools are preserved.
+Update through **Updates → Update all PCs**, or download **DeskGlide.exe**. Existing profiles, pairing, camera setup and recording tools are preserved. No files need to be copied beside the portable executable.

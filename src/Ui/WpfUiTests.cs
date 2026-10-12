@@ -143,6 +143,14 @@ static class WpfUiTests
         bool responding=false;form.Dispatcher.BeginInvoke(()=>responding=true);Pump();Require(form.IsVisible&&responding&&calls==1&&!pending.Task.IsCompleted,"WPF settings blocked by device discovery");
         ChromeWorks(form);Invoke(ActionButton(form,"Minimize window"));Require(form.WindowState==W.WindowState.Minimized,"Custom minimize failed");form.Reveal();Pump();Require(form.WindowState==W.WindowState.Normal,"Custom minimize could not restore");
         var before=form.Collect();Require(before.NdiAudioDevice=="saved"&&before.Replay.GameAudio=="game"&&before.Discord.CaptureDevice=="input","WPF loading lost device selection");
+        var quality=form.AudioChoice("quality");string qualityId=((SettingsWindow.Choice)quality.SelectedItem).Id;
+        void Pick(string name,string id)=>form.AudioChoice(name).SelectedItem=form.AudioChoice(name).Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id==id);
+        Pick("resolution","2560");Pick("fps","120");
+        Require(quality.Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="High").Label.Contains("80 Mbps")&&form.Collect().Replay.Quality==qualityId,"Quality label did not follow 1440p120 or changed the saved level");
+        Pick("resolution","1920");Pick("fps","60");
+        Require(quality.Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="High").Label.Contains("23 Mbps"),"1080p60 quality label used a fixed bitrate");
+        UiStrings.Shared.Language="ru";Require(quality.Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="High").Label.Contains("23 Мбит/с")&&form.Collect().Replay.Quality==qualityId,"Quality label did not translate or lost selection");UiStrings.Shared.Language="en";
+        Pick("resolution",before.Replay.Width.ToString());Pick("fps",before.Replay.Fps.ToString());
         var audioChoice=form.AudioChoice("ndiAudio");Require(audioChoice.ActualWidth>150&&audioChoice.IsVisible,"Audio selector is hidden or covered by refresh button");
         form.AudioChoice("game").SelectedIndex=0;form.Reveal();Require(calls==1,"WPF repeated activation restarted discovery");
         pending.SetResult([new("mic",NAudio.CoreAudioApi.DataFlow.Capture,"Microphone","Microphone")]);watch.Restart();while(form.AudioStatus!="Audio devices are up to date."&&watch.ElapsedMilliseconds<3000){Pump();Thread.Sleep(5);}

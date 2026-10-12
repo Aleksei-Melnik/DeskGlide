@@ -23,6 +23,20 @@ static class AudioTimingTests
         }
         int oldMissing=Simulate(40),fixedMissing=Simulate(117);
         Require(oldMissing>10000&&fixedMissing==0,"Large loopback packet deadline regression");
+        int BufferedLoopback(int wait)
+        {
+            var timeline=new AudioTimeline();float[] packet=Enumerable.Repeat(.25f,19200).ToArray();int next=0,missing=0;
+            for(int block=0;block<600;block++)
+            {
+                long readAt=block*800+wait*48;
+                // A 200-ms endpoint batch plus a 50-ms scheduler stall.
+                while((next+1)*9600+2400<=readAt){timeline.Put(next*9600,packet);next++;}
+                float[] data=new float[1600];timeline.Read(block*800,data,0,2);missing+=data.Count(v=>v==0)/2;
+            }
+            return missing;
+        }
+        int pressuredMissing=BufferedLoopback((int)(ReplayAudio.WaitSeconds(new ReplayOptions())*1000));
+        Require(BufferedLoopback(100)>0&&pressuredMissing==0,"Buffered loopback packets missed recording deadline under pressure");
         var clock=new AudioPacketClock();long next=-1,maxError=0;
         for(int i=0;i<12000;i++)
         {
@@ -52,7 +66,7 @@ static class AudioTimingTests
             missing+=target.Where((_,i)=>i%6==4).Count(v=>v==0);
         }
         Require(missing==0,"Network jitter created artificial silence");
-        Program.Write("audio-timing-test.json",new{Pass=true,Old40msMissingSamples=oldMissing,FixedMissingSamples=fixedMissing,
+        Program.Write("audio-timing-test.json",new{Pass=true,Old40msMissingSamples=oldMissing,FixedMissingSamples=fixedMissing,PressureMissingSamples=pressuredMissing,
             DeviceDriftPpm=300,DriftSeconds=120,MaxDriftErrorSamples=maxError,RealPausePreserved=true,
             NetworkJitterMs=100,NetworkMissingSamples=missing,ThirdTrackIsolation=true});
     }
@@ -121,7 +135,7 @@ static class AudioTimingTests
         using var playback=playTone?new WasapiOut(device,AudioClientShareMode.Shared,true,50):null;
         if(playback!=null){playback.Init(new QuietTone());playback.Play();}
         legacy.StartRecording();
-        var capture=Task.Factory.StartNew(()=>TimedAudioCapture.Run(id,stop.Token,corrected.Put,_=>{}),CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
+        var capture=Task.Factory.StartNew(()=>TimedAudioCapture.Run(id,stop.Token,corrected.Put,_=>{},bufferMilliseconds:200),CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
         try{Task.WaitAll(old.Read(),corrected.Read());Thread.Sleep(150);}
         finally{legacy.StopRecording();stop.Cancel();capture.GetAwaiter().GetResult();}
         Program.Write("audio-live-test.json",new{Device=device.FriendlyName,Seconds=10,Old=old.Report(),Corrected=corrected.Report(),

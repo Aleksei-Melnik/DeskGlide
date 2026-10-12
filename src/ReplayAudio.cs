@@ -35,12 +35,16 @@ sealed class AudioTimeline
             samples[index*2]=stereo[i*2];samples[index*2+1]=stereo[i*2+1];stamps[index]=position;
         }
     }
+    public long MissingSamples {get;private set;}
+    public long ReadSamples {get;private set;}
     public void Read(long start,Span<float> target,int channel,int channels)
     {
         lock(gate) for(int i=0;i<target.Length/channels;i++)
         {
             long position=start+i;int index=(int)((position%Capacity+Capacity)%Capacity);
             if(stamps[index]==position){target[i*channels+channel]=samples[index*2];target[i*channels+channel+1]=samples[index*2+1];}
+            else MissingSamples++;
+            ReadSamples++;
         }
     }
     public static long Position()=>(long)(Stopwatch.GetTimestamp()/(double)Stopwatch.Frequency*48000);
@@ -53,12 +57,16 @@ sealed class ReplayAudio:IDisposable
     readonly Task[] workers;
     readonly string[] status=["Отключён","Отключён","Отключён"];
     readonly bool synthetic;
+    readonly int captureBufferMilliseconds;
     readonly string[] remote=["","",""];
+    readonly bool[] active;
+    public string Diagnostics=>string.Join("; ",Enumerable.Range(0,3).Where(i=>active[i]).Select(i=>$"track{i}: missing={tracks[i].MissingSamples}/{tracks[i].ReadSamples}"));
     public string Status=>string.Join("\n",new[]{"Микрофон: "+status[0],"Игра: "+status[1],"Доп. звук: "+status[2]});
-    public ReplayAudio(ReplayOptions options,bool synthetic=false)
+    public ReplayAudio(ReplayOptions options,bool synthetic=false,int captureBufferMilliseconds=100)
     {
-        this.synthetic=synthetic;
+        this.synthetic=synthetic;this.captureBufferMilliseconds=captureBufferMilliseconds;
         var ids=options.IsSilent?new[]{"","",""}:new[]{options.Microphone,options.GameAudio,options.ExtraAudio};
+        active=ids.Select(id=>id.Length>0).ToArray();
         workers=ids.Select((id,index)=>{if(id.StartsWith("kvm:")){remote[index]=id[4..];return Task.CompletedTask;}return Task.Factory.StartNew(()=>CaptureLoop(id,index),CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);}).ToArray();
     }
     void CaptureLoop(string id,int index)
@@ -67,7 +75,7 @@ sealed class ReplayAudio:IDisposable
         Thread.CurrentThread.Priority=ThreadPriority.AboveNormal;
         while(!stop.IsCancellationRequested)
         {
-            try{TimedAudioCapture.Run(id,stop.Token,(start,data,frames)=>tracks[index].Put(start,data.AsSpan(0,frames*2)),text=>status[index]=text);}
+            try{TimedAudioCapture.Run(id,stop.Token,(start,data,frames)=>tracks[index].Put(start,data.AsSpan(0,frames*2)),text=>status[index]=text,bufferMilliseconds:captureBufferMilliseconds);}
             catch(OperationCanceledException){break;}
             catch(Exception e){status[index]="Недоступен: "+e.Message;Log.Write("Replay audio: "+e.Message);}
             if(stop.Token.WaitHandle.WaitOne(1500))break;
@@ -75,7 +83,7 @@ sealed class ReplayAudio:IDisposable
     }
     // Recording can wait for complete packets without adding any NDI latency.
     public static double WaitSeconds(ReplayOptions options)=>options.IsSilent?0:
-        new[]{options.Microphone,options.GameAudio,options.ExtraAudio}.Any(s=>s.StartsWith("kvm:"))?.20:.10;
+        new[]{options.Microphone,options.GameAudio,options.ExtraAudio}.Any(s=>s.StartsWith("kvm:"))?.50:.30;
     public void Read(long start,byte[] bytes)
     {
         var target=MemoryMarshal.Cast<byte,float>(bytes.AsSpan());target.Clear();
@@ -85,6 +93,7 @@ sealed class ReplayAudio:IDisposable
         }
         else for(int i=0;i<3;i++)
         {
+            if(!active[i])continue;
             if(remote[i].Length>0){KvmAudioBus.Read(remote[i],start,target,i*2);status[i]=KvmAudioBus.Active(remote[i])?"Звук по KVM":"Ожидание звука по KVM";}
             else tracks[i].Read(start,target,i*2,6);
         }

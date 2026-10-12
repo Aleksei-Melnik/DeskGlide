@@ -1,4 +1,85 @@
-# DeskGlide hardware validation — 2026-10-09
+# DeskGlide hardware validation — 0.7.17, 2026-10-11
+
+Windows 11, Ryzen 7 7800X3D, RTX 5070 and integrated AMD Radeon, 32 GB RAM.
+The installed 0.7.16 utility and its profile were preserved. Its HEVC 120 FPS
+recorder continued running alongside the isolated tests. No input was injected
+into the user's desktop or other PCs. Diagnostic clips stayed in test folders;
+they were not delivered to the user's recording share.
+
+## Replay under load
+
+The moving 2560 × 1440 fixture renders a changing, textured GPU scene with
+visible frame IDs, captures real WASAPI loopback audio from RODECaster Duo,
+and records through the production replay pipeline at Ultra quality. Fourteen
+CPU workers produce approximately 100% CPU load; a separate D3D compute load
+keeps the RTX GPU near saturation. Saved clips are decoded and checked for:
+
+- every source frame available at each output timestamp;
+- exact frame count and consecutive save boundaries without overlap or gaps;
+- audio holes and discontinuities in a continuous tone;
+- start/end A/V timing against a separate timestamped loopback reference;
+- one encoder session, no recovery and no exhausted source history.
+
+A diagnostic build of the previous 0.7.16 recorder reproduced the failure at
+AV1 120 FPS: 861 source-history misses, 400 repeated input frames and two encoder
+starts under load. The new direct NV12 path, dedicated pipe writers and recording
+clock address the measured scheduling and backlog failures. Original gameplay
+clips had continuous packet timestamps and decoded without corruption; those
+facts alone do not establish smooth capture or isolate every original symptom.
+
+The final NVIDIA matrix ran each codec/FPS pair for 30 seconds under load and
+decoded three consecutive saves. All six passed with no repeated/skipped frames
+in the saved intervals, no audio holes or phase discontinuities, no save overlap
+or gaps, and no encoder restarts. A/V offset was within 19 ms without drift.
+
+| Backend | Codec | FPS | Available source frames lost | Audio holes |
+| --- | --- | --- | --- | --- |
+| NVIDIA NVENC | AV1 | 60 | 0 | 0 |
+| NVIDIA NVENC | AV1 | 120 | 0 | 0 |
+| NVIDIA NVENC | HEVC | 60 | 0 | 0 |
+| NVIDIA NVENC | HEVC | 120 | 0 | 0 |
+| NVIDIA NVENC | H.264 | 60 | 0 | 0 |
+| NVIDIA NVENC | H.264 | 120 | 0 | 0 |
+
+The final **180-second HDR AV1 1440p120** test passed all decoded checks. Its
+179.917-second first clip contained 21,590 frames; the next two clips started on
+the immediately following frame. There were zero losses of available source
+frames, zero history misses, one encoder session and zero missing samples across
+13,811,200 recorded stereo sample positions. Measured A/V offsets were within
+6 ms, with no accumulating drift within each clip.
+
+Under saturation, the GPU scene producer itself occasionally did not create a
+scheduled source frame. The first long clip had one such held frame, and the
+second had six. The recorder preserved all available frames. This distinction
+prevents equating a configured/output 120 FPS with 120 distinct source images
+when the source itself is slower.
+
+## Save, media conversion and packaging
+
+- Failed exports retain unsaved footage. Repeat saves contain only the interval
+  since the last successful Save, capped by the configured buffer duration.
+  Recording-format changes can discard the unsaved buffer, as before.
+- Recording reconfiguration, disable and disposal produced no unsolicited clip.
+  Mixed audio, silent recording and failed network-delivery retention passed.
+- Byte-exact pipe transfer, blocked-write cancellation, client disconnect and
+  concurrent server disposal passed. Shutdown completed within one second.
+- NV12 conversion preserved every luma code and the expected chroma averages,
+  including scalar tails. The 1440p conversion benchmark averaged about 0.4 ms
+  without stress; it transfers 25% fewer video bytes than the previous UYVY path.
+- The release's portable executable ran from a directory containing only that
+  EXE. Its bundled dependencies, update/rollback/restart checks, audio timing,
+  GPU-backend selection, media conversion and pipe tests passed. Release hashes
+  and the RSA update signature matched the embedded public key.
+
+## Scope
+
+The stress fixture tests recording under artificial resource pressure, rather
+than measuring game FPS against NVIDIA App. Zero performance impact, every GPU
+generation, physical Intel support, 4K/8K throughput and multi-hour buffering
+are not established. NDI, KVM and cross-PC audio keep their existing transport
+paths; their earlier local measurements below are not a new remote-LAN test.
+
+## Earlier 0.7.16 validation — 2026-10-09
 
 Windows gaming PC: Ryzen 7 7800X3D, RTX 5070 (driver 616.64), integrated
 AMD Radeon, 32 GB RAM, HDR desktop at 2560 × 1440. The installed utility

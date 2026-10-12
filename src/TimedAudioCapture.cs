@@ -35,11 +35,11 @@ sealed class AudioPacketClock
 
 static class TimedAudioCapture
 {
-    // This method owns its COM objects on a dedicated capture thread. A 100 ms
-    // endpoint buffer protects against scheduling stalls, but is drained on every
+    // This method owns its COM objects on a dedicated capture thread. The endpoint
+    // buffer protects against scheduling stalls, but is drained on every
     // audio event (normally 10 ms), with a short polling fallback during silence.
     public static void Run(string id,CancellationToken stop,Action<long,float[],int> packet,
-        Action<string> status,Func<bool>? enabled=null)
+        Action<string> status,Func<bool>? enabled=null,int bufferMilliseconds=100)
     {
         using var devices=new MMDeviceEnumerator();
         using var device=id.StartsWith("default:")?devices.GetDefaultAudioEndpoint(id=="default:render"?DataFlow.Render:DataFlow.Capture,Role.Multimedia):devices.GetDevice(id);
@@ -47,7 +47,7 @@ static class TimedAudioCapture
         using var ready=new EventWaitHandle(false,EventResetMode.AutoReset);
         var flags=AudioClientStreamFlags.AutoConvertPcm|AudioClientStreamFlags.SrcDefaultQuality|AudioClientStreamFlags.EventCallback;
         if(device.DataFlow==DataFlow.Render)flags|=AudioClientStreamFlags.Loopback;
-        client.Initialize(AudioClientShareMode.Shared,flags,1000000,0,WaveFormat.CreateIeeeFloatWaveFormat(48000,2),Guid.Empty);
+        client.Initialize(AudioClientShareMode.Shared,flags,Math.Clamp(bufferMilliseconds,10,1000)*10000L,0,WaveFormat.CreateIeeeFloatWaveFormat(48000,2),Guid.Empty);
         client.SetEventHandle(ready.SafeWaitHandle.DangerousGetHandle());
         var capture=client.AudioCaptureClient;
         float[] raw=new float[Math.Max(client.BufferSize,4800)*2],converted=new float[raw.Length+8];
