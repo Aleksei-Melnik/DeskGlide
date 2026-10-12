@@ -9,7 +9,7 @@ Install the plugin through DeskGlide or download **com.yami.deskglide.streamDeck
 
 Validation: official Elgato CLI packaging/validation, real Windows named-pipe tests, official SDK integration through a simulated Stream Deck WebSocket, disconnect/reconnect and duplicate-request checks, and isolated paired-network tests. Existing Windows UI/portable tests run in CI. A physical Stream Deck key press and a two-PC user workflow still need verification. The installed gaming copy and profile were preserved during development.
 
-Marketplace status: package and submission materials are prepared. Account setup and Elgato review are still required. This release is available through GitHub; it is not a claim of Marketplace approval.
+Marketplace status: plugin 1.0.0.0 was submitted under **Yami (@yami)** on October 12, 2026. Maker Console shows **Pending review**. Automatic publication after approval is enabled. This release is available through GitHub while Elgato reviews the submission; Marketplace approval has not been granted yet.
 
 Previous release: 0.7.18
 

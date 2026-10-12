@@ -2,7 +2,7 @@
 
 Name: DeskGlide
 
-Author / Maker organization: Yami (user-selected; verify availability when creating the organization)
+Author / Maker organization: Yami (@yami; created and verified in Maker Console)
 
 Price: Free
 
@@ -51,4 +51,5 @@ AI tools assisted with implementation, tests, documentation and supporting media
 - Thumbnail + three gallery images: PNG 1920×960.
 - All Marketplace captions are English; no claim of Elgato endorsement.
 - No private account email/password in the package or repository.
-- Account registration, organization creation, Maker Agreement and Elgato review still require completion in Maker Console.
+- Account registration and organization creation are complete. The user accepted the Maker Agreement.
+- Submitted plugin 1.0.0.0 on October 12, 2026. Maker Console shows Pending review; automatic publication after approval is enabled. This is not a Marketplace approval.

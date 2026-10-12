@@ -11,7 +11,9 @@ Control DeskGlide with live buttons instead of simulated hotkeys. Free, Windows 
 
 Requires **Stream Deck 7.1 or later**, Windows 10/11, and DeskGlide running in the same Windows user session.
 Stream Deck supplies the Node runtime; users do not need to install Node or a developer SDK.
-An official Elgato Marketplace listing is planned. There is no live listing yet.
+Plugin 1.0.0.0 was submitted to Elgato Marketplace under Yami (@yami) on October 12,
+2026. Its status is Pending review; no publicly approved listing is available yet.
+Until approval, install the identical plugin package from DeskGlide or GitHub.
 
 ## Buttons
 
