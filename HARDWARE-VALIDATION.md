@@ -40,6 +40,18 @@ or gaps, and no encoder restarts. A/V offset was within 19 ms without drift.
 | NVIDIA NVENC | HEVC | 120 | 0 | 0 |
 | NVIDIA NVENC | H.264 | 60 | 0 | 0 |
 | NVIDIA NVENC | H.264 | 120 | 0 | 0 |
+| AMD AMF | H.264 | 60 | 0 | 0 |
+| AMD AMF | H.264 | 120 | 0 | 0 |
+| AMD AMF | HEVC | 60 | 0 | 0 |
+| AMD AMF | HEVC | 120 | 0 | 0 |
+
+The four AMD runs explicitly selected the integrated Radeon encoder while the
+same RTX-rendered scene and stress load ran. They passed continuity, save
+boundaries and A/V checks without encoder recovery. At H.264 120 FPS, the scene
+producer missed 23 scheduled inputs in the saved intervals; all available input
+frames were retained. This integrated Radeon does not support AV1 encoding.
+Intel fallback selection is covered by deterministic tests; no Intel GPU is
+present for physical validation.
 
 The final **180-second HDR AV1 1440p120** test passed all decoded checks. Its
 179.917-second first clip contained 21,590 frames; the next two clips started on
@@ -60,7 +72,14 @@ when the source itself is slower.
   since the last successful Save, capped by the configured buffer duration.
   Recording-format changes can discard the unsaved buffer, as before.
 - Recording reconfiguration, disable and disposal produced no unsolicited clip.
-  Mixed audio, silent recording and failed network-delivery retention passed.
+  Mixed audio, three separate tracks, silent recording and failed
+  network-delivery retention passed. HEVC three-track and AV1 silent fixtures
+  each decoded 1,200 distinct frames at 120 FPS without repeats or skips.
+- A 35-second real HDR desktop capture at native 1440p120 completed with one
+  encoder session and no error. Rebuilding desktop capture at 20 seconds did
+  not restart recording. Both microphone and PC loopback endpoints were active.
+  The desktop was largely static: this validates capture recovery and the
+  output format, rather than 120 distinct desktop updates per second.
 - Byte-exact pipe transfer, blocked-write cancellation, client disconnect and
   concurrent server disposal passed. Shutdown completed within one second.
 - NV12 conversion preserved every luma code and the expected chroma averages,
@@ -70,6 +89,11 @@ when the source itself is slower.
   EXE. Its bundled dependencies, update/rollback/restart checks, audio timing,
   GPU-backend selection, media conversion and pipe tests passed. Release hashes
   and the RSA update signature matched the embedded public key.
+- The exact portable release EXE additionally passed an AV1 1440p120 hardware
+  stress run with three decoded saves: 3,115 frames, no repeats/skips, no audio
+  discontinuities or missing sample positions, and no encoder restart.
+- GitHub's Windows CI passed the folder and portable suites, including quality
+  labels at 1440p120/1080p60 and live English/Russian selection preservation.
 
 ## Scope
 
