@@ -162,7 +162,7 @@ sealed class SettingsWindow:ShellWindow
     void BuildStreamDeck()
     {
         var page=Page(10,"Integration","Stream Deck","Your replay, KVM and screen sharing — one button away.");
-        var plugin=new C.Grid();plugin.ColumnDefinitions.Add(new(){Width=new(68)});plugin.ColumnDefinitions.Add(new());
+        var plugin=new C.Grid();plugin.ColumnDefinitions.Add(new(){Width=new(68)});plugin.ColumnDefinitions.Add(new());plugin.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});
         var keys=new C.Primitives.UniformGrid{Rows=2,Columns=3,Width=44,Height=30};
         for(int i=0;i<6;i++)keys.Children.Add(new C.Border{CornerRadius=new(3),Margin=new(2),Background=Kit.Brush(i==0?"#F52B86":i==4?"#31D1DB":"#544360")});
         plugin.Children.Add(new C.Border{Width=52,Height=52,CornerRadius=new(13),Background=Kit.Brush("#4428223A"),Child=keys,VerticalAlignment=W.VerticalAlignment.Top});
@@ -172,8 +172,8 @@ sealed class SettingsWindow:ShellWindow
         var status=Kit.Text("",12);var dot=new System.Windows.Shapes.Ellipse{Width=6,Height=6,Margin=new(0,0,7,0),VerticalAlignment=W.VerticalAlignment.Center};
         var connection=Kit.Actions(dot,status);connection.Margin=new(0,12,0,0);details.Children.Add(connection);
         var install=Kit.Button("Install plugin",()=>{try{StreamDeckInstallation.Install();}catch(Exception e){error.Text=e.Message;}},true);
-        var actions=Kit.Actions(install);actions.Margin=new(0,18,0,0);
-        page.Children.Add(Kit.Card(Kit.Stack(plugin,actions)));
+        install.Margin=new(18,0,0,0);install.VerticalAlignment=W.VerticalAlignment.Center;C.Grid.SetColumn(install,2);plugin.Children.Add(install);
+        page.Children.Add(Kit.Card(plugin));
         var poll=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(1)};
         void UpdateStatus()
         {
@@ -198,9 +198,9 @@ sealed class SettingsWindow:ShellWindow
         Step(1,"Add a button","Drag a DeskGlide action onto a key.");
         Step(2,"Choose a PC","Select This PC or Paired controller PC.");
         page.Children.Add(steps);
-        var targetTitle=Kit.Text("Two PCs? Choose the target.",13);targetTitle.FontWeight=W.FontWeights.SemiBold;targetTitle.Margin=new(0,20,0,7);page.Children.Add(targetTitle);
-        page.Children.Add(Kit.Text("This PC controls this computer. Paired controller PC sends commands to your gaming PC over KVM.",12,"#B0A9BC"));
-        var kvm=Kit.Text("Open KVM is available on the PC with your keyboard and mouse.",12,"#B0A9BC");kvm.Margin=new(0,7,0,0);page.Children.Add(kvm);
+        var target=new C.Expander{Header=Kit.Text("Two PCs? Choose the target.",12),Margin=new(0,18,0,0)};
+        var kvm=Kit.Text("Open KVM is available on the PC with your keyboard and mouse.",12,"#B0A9BC");kvm.Margin=new(0,7,0,0);
+        target.Content=Kit.Stack(Kit.Text("This PC controls this computer. Paired controller PC sends commands to your gaming PC over KVM.",12,"#B0A9BC"),kvm);page.Children.Add(target);
     }
     void ReceiverVisibility()
     {
