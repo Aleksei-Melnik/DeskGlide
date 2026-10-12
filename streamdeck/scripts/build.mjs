@@ -8,7 +8,7 @@ await build({ entryPoints: ['src/plugin.mjs'], outfile: `${root}/bin/plugin.js`,
 const manifest = {
   $schema: 'https://schemas.elgato.com/streamdeck/plugins/manifest.json', UUID: uuid, Name: 'DeskGlide', Category: 'DeskGlide',
   CategoryIcon: 'imgs/category', Author: 'Yami', Description: 'Save instant replays, open remote computers and control mouse transitions with live DeskGlide status.',
-  Version: '1.0.0.0', CodePath: 'bin/plugin.js', Icon: 'imgs/plugin', URL: 'https://github.com/Aleksei-Melnik/DeskGlide',
+  Version: '1.0.1.0', CodePath: 'bin/plugin.js', Icon: 'imgs/plugin', URL: 'https://github.com/Aleksei-Melnik/DeskGlide',
   SDKVersion: 3, Nodejs: { Version: '24' }, Software: { MinimumVersion: '7.1' }, OS: [{ Platform: 'windows', MinimumVersion: '10' }],
   PropertyInspectorPath: 'ui/settings.html', Actions: Object.entries(actions).map(([kind, value]) => ({
     UUID: `${uuid}.${kind}`, Name: value.name, Tooltip: value.name, Icon: `imgs/${kind}-list`, Controllers: ['Keypad'],
@@ -18,7 +18,7 @@ const manifest = {
 };
 await writeFile(`${root}/manifest.json`, JSON.stringify(manifest, null, 2) + '\n');
 for (const [kind, value] of Object.entries(actions)) {
-  await writeFile(`${root}/imgs/${kind}.svg`, keyImage(kind, { color: '#ff398e', fill: 0 }));
+  await writeFile(`${root}/imgs/${kind}.svg`, keyImage(kind, { mode: kind === 'lock-mouse' ? 'locked' : 'ready', fill: 0 }));
   await writeFile(`${root}/imgs/${kind}-list.svg`, `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 88 88"><path d="${value.glyph}" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/></svg>`);
 }
 await writeFile(`${root}/imgs/category.svg`, '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 28 28"><path d="M4 5h20v14H4z M10 24h8 M14 19v5" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linejoin="round"/></svg>');

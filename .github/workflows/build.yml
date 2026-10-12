@@ -68,5 +68,6 @@ jobs:
             artifacts/streamdeck/*.streamDeckPlugin
             app/streamdeck*.json
             app/wpf-preview/*-10.png
+            app/wpf-preview/*-3.png
             app/wpf-ui-tests.json
             app/error.txt

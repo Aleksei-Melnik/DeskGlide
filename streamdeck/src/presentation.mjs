@@ -1,39 +1,47 @@
-export const actions = {
-  'save-replay': { name: 'Save Replay', command: 'saveReplay', glyph: 'M34 26a22 22 0 1 0 12-3 M22 17v19h19 M42 47h18v19H42z' },
-  'open-kvm': { name: 'Open KVM', command: 'openKvm', glyph: 'M20 24h48v32H20z M36 64h16 M44 56v8 M52 37l-9 9' },
-  'lock-mouse': { name: 'Lock Mouse Transitions', command: 'toggleEdges', glyph: 'M30 38h28v28H30z M35 38V27a9 9 0 0 1 18 0v11 M44 48v8' },
-  'toggle-replay': { name: 'Toggle Replay', command: 'toggleReplay', glyph: 'M26 25a25 25 0 1 0 13-5 M20 14v18h18 M42 39h11v18H42z' },
-  'toggle-streaming': { name: 'Toggle Streaming', command: 'toggleStreaming', glyph: 'M20 25h48v32H20z M34 65h20 M44 57v8 M37 34l16 7-16 8z' }
-};
+export { actions, keyImage } from './icons.mjs';
 export const uuid = 'com.yami.deskglide';
 export const translate = (english, ru) => ru ? ({
   Offline: 'Нет связи', Ready: 'Готово', Saving: 'Сохраняю', Queued: 'Копирую', Saved: 'Сохранено', Error: 'Ошибка',
-  Replay: 'Повтор', On: 'Вкл', Off: 'Выкл', KVM: 'KVM', Locked: 'Блок', Edges: 'Переходы', Streaming: 'Трансляция'
+  Replay: 'Повтор', Off: 'Выкл', Locked: 'Блок', Unlocked: 'Открыто', Stream: 'Экран', Monitor: 'Монитор', Choose: 'Выберите', Unavailable: 'Недоступно'
 }[english] ?? english) : english;
 export function stateFor(snapshot, settings = {}) { return settings.target === 'host' ? snapshot?.host : snapshot?.local; }
-export function describe(kind, snapshot, settings = {}, busy = false, saved = false) {
+export function bufferSeconds(state, elapsed = 0) {
+  const seconds = Number.isFinite(state.bufferedSeconds) ? Math.max(0, state.bufferedSeconds) : 0;
+  // Only interpolate a fresh, advancing recorder snapshot. Never run a timer
+  // through a stalled encoder, disconnected PC or an empty buffer.
+  const advance = state.replayEnabled && state.bufferAdvancing && !state.replayError && seconds > 0 ? Math.min(1.25, Math.max(0, elapsed)) : 0;
+  return Math.min(Math.max(0, state.durationSeconds), seconds + advance);
+}
+export function describe(kind, snapshot, settings = {}, busy = false, saved = false, elapsed = 0) {
   const state = stateFor(snapshot, settings), ru = settings.language === 'ru', t = x => translate(x, ru);
-  if (!state) return { label: t('Offline'), color: '#626271', fill: 0, state: 0 };
+  const view = (label, mode = 'ready', fill = 0) => ({ label, mode, fill, state: ['on', 'locked', 'saved', 'active'].includes(mode) ? 1 : 0 });
+  if (!state) return view(t('Offline'), 'offline');
   switch (kind) {
     case 'save-replay': {
-      const fill = Math.max(0, Math.min(1, state.bufferedSeconds / Math.max(1, state.durationSeconds)));
-      const time = `${Math.floor(state.bufferedSeconds / 60)}:${String(Math.floor(state.bufferedSeconds % 60)).padStart(2, '0')}`;
-      if (saved) return { label: t('Saved'), color: '#38dfab', fill, state: 1 };
-      if (state.saving || busy) return { label: t('Saving'), color: '#bd70ff', fill, state: 0 };
-      if (state.saveState === 'queued') return { label: t('Queued'), color: '#e3b35d', fill, state: 0 };
-      if (state.replayError || state.saveState === 'error') return { label: t('Error'), color: '#ff657d', fill, state: 0 };
-      return { label: state.replayEnabled ? time : t('Off'), color: state.replayEnabled ? '#ff398e' : '#626271', fill, state: 0 };
+      const seconds = bufferSeconds(state, elapsed), fill = seconds / Math.max(1, state.durationSeconds);
+      if (state.saving || busy) return view(t('Saving'), 'busy', fill);
+      if (state.replayError || state.saveState === 'error') return view(t('Error'), 'error', fill);
+      if (state.saveState === 'queued') return view(t('Queued'), 'queued', fill);
+      if (saved) return view(t('Saved'), 'saved', fill);
+      const whole = Math.floor(seconds + 1e-6), minutes = Math.floor(whole / 60), rest = String(whole % 60).padStart(2, '0');
+      const time = minutes >= 60 ? `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`;
+      return view(state.replayEnabled ? time : t('Off'), state.replayEnabled ? 'on' : 'off', fill);
     }
     case 'open-kvm': {
+      if (state.role !== 'Host') return view(t('Unavailable'), 'offline');
       const peer = state.peers.find(p => p.id === settings.peer);
-      if (settings.peer && !peer) return { label: t('Offline'), color: '#626271', fill: 0, state: 0 };
-      return { label: peer ? peer.name.slice(0, 12) : `KVM · ${state.peers.length}`, color: '#38d7e3', fill: 0, state: 0 };
+      if (settings.peer && !peer) return view(t('Offline'), 'offline');
+      return view(peer ? peer.name.slice(0, 14) : 'KVM');
     }
-    case 'lock-mouse': return { label: t(state.seamless ? 'Edges' : 'Locked'), color: state.seamless ? '#38d7e3' : '#ff398e', fill: 0, state: state.seamless ? 0 : 1 };
-    case 'toggle-replay': return { label: `${t('Replay')}\n${t(state.replayEnabled ? 'On' : 'Off')}`, color: state.replayEnabled ? '#ff398e' : '#626271', fill: 0, state: state.replayEnabled ? 1 : 0 };
-    case 'toggle-streaming': return { label: `${t('Streaming')}\n${t(state.streaming ? 'On' : 'Off')}`, color: state.streaming ? '#38d7e3' : '#626271', fill: 0, state: state.streaming ? 1 : 0 };
+    case 'switch-monitor': {
+      if (state.role !== 'Host' || !state.monitors) return view(t('Unavailable'), 'offline');
+      const monitor = state.monitors.find(m => m.id === settings.monitor);
+      if (!monitor) return view(t(settings.monitor ? 'Offline' : 'Choose'), 'offline');
+      const parts = monitor.name.split(' · '), name = parts.length > 1 ? `${parts[0].slice(0, 10)}\n${parts.at(-1).replace(/^.*\\/, '').slice(0, 12)}` : monitor.name.slice(0, 14);
+      return view(name, monitor.active ? 'active' : 'ready');
+    }
+    case 'lock-mouse': return state.role !== 'Host' ? view(t('Unavailable'), 'offline') : view(t(state.seamless ? 'Unlocked' : 'Locked'), state.seamless ? 'unlocked' : 'locked');
+    case 'toggle-replay': return view(t('Replay'), state.replayEnabled ? 'on' : 'off');
+    case 'toggle-streaming': return view(t('Stream'), state.streaming ? 'on' : 'off');
   }
-}
-export function keyImage(kind, view) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 88 88"><defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#302237"/><stop offset="1" stop-color="#101119"/></linearGradient></defs><rect width="88" height="88" rx="10" fill="url(#bg)"/><path d="${actions[kind].glyph}" fill="none" stroke="${view.color}" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/><rect x="8" y="78" width="72" height="3" rx="1.5" fill="#35303f"/><rect x="8" y="78" width="${Math.max(.01, 72 * view.fill).toFixed(2)}" height="3" rx="1.5" fill="${view.color}"/></svg>`;
 }

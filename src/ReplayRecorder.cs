@@ -38,6 +38,7 @@ public sealed class ReplayRecorder:IDisposable
     int version,disposed;
     long warmupUntil;
     double savedUntil;
+    double liveStart,liveEnd,liveUpdated;
     public string Status {get;private set;}="Подготовка буфера";
     public string? Error {get;private set;}
     public string AudioStatus=>audio?.Status??"Звук не запущен";
@@ -52,6 +53,13 @@ public sealed class ReplayRecorder:IDisposable
     public double MaxPipeWriteMs {get;private set;}
     public int EncoderStarts {get;private set;}
     public double BufferedSeconds {get{lock(chunksGate)return Math.Min(WindowSeconds,chunks.Sum(c=>Math.Max(0,c.End-Math.Max(c.Start,savedUntil))));}}
+    // Display the written part of the open segment too; closed segments arrive
+    // every two seconds. Export selection still uses only completed segments.
+    public double DisplayBufferedSeconds
+    {
+        get{lock(chunksGate){double tail=Math.Max(0,Volatile.Read(ref liveEnd)-Math.Max(Math.Max(Volatile.Read(ref liveStart),savedUntil),chunks.Count>0?chunks[^1].End:0));return Math.Min(WindowSeconds,chunks.Sum(c=>Math.Max(0,c.End-Math.Max(c.Start,savedUntil)))+tail);}}
+    }
+    public bool BufferAdvancing=>Volatile.Read(ref options).Enabled&&Error==null&&Volatile.Read(ref liveEnd)>0&&Now-Volatile.Read(ref liveUpdated)<1;
     double WindowSeconds=>testWindowSeconds??Volatile.Read(ref options).BufferSeconds;
     public long CacheBytes {get{lock(chunksGate)return chunks.Sum(c=>c.Bytes);}}
     public static double Now=>Stopwatch.GetTimestamp()/(double)Stopwatch.Frequency;
@@ -229,7 +237,7 @@ public sealed class ReplayRecorder:IDisposable
             try
             {
                 videoPipe.WaitForConnectionAsync(token).GetAwaiter().GetResult();
-                epoch=Now;lastVideo=epoch;started.TrySetResult(epoch);
+                epoch=Now;lastVideo=epoch;Volatile.Write(ref liveEnd,0);Volatile.Write(ref liveStart,epoch);started.TrySetResult(epoch);
                 // Keep recording video/audio on the same delayed clock. NDI has its own sender.
                 double playout=Math.Max(2.0/config.Fps,ReplayAudio.WaitSeconds(config)+1.0/60);
                 long frameIndex=0,previousCapture=-1;
@@ -250,7 +258,7 @@ public sealed class ReplayRecorder:IDisposable
                     long written=Stopwatch.GetTimestamp();
                     writer.Write(nv12,Width*Height*3/2,token);
                     MaxPipeWriteMs=Math.Max(MaxPipeWriteMs,Stopwatch.GetElapsedTime(written).TotalMilliseconds);
-                    frameIndex++;EncodedFrames++;lastVideo=Now;
+                    frameIndex++;EncodedFrames++;lastVideo=Now;Volatile.Write(ref liveUpdated,lastVideo);Volatile.Write(ref liveEnd,epoch+frameIndex/(double)config.Fps);
                 }
             }
             finally{ArrayPool<byte>.Shared.Return(resized);ArrayPool<byte>.Shared.Return(nv12);videoPipe.Dispose();}
@@ -298,7 +306,7 @@ public sealed class ReplayRecorder:IDisposable
             try{await Task.WhenAll(videoTask,audioTask);}catch{}
             using var timeout=new CancellationTokenSource(3500);
             try{await process.WaitForExitAsync(timeout.Token);}catch{try{process.Kill(true);}catch{}}
-            await stderr;await stdout;Scan();
+            await stderr;await stdout;Scan();Volatile.Write(ref liveEnd,0);
             Log.Write($"Replay session: {encoder.Label}, {config.Codec}, {Width}x{Height}@{config.Fps}; frames={EncodedFrames}, repeated={RepeatedInputFrames}, historyMisses={HistoryMisses}, maxWriterLateMs={MaxWriterLateMs:F1}, starts={EncoderStarts}; {captureAudio.Diagnostics}");
         }
         if(failure!=null)throw failure;

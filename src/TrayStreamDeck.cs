@@ -15,8 +15,9 @@ sealed partial class TrayApp
         deckBridge=new(ExecuteDeck);PublishDeckState();
     }
     DeckState DeckLocalState()=>new(Updates.VersionText,Environment.MachineName,settings.Kvm.Role,settings.Replay.Enabled,
-        Math.Round(replay.BufferedSeconds,1),settings.Replay.BufferSeconds,engine.NdiEnabled,controller?.Seamless??false,
-        replay.Error,savingReplay,deckSaveState,deckSaveRevision,(kvm?.Peers??[]).Select(p=>new DeckPeer(p.Id,p.Name,p.Version,p.DeckProtocol>=1)).ToArray());
+        Math.Round(replay.DisplayBufferedSeconds,2),settings.Replay.BufferSeconds,engine.NdiEnabled,controller?.Seamless??false,
+        replay.Error,savingReplay,deckSaveState,deckSaveRevision,(kvm?.Peers??[]).Select(p=>new DeckPeer(p.Id,p.Name,p.Version,p.DeckProtocol>=1)).ToArray(),
+        settings.Kvm.Role=="Host"?(controller?.Monitors??[]).Select(m=>new DeckMonitor(m.Key,m.Name,m.Width,m.Height,m.Key==controller?.ActiveMonitorKey)).ToArray():[],replay.BufferAdvancing);
     void PublishDeckState()
     {
         if(closing)return;
@@ -63,6 +64,10 @@ sealed partial class TrayApp
                             if(settings.Kvm.Role!="Host"||controller==null)throw new InvalidOperationException("Set up this PC as a KVM controller first.");
                             controller.Seamless=!controller.Seamless;settings.Kvm.Seamless=controller.Seamless;
                             if(!controller.Seamless)controller.ReturnLocal();settings.Save();break;
+                        case "switchMonitor":
+                            if(settings.Kvm.Role!="Host"||controller==null)throw new InvalidOperationException("Set up the KVM controller first.");
+                            var monitor=controller.Monitors.FirstOrDefault(m=>m.Key==r.Monitor)??throw new IOException("The selected monitor is disconnected or excluded from the layout.");
+                            controller.Activate(monitor);break;
                         case "openKvm":
                             if(settings.Kvm.Role!="Host")throw new InvalidOperationException("Open KVM on the controller PC.");
                             if(r.Peer=="")OpenKvm();

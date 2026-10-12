@@ -41,7 +41,7 @@ sealed class DeckRemote:IDisposable
     }
     void Receive(string peer,KvmMessage message)
     {
-        if(stop.IsCancellationRequested||message.Text.Length>DeckProtocol.MaxLine||!Guid.TryParseExact(message.Id,"N",out _))return;
+        if(stop.IsCancellationRequested||message.Text.Length>(message.Type=="deck-reply"?65536:DeckProtocol.MaxLine)||!Guid.TryParseExact(message.Id,"N",out _))return;
         try
         {
             if(message.Type=="deck-reply"&&service.Options.Role=="Client")

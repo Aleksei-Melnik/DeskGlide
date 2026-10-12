@@ -6,7 +6,7 @@
   "CategoryIcon": "imgs/category",
   "Author": "Yami",
   "Description": "Save instant replays, open remote computers and control mouse transitions with live DeskGlide status.",
-  "Version": "1.0.0.0",
+  "Version": "1.0.1.0",
   "CodePath": "bin/plugin.js",
   "Icon": "imgs/plugin",
   "URL": "https://github.com/Aleksei-Melnik/DeskGlide",
@@ -66,6 +66,29 @@
         },
         {
           "Image": "imgs/open-kvm",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        }
+      ]
+    },
+    {
+      "UUID": "com.yami.deskglide.switch-monitor",
+      "Name": "Switch Monitor",
+      "Tooltip": "Switch Monitor",
+      "Icon": "imgs/switch-monitor-list",
+      "Controllers": [
+        "Keypad"
+      ],
+      "DisableAutomaticStates": true,
+      "SupportedInMultiActions": true,
+      "States": [
+        {
+          "Image": "imgs/switch-monitor",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        },
+        {
+          "Image": "imgs/switch-monitor",
           "TitleAlignment": "bottom",
           "FontSize": 10
         }

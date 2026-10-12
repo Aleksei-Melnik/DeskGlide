@@ -138,6 +138,7 @@ sealed class KvmController:IDisposable
         return true;
     }
     public List<MonitorPlacement> Monitors=>currentMonitors;
+    public string ActiveMonitorKey=>remote?.Key??options.Id+"|"+Screen.FromPoint(Cursor.Position).DeviceName;
     public void Refresh()
     {
         if(Dispatch(Refresh))return;

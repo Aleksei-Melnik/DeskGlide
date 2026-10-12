@@ -28,11 +28,14 @@ test('official SDK -> Windows pipe -> DeskGlide reply; disconnect and reconnect'
     }
     event('willAppear', 'save-replay', 'save');
     event('willAppear', 'open-kvm', 'kvm', { peer: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' });
+    event('willAppear', 'switch-monitor', 'monitor', { monitor: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1' });
     await until(() => messages.some(m => m.event === 'setTitle' && m.context === 'save' && m.payload.title === '2:00'), 'live buffer title');
     event('keyDown', 'save-replay', 'save');
     event('keyDown', 'open-kvm', 'kvm', { peer: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' });
+    event('keyDown', 'switch-monitor', 'monitor', { monitor: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1' });
     await until(async () => { try { const lines = (await readFile(transcript, 'utf8')).trim().split('\n').map(x => JSON.parse(x)); return lines.some(r => r.command === 'saveReplay') && lines.some(r => r.command === 'openKvm' && r.peer === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'); } catch { return false; } }, 'typed commands');
     await until(() => messages.some(m => m.event === 'showOk' && m.context === 'kvm'), 'acknowledged action');
+    await until(async () => { const lines = (await readFile(transcript, 'utf8')).trim().split('\n').map(x => JSON.parse(x)); return lines.some(r => r.command === 'switchMonitor' && r.monitor === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1'); }, 'monitor command without hotkey emulation');
     server.kill(); await new Promise(r => server.once('exit', r));
     await until(() => messages.some(m => m.event === 'setTitle' && m.context === 'save' && m.payload.title === 'Offline'), 'disconnect feedback');
     const before = (await readFile(transcript, 'utf8')).trim().split('\n').length;

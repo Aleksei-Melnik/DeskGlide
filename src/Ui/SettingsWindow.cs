@@ -161,19 +161,46 @@ sealed class SettingsWindow:ShellWindow
     }
     void BuildStreamDeck()
     {
-        var page=Page(10,"Integration","Stream Deck","Save replays, open KVM and lock mouse transitions from your Stream Deck. Live buttons show the buffer and connected computers.");
-        var deck=Section(page,"DeskGlide plugin","Stream Deck 7.1 or later · Windows 10/11 · no hotkey setup required");
-        deck.Children.Add(Kit.Button("Install Stream Deck plugin",StreamDeckInstallation.Install));
-        deck.Children.Add(Kit.Button("Download plugin",()=>Process.Start(new ProcessStartInfo("https://github.com/Aleksei-Melnik/DeskGlide/releases/latest"){UseShellExecute=true})));
-        var connection=Section(page,"Connection");var status=Kit.Text("",13);connection.Children.Add(status);
+        var page=Page(10,"Integration","Stream Deck","Your replay, KVM and screen sharing — one button away.");
+        var plugin=new C.Grid();plugin.ColumnDefinitions.Add(new(){Width=new(68)});plugin.ColumnDefinitions.Add(new());
+        var keys=new C.Primitives.UniformGrid{Rows=2,Columns=3,Width=44,Height=30};
+        for(int i=0;i<6;i++)keys.Children.Add(new C.Border{CornerRadius=new(3),Margin=new(2),Background=Kit.Brush(i==0?"#F52B86":i==4?"#31D1DB":"#544360")});
+        plugin.Children.Add(new C.Border{Width=52,Height=52,CornerRadius=new(13),Background=Kit.Brush("#4428223A"),Child=keys,VerticalAlignment=W.VerticalAlignment.Top});
+        var details=new C.StackPanel();C.Grid.SetColumn(details,1);plugin.Children.Add(details);
+        var title=Kit.Text("DeskGlide plugin",17);title.FontWeight=W.FontWeights.SemiBold;details.Children.Add(title);
+        var requirement=Kit.Text("Stream Deck 7.1+ · Windows 10/11",12,"#B0A9BC");requirement.Margin=new(0,5,0,0);details.Children.Add(requirement);
+        var status=Kit.Text("",12);var dot=new System.Windows.Shapes.Ellipse{Width=6,Height=6,Margin=new(0,0,7,0),VerticalAlignment=W.VerticalAlignment.Center};
+        var connection=Kit.Actions(dot,status);connection.Margin=new(0,12,0,0);details.Children.Add(connection);
+        var install=Kit.Button("Install plugin",()=>{try{StreamDeckInstallation.Install();}catch(Exception e){error.Text=e.Message;}},true);
+        var actions=Kit.Actions(install);actions.Margin=new(0,18,0,0);
+        page.Children.Add(Kit.Card(Kit.Stack(plugin,actions)));
         var poll=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(1)};
-        void UpdateStatus()=>status.Text=UiStrings.T((deckClients?.Invoke()??0)>0?"Stream Deck plugin is connected.":"Waiting for Stream Deck. Install the plugin and add a DeskGlide action to a key.");
+        void UpdateStatus()
+        {
+            bool connected=(deckClients?.Invoke()??0)>0;
+            status.Text=UiStrings.T(connected?"Connected · buttons are ready":"Not connected · add a DeskGlide button to connect");
+            dot.Fill=Kit.Brush(connected?"#31D1DB":"#8C829D");status.Foreground=Kit.Brush(connected?"#31D1DB":"#B0A9BC");
+        }
         poll.Tick+=(_,_)=>UpdateStatus();Loaded+=(_,_)=>{UpdateStatus();poll.Start();};Closed+=(_,_)=>poll.Stop();
-        var setup=Section(page,"Quick setup");
-        setup.Children.Add(Kit.Text("1. Install the plugin on the PC with your Stream Deck.\n2. Drag a DeskGlide action onto a key in Stream Deck.\n3. Choose This PC or Paired controller PC in the action settings.",13));
-        setup.Children.Add(Kit.Text("Open KVM runs on the controller PC. Choose a computer to open directly, or leave Computer chooser selected.",12,"#B0A9BC"));
-        setup.Children.Add(Kit.Button("Setup guide",()=>Process.Start(new ProcessStartInfo("https://github.com/Aleksei-Melnik/DeskGlide/blob/main/docs/STREAM-DECK.md"){UseShellExecute=true})));
-        deck.Children.Add(Kit.Text("Install on each PC with a Stream Deck. On a receiving PC, select Paired controller PC to save replay on your gaming PC.",12,"#B0A9BC"));
+        System.ComponentModel.PropertyChangedEventHandler languageChanged=(_,_)=>UpdateStatus();UiStrings.Shared.PropertyChanged+=languageChanged;Closed+=(_,_)=>UiStrings.Shared.PropertyChanged-=languageChanged;
+        var setupHeader=new C.Grid{Margin=new(0,5,0,12)};setupHeader.ColumnDefinitions.Add(new());setupHeader.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});
+        var heading=Kit.Text("Three simple steps",14);heading.FontWeight=W.FontWeights.SemiBold;heading.VerticalAlignment=W.VerticalAlignment.Center;setupHeader.Children.Add(heading);
+        var guide=Kit.Button("Setup guide ↗",()=>Process.Start(new ProcessStartInfo("https://github.com/Aleksei-Melnik/DeskGlide/blob/main/docs/STREAM-DECK.md"){UseShellExecute=true}));guide.Background=System.Windows.Media.Brushes.Transparent;guide.BorderThickness=new(0);guide.Padding=new(0,6,0,6);C.Grid.SetColumn(guide,1);setupHeader.Children.Add(guide);page.Children.Add(setupHeader);
+        var steps=new C.Grid();for(int i=0;i<3;i++)steps.ColumnDefinitions.Add(new());
+        void Step(int index,string label,string description)
+        {
+            var number=Kit.Text((index+1).ToString(),12,"#E4ACFA");number.FontWeight=W.FontWeights.SemiBold;number.HorizontalAlignment=W.HorizontalAlignment.Center;number.VerticalAlignment=W.VerticalAlignment.Center;
+            var badge=new C.Border{Width=26,Height=26,CornerRadius=new(8),Background=Kit.Brush("#443F274E"),Child=number,HorizontalAlignment=W.HorizontalAlignment.Left,Margin=new(0,0,0,12)};
+            var name=Kit.Text(label,13);name.FontWeight=W.FontWeights.SemiBold;name.Margin=new(0,0,0,7);
+            var card=Kit.Card(Kit.Stack(badge,name,Kit.Text(description,12,"#B0A9BC")));card.Padding=new(16);card.Margin=new(index==0?0:4,0,index==2?0:4,0);C.Grid.SetColumn(card,index);steps.Children.Add(card);
+        }
+        Step(0,"Install","On each PC that has a Stream Deck.");
+        Step(1,"Add a button","Drag a DeskGlide action onto a key.");
+        Step(2,"Choose a PC","Select This PC or Paired controller PC.");
+        page.Children.Add(steps);
+        var targetTitle=Kit.Text("Two PCs? Choose the target.",13);targetTitle.FontWeight=W.FontWeights.SemiBold;targetTitle.Margin=new(0,20,0,7);page.Children.Add(targetTitle);
+        page.Children.Add(Kit.Text("This PC controls this computer. Paired controller PC sends commands to your gaming PC over KVM.",12,"#B0A9BC"));
+        var kvm=Kit.Text("Open KVM is available on the PC with your keyboard and mouse.",12,"#B0A9BC");kvm.Margin=new(0,7,0,0);page.Children.Add(kvm);
     }
     void ReceiverVisibility()
     {
@@ -241,8 +268,20 @@ sealed class SettingsWindow:ShellWindow
         var page=Page(3,"Control","One keyboard. Every computer.","Pair your streaming PC or a server. Keep each physical display exactly where you want it.");
         var connection=Section(page,"Pairing");var role=Choose("role",[new("Off","Off"),new("Host","Host · keyboard and mouse are here"),new("Client","Client · streaming PC or server")],v.Kvm.Role);Row(connection,"This PC",role);
         var host=Row(connection,"Host name or IP",Input("host",v.Kvm.Host));var pairing=Row(connection,"Host pairing code",Input("pairing",v.Kvm.PairingCode));
-        var code=Input("hostCode",service?.PairingCode??"");code.IsReadOnly=true;var codeRow=Row(connection,"Your pairing code",code);
-        var copy=Kit.Button("Copy pairing code",()=>{try{if(code.Text.Length==0){using var identity=new KvmIdentity(Path.Combine(Log.Folder,"Kvm"));code.Text=identity.Code;}W.Clipboard.SetText(code.Text);}catch(Exception e){error.Text=e.Message;}});copy.HorizontalAlignment=W.HorizontalAlignment.Left;connection.Children.Add(copy);
+        var computer=Kit.Text(Environment.MachineName);computer.FontWeight=W.FontWeights.SemiBold;var computerRow=Row(connection,"Computer name",computer);
+        var code=Input("hostCode",service?.PairingCode??"");code.IsReadOnly=true;code.Visibility=W.Visibility.Collapsed;code.Background=System.Windows.Media.Brushes.Transparent;code.BorderThickness=new(0);code.FontFamily=new("Consolas");code.FontSize=12;
+        var masked=Kit.Text("••••  ••••  ••••",15,"#B0A9BC");masked.VerticalAlignment=W.VerticalAlignment.Center;masked.Margin=new(12,0,0,0);
+        var field=new C.Grid();field.ColumnDefinitions.Add(new());field.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});field.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});field.Children.Add(code);field.Children.Add(masked);
+        void EnsureCode(){if(code.Text.Length==0){using var identity=new KvmIdentity(Path.Combine(Log.Folder,"Kvm"));code.Text=identity.Code;}}
+        C.Button show=null!,hide=null!;
+        void HideCode(){code.Visibility=W.Visibility.Collapsed;masked.Visibility=W.Visibility.Visible;show.Visibility=W.Visibility.Visible;hide.Visibility=W.Visibility.Collapsed;}
+        show=Kit.IconButton("Show pairing code","M 1,7 C 4,1 10,1 13,7 C 10,13 4,13 1,7 Z M 9,7 A 2,2 0 1 1 5,7 A 2,2 0 1 1 9,7",()=>{try{EnsureCode();code.Visibility=W.Visibility.Visible;masked.Visibility=W.Visibility.Collapsed;show.Visibility=W.Visibility.Collapsed;hide.Visibility=W.Visibility.Visible;hide.Focus();}catch(Exception e){error.Text=e.Message;}});
+        hide=Kit.IconButton("Hide pairing code","M 1,7 C 4,1 10,1 13,7 C 10,13 4,13 1,7 Z M 1,1 L 13,13",()=>{HideCode();show.Focus();});
+        C.Grid.SetColumn(show,1);C.Grid.SetColumn(hide,1);field.Children.Add(show);field.Children.Add(hide);
+        var copied=Kit.Text("Code copied",11,"#31D1DB");copied.Margin=new(164,0,0,0);copied.Visibility=W.Visibility.Collapsed;
+        var copyFeedback=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(2)};copyFeedback.Tick+=(_,_)=>{copied.Visibility=W.Visibility.Collapsed;copyFeedback.Stop();};Closed+=(_,_)=>copyFeedback.Stop();
+        var copy=Kit.IconButton("Copy pairing code","M 5,2 L 12,2 L 12,10 L 5,10 Z M 2,5 L 2,13 L 9,13",()=>{try{EnsureCode();W.Clipboard.SetText(code.Text);copied.Visibility=W.Visibility.Visible;copyFeedback.Stop();copyFeedback.Start();}catch(Exception e){error.Text=e.Message;}});C.Grid.SetColumn(copy,2);copy.Margin=new(4,0,4,0);field.Children.Add(copy);
+        var codeRow=Row(connection,"Your pairing code",new C.Border{Background=Kit.Brush("#6610101A"),BorderBrush=Kit.Brush("#3E364E"),BorderThickness=new(1),CornerRadius=new(9),Child=field});connection.Children.Add(copied);
         var hint=Kit.Text("",12,"#B0A9BC");hint.Margin=new(0,12,0,0);connection.Children.Add(hint);
         var advanced=new C.Expander{Header=Kit.Text("Advanced network settings"),Margin=new(0,16,0,0)};var port=Input("port",v.Kvm.Port.ToString());advanced.Content=port;connection.Children.Add(advanced);
         var control=Section(page,"Control & shortcuts");Row(control,"Edge switching",Toggle("seamless","Move between physical displays",v.Kvm.Seamless));Row(control,"Open KVM",kvmKey);Row(control,"Lock / unlock edges",edgeKey);control.Children.Add(Kit.Text("Ctrl+Alt+Esc always returns control here. Monitor shortcuts are configured in Monitor layout.",12,"#B0A9BC"));
@@ -254,11 +293,12 @@ sealed class SettingsWindow:ShellWindow
         void Update()
         {
             bool isHost=Id("role")=="Host",isClient=Id("role")=="Client";
-            host.Visibility=pairing.Visibility=isClient?W.Visibility.Visible:W.Visibility.Collapsed;codeRow.Visibility=copy.Visibility=isHost?W.Visibility.Visible:W.Visibility.Collapsed;
+            host.Visibility=pairing.Visibility=isClient?W.Visibility.Visible:W.Visibility.Collapsed;codeRow.Visibility=computerRow.Visibility=isHost?W.Visibility.Visible:W.Visibility.Collapsed;
+            HideCode();copied.Visibility=W.Visibility.Collapsed;
             ((W.UIElement)client.Parent).Visibility=isClient?W.Visibility.Visible:W.Visibility.Collapsed;control.IsEnabled=isHost;clipboard.IsEnabled=isHost||isClient;
-            hint.Text=isHost?UiStrings.F("On the other PC choose Client, enter {0} and paste this pairing code.",Environment.MachineName):UiStrings.T(isClient?"Enter the host name and code from your gaming PC. Audio sent to the host is used for recording.":"Choose a role to pair computers. Screen streaming and replay work independently.");
+            hint.Text=UiStrings.T(isHost?"On the other PC, choose Client and enter this computer name and pairing code.":isClient?"Enter the host name and code from your gaming PC. Audio sent to the host is used for recording.":"Choose a role to pair computers. Screen streaming and replay work independently.");
         }
-        role.SelectionChanged+=(_,_)=>Update();Update();
+        role.SelectionChanged+=(_,_)=>Update();System.ComponentModel.PropertyChangedEventHandler languageChanged=(_,_)=>Update();UiStrings.Shared.PropertyChanged+=languageChanged;Closed+=(_,_)=>UiStrings.Shared.PropertyChanged-=languageChanged;Update();
     }
     void BuildMonitors()
     {

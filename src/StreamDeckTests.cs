@@ -6,7 +6,8 @@ namespace SdrCapture;
 
 static class StreamDeckTests
 {
-    internal static DeckSnapshot Fixture()=>new(new("0.7.19","Test PC","Host",true,120,300,true,true,null,false,"idle",0,[new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Test Server","0.7.19",true)]));
+    internal static DeckSnapshot Fixture()=>new(new("0.7.20","Test PC","Host",true,120,300,true,true,null,false,"idle",0,[new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Test Server","0.7.20",true)],
+        [new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1","Test Server · DISPLAY1",1920,1080,false),new("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|DISPLAY1","Test PC · DISPLAY1",2560,1440,true)]));
     public static void Run()=>RunAsync().GetAwaiter().GetResult();
     static async Task RunAsync()
     {
@@ -37,6 +38,10 @@ static class StreamDeckTests
         Require(!DeckProtocol.RemoteAllowed(new(save.Id,"openKvm","host")),"Remote UI request accepted");
         Require(!DeckProtocol.Valid(new(save.Id,"status","other")),"Arbitrary target accepted");
         Require(!DeckProtocol.Valid(new(save.Id,"saveReplay","local","aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),"Peer accepted for unsupported command");
+        var monitor=new DeckRequest(Guid.NewGuid().ToString("N"),"switchMonitor","host",Monitor:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1");
+        Require(DeckProtocol.Valid(monitor)&&DeckProtocol.RemoteAllowed(monitor),"Typed monitor command rejected");
+        Require(!DeckProtocol.Valid(monitor with{Monitor=""})&&!DeckProtocol.Valid(monitor with{Monitor=new string('x',257)})&&!DeckProtocol.Valid(monitor with{Monitor="display\n"})&&!DeckProtocol.Valid(monitor with{Command="saveReplay"}),"Invalid monitor selector accepted");
+        await Send(monitor);Require((await Reply(monitor.Id)).State?.Local.Monitors?.Length==2,"Monitor command/status did not roundtrip");
         using(var oversized=new MemoryStream(Encoding.UTF8.GetBytes(new string('x',DeckProtocol.MaxLine+1)+"\n")))
         {bool rejected=false;try{await DeckProtocol.ReadLine(oversized,token);}catch(IOException){rejected=true;}Require(rejected,"Oversized input accepted");}
         // Invalid commands close only their connection; a second client remains usable.
@@ -67,8 +72,9 @@ static class StreamDeckTests
         var result=await clientDeck.Execute(request).WaitAsync(token);Require(result.Ok&&result.State?.Local.Name=="Test PC","Paired command failed");
         Require((await clientDeck.Execute(request)).Code=="duplicate"&&calls==1,"Paired command was repeated");
         Require((await clientDeck.Execute(new(Guid.NewGuid().ToString("N"),"openKvm","host"))).Code=="unsupported"&&calls==1,"Remote UI command executed");
+        var monitorResult=await clientDeck.Execute(new(Guid.NewGuid().ToString("N"),"switchMonitor","host",Monitor:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1")).WaitAsync(token);Require(monitorResult.Ok&&monitorResult.State?.Local.Monitors?.Length==2&&calls==2,"Paired monitor selection did not roundtrip");
         var pending=clientDeck.Execute(new(Guid.NewGuid().ToString("N"),"toggleStreaming","host"));
-        while(calls<2)await Task.Delay(20,token);
+        while(calls<3)await Task.Delay(20,token);
         host.Dispose();Require(!(await pending.WaitAsync(token)).Ok,"Disconnected command reported success");
         Program.Write("streamdeck-network-tests.json",new{Pass=true,TlsPairedRoundtrip=true,CapabilityNegotiated=true,DuplicateSuppressed=true,RemoteUiDenied=true,DisconnectFailsPendingCommand=true,ReplayFixtureOnly=true});
     }

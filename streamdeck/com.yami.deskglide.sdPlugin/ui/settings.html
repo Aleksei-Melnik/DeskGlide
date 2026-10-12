@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>DeskGlide</title><link rel="stylesheet" href="settings.css"></head>
-<body><main hidden><header><strong>DeskGlide</strong><span id="connection">Offline</span></header>
-<label id="languageLabel" for="language">Language</label><select id="language"><option value="en">English</option><option value="ru">Русский</option></select>
+<body><main hidden><header><strong>DeskGlide</strong><span class="status"><i id="statusDot"></i><span id="connection">Offline</span></span></header>
 <div id="targetRow"><label id="targetLabel" for="target">Run on</label><select id="target"><option value="local">This PC</option><option value="host">Paired controller PC</option></select></div>
 <div id="peerRow" hidden><label id="peerLabel" for="peer">Open</label><select id="peer"><option value="">Computer chooser</option></select></div>
+<div id="monitorRow" hidden><label id="monitorLabel" for="monitor">Monitor</label><select id="monitor"><option value="">Choose a monitor</option></select></div>
 <p id="details" role="status" aria-live="polite"></p><p id="error" role="alert"></p>
-<a id="help" href="https://github.com/Aleksei-Melnik/DeskGlide/blob/main/docs/STREAM-DECK.md">Setup & download DeskGlide</a>
+<a id="help" href="https://github.com/Aleksei-Melnik/DeskGlide/blob/main/docs/STREAM-DECK.md">Setup guide ↗</a>
 </main><script src="settings.js"></script></body></html>
