@@ -13,6 +13,7 @@ sealed record KvmMessage
 {
     public string Version {get;set;}="";
     public int UpdateProtocol {get;set;}
+    public int DeckProtocol {get;set;}
     public int ViewProtocol {get;set;}
     public bool RemoteViewOnly {get;set;}
     public string Type {get;set;}="";
@@ -91,8 +92,8 @@ sealed class KvmWire:IDisposable
             byte[] expected=HMACSHA256.HashData(identity.Key,nonce.Concat(Encoding.UTF8.GetBytes(hello.Id+"|"+hello.Device)).ToArray());
             if(hello.Data==null||!CryptographicOperations.FixedTimeEquals(expected,hello.Data))throw new AuthenticationException("Неверный код KVM.");
             ValidateScreens(hello.Screens);
-            wire.Peer=new(hello.Id,hello.Text,hello.Screens!,hello.Version,Math.Clamp(hello.UpdateProtocol,0,1),hello.RemoteViewOnly,Math.Clamp(hello.ViewProtocol,0,1));wire.Channel=hello.Device;
-            await wire.SendAsync(new(){Type="welcome",Version=Updates.VersionText,UpdateProtocol=1,ViewProtocol=1,Id=options.Id,Text=Environment.MachineName,Screens=KvmScreen.Local()},timeout.Token);
+            wire.Peer=new(hello.Id,hello.Text,hello.Screens!,hello.Version,Math.Clamp(hello.UpdateProtocol,0,1),hello.RemoteViewOnly,Math.Clamp(hello.ViewProtocol,0,1),Math.Clamp(hello.DeckProtocol,0,1));wire.Channel=hello.Device;
+            await wire.SendAsync(new(){Type="welcome",Version=Updates.VersionText,UpdateProtocol=1,ViewProtocol=1,DeckProtocol=1,Id=options.Id,Text=Environment.MachineName,Screens=KvmScreen.Local()},timeout.Token);
             wire.StartWriter();return wire;
         }
         catch{wire.Dispose();throw;}
@@ -111,11 +112,11 @@ sealed class KvmWire:IDisposable
             var challenge=await wire.ReadAsync(timeout.Token);
             if(challenge.Type!="challenge"||challenge.Data?.Length!=32)throw new AuthenticationException("Invalid host challenge.");
             byte[] proof=HMACSHA256.HashData(key,challenge.Data.Concat(Encoding.UTF8.GetBytes(options.Id+"|"+channel)).ToArray());
-            await wire.SendAsync(new(){Type="hello",Version=Updates.VersionText,UpdateProtocol=1,ViewProtocol=1,RemoteViewOnly=options.RemoteViewOnly,Id=options.Id,Device=channel,Text=Environment.MachineName,Data=proof,Screens=KvmScreen.Local()},timeout.Token);
+            await wire.SendAsync(new(){Type="hello",Version=Updates.VersionText,UpdateProtocol=1,ViewProtocol=1,DeckProtocol=1,RemoteViewOnly=options.RemoteViewOnly,Id=options.Id,Device=channel,Text=Environment.MachineName,Data=proof,Screens=KvmScreen.Local()},timeout.Token);
             var welcome=await wire.ReadAsync(timeout.Token);
             if(welcome.Type!="welcome"||!Guid.TryParseExact(welcome.Id,"N",out _)||welcome.Text.Length>100)throw new AuthenticationException("Invalid host reply.");
             ValidateScreens(welcome.Screens);
-            wire.Peer=new(welcome.Id,welcome.Text,welcome.Screens!,welcome.Version,Math.Clamp(welcome.UpdateProtocol,0,1),false,Math.Clamp(welcome.ViewProtocol,0,1));wire.StartWriter();return wire;
+            wire.Peer=new(welcome.Id,welcome.Text,welcome.Screens!,welcome.Version,Math.Clamp(welcome.UpdateProtocol,0,1),false,Math.Clamp(welcome.ViewProtocol,0,1),Math.Clamp(welcome.DeckProtocol,0,1));wire.StartWriter();return wire;
         }
         catch{wire?.Dispose();tcp.Dispose();throw;}
     }

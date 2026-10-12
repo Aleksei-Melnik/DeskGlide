@@ -1,0 +1,15 @@
+{
+  "name": "deskglide-streamdeck",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "validate": "streamdeck validate com.yami.deskglide.sdPlugin",
+    "pack": "streamdeck pack com.yami.deskglide.sdPlugin --output ../artifacts/streamdeck"
+  },
+  "dependencies": { "@elgato/streamdeck": "3.0.2" },
+  "devDependencies": { "@elgato/cli": "1.10.2", "esbuild": "0.28.2", "ws": "8.22.0" },
+  "packageManager": "pnpm@11.25.0"
+}

@@ -23,7 +23,7 @@ sealed class Settings
     public Settings Copy()=>new(){Language=Language,Device=Device,Compensate=Compensate,CaptureCursor=CaptureCursor,PreventIdleSleep=PreventIdleSleep,SendOnLaunch=SendOnLaunch,NdiAudioDevice=NdiAudioDevice,NdiAudioVolume=NdiAudioVolume,Updates=Updates with{},Replay=Replay with{},Kvm=Kvm.Copy(),Discord=Discord with{}};
     [System.Text.Json.Serialization.JsonIgnore] public CaptureOptions Options=>new(Device,Compensate,CaptureCursor);
 }
-sealed class TrayApp:ApplicationContext
+sealed partial class TrayApp:ApplicationContext
 {
     readonly NotifyIcon tray;
     readonly Icon appIcon=LoadAppIcon();
@@ -89,9 +89,9 @@ sealed class TrayApp:ApplicationContext
         hotkey.SaveRequested+=SaveReplay;
         if(!hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey))notifications.Enqueue("Горячая клавиша занята. Выберите другую в Replay Buffer → Settings.");
         delivery.Notification+=message=>notifications.Enqueue(message);
-        delivery.Saved+=_=>
+        delivery.Saved+=job=>
         {
-            if(!closing)try{dispatcher.BeginInvoke(()=>{if(!closing&&settings.Replay.SaveSoundEnabled)saveSound.Play(settings.Replay.SaveSoundVolume);});}catch(InvalidOperationException){}
+            if(!closing)try{dispatcher.BeginInvoke(()=>{ReplayDelivered(job);if(!closing&&settings.Replay.SaveSoundEnabled)saveSound.Play(settings.Replay.SaveSoundVolume);});}catch(InvalidOperationException){}
         };
         UiStrings.Shared.Language=settings.Language;
         tray=new NotifyIcon{Icon=appIcon,Text=BuildTooltip(engine.NdiEnabled,settings.Replay.Enabled),ContextMenuStrip=new ContextMenuStrip()};
@@ -99,6 +99,7 @@ sealed class TrayApp:ApplicationContext
         TrayInteraction.Configure(tray,()=>OpenSettings(),BuildMenu);
         timer.Tick+=(_,_)=>
         {
+            PublishDeckState();
             tray.Text=BuildTooltip(engine.NdiEnabled,settings.Replay.Enabled);
             ReplayAppContext.Capture();
             if(++ticks%5==0){kvm?.RefreshScreens();controller?.Refresh();}
@@ -107,6 +108,7 @@ sealed class TrayApp:ApplicationContext
             if(notifications.TryDequeue(out string? message))tray.ShowBalloonTip(5000,"DeskGlide",message[..Math.Min(255,message.Length)],ToolTipIcon.Info);
         };
         timer.Start();engine.Start(settings.Options);StartKvm();StartDiscord();
+        StartDeckBridge();
         _=Task.Run(async()=>{try{await RecordingTools.MigrateLegacyAsync();}catch(Exception e){Log.Write("Recording tools migration: "+e.Message);}});
         if(settings.Kvm.Role!="Host")_=Task.Run(async()=>{for(int i=0;i<30&&!closing;i++){try{DiscordDevices.RecoverDefaults(settings.Kvm.Role);}catch(Exception e){Log.Write("Audio default recovery: "+e.Message);}await Task.Delay(1000);}});
         // Publish only after startup wiring is complete; the WPF loop can now
@@ -172,7 +174,7 @@ sealed class TrayApp:ApplicationContext
         controller?.ReturnLocal();
         var existing=settingsWindow is {IsClosed:false}?settingsWindow:null;
         if(existing!=null){existing.Reveal();return;}
-        var form=new Ui.SettingsWindow(settings,kvm,IsAutorun(),Diagnostics,OpenUpdates,page,overview:StatusOverview);settingsWindow=form;
+        var form=new Ui.SettingsWindow(settings,kvm,IsAutorun(),Diagnostics,OpenUpdates,page,overview:StatusOverview,deckClients:()=>deckBridge?.Clients??0);settingsWindow=form;
         form.Closed+=(_,_)=>{settingsWindow=null;if(form.Accepted)Guard(()=>ApplySettings(form));};
         form.Reveal();
         Log.Write($"Settings window shown in {opening.ElapsedMilliseconds} ms");
@@ -231,7 +233,9 @@ sealed class TrayApp:ApplicationContext
         dragDrop?.Dispose();dragDrop=null;clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();clipboard=null;controller=null;kvm=null;
         try
         {
+            deckRemote?.Dispose();deckRemote=null;
             kvm=new KvmService(settings.Kvm);kvm.Notification+=m=>notifications.Enqueue(m);kvm.Received+=updater.Receive;
+            deckRemote=new DeckRemote(kvm,ExecuteDeckLocal);
             controller=new KvmController(kvm,settings.Kvm);
             controller.OpenRequested+=()=>{if(!closing)try{dispatcher.BeginInvoke(OpenKvm);}catch(InvalidOperationException){}};
             controller.EmergencyReturn+=()=>{if(!closing)dispatcher.BeginInvoke(()=>{foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();});};
@@ -281,8 +285,8 @@ sealed class TrayApp:ApplicationContext
     async void SaveReplay()
     {
         if(closing)return;
-        try{string app=ReplayAppContext.Capture();notifications.Enqueue(UiStrings.F("Saving the last {0}…",ReplayTime.Format(settings.Replay.BufferSeconds)));var result=await replay.SaveAsync(app);delivery.Wake();}
+        try{await SaveDeckReplay();}
         catch(Exception e){notifications.Enqueue("Повтор не сохранён: "+e.Message);}
     }
-    protected override void ExitThreadCore(){closing=true;settingsWindow?.Close();keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();saveSound.Dispose();dispatcher.Dispose();tray.Visible=false;var menu=tray.ContextMenuStrip;tray.Dispose();menu?.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
+    protected override void ExitThreadCore(){closing=true;deckBridge?.Dispose();deckRemote?.Dispose();settingsWindow?.Close();keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();saveSound.Dispose();dispatcher.Dispose();tray.Visible=false;var menu=tray.ContextMenuStrip;tray.Dispose();menu?.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
 }

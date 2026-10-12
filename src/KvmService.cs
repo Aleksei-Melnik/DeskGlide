@@ -130,6 +130,11 @@ sealed class KvmService:IDisposable
                     else await KvmViewerCapture.Reply(wire,message,linked.Token);
                     continue;
                 }
+                if(message.Type.StartsWith("deck-"))
+                {
+                    if(wire.Channel=="control"&&message.Type is "deck-request" or "deck-reply"&&Guid.TryParseExact(message.Id,"N",out _)&&message.Text.Length<=DeckProtocol.MaxLine)Received?.Invoke(wire.Peer.Id,message);
+                    continue;
+                }
                 if(message.Type.StartsWith("update-"))
                 {
                     if(wire.Channel=="control"&&Guid.TryParseExact(message.Id,"N",out _)&&message.Text.Length<=1024&&message.Version.Length<=32)Received?.Invoke(wire.Peer.Id,message);

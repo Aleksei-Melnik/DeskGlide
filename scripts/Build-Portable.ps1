@@ -13,6 +13,7 @@ $entryNames=[Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal
 function Add-Resource([string]$file,[string]$name){if($entryNames.Add($name)){[IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,$file,$name) | Out-Null}}
 try{
     Add-Resource $camera 'camera/ScreenCapture.Camera.dll'
+    Add-Resource (Join-Path $Payload 'streamdeck/com.yami.deskglide.streamDeckPlugin') 'streamdeck/com.yami.deskglide.streamDeckPlugin'
     foreach($name in @('README.md','LICENSE','THIRD-PARTY-NOTICES.md','Enable-Lan.ps1')){
         Add-Resource (Join-Path $repo $name) $name
     }

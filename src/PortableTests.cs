@@ -20,6 +20,9 @@ static class PortableTests
         try{Require(NativeLibrary.GetExport(native,"DllGetClassObject")!=IntPtr.Zero,"Bundled camera is not a COM server.");}finally{NativeLibrary.Free(native);}
         using var jpeg=new KvmJpeg();using var image=new System.Drawing.Bitmap(320,180);
         using var decoded=jpeg.Decode(jpeg.Encode(image,95));Require(decoded.Width==320&&decoded.Height==180,"Bundled KVM JPEG library failed.");
+        string plugin=PortableResources.FilePath(StreamDeckInstallation.Package);
+        Require(new FileInfo(plugin).Length>10000,"Bundled Stream Deck plugin missing.");
+        using(var package=System.IO.Compression.ZipFile.OpenRead(plugin))Require(package.Entries.Any(e=>e.FullName.EndsWith("manifest.json")),"Stream Deck package is invalid.");
         foreach(string notice in new[]{"LICENSE","THIRD-PARTY-NOTICES.md","dependency-licenses/Microsoft-DirectShow-baseclasses-LICENSE"})
             Require(File.ReadAllText(PortableResources.FilePath(notice)).Length>20,"Dependency notice missing: "+notice);
         Program.Write("portable-tests.json",new{Pass=true,BundledRuntime=true,CameraExtractedAndRepairable=true,NativeCameraLoaded=true,NativeKvmCodecLoaded=true,LicensesIncluded=true,UpdateDirectoryPreserved=true});

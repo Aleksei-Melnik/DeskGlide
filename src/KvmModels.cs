@@ -62,7 +62,7 @@ public sealed record KvmScreen(string Device,int X,int Y,int Width,int Height,bo
     public static KvmScreen[] Local()=>Screen.AllScreens.Select(s=>new KvmScreen(s.DeviceName,s.Bounds.X,s.Bounds.Y,s.Bounds.Width,s.Bounds.Height,s.Primary)).ToArray();
     [JsonIgnore] public Rectangle Bounds=>new(X,Y,Width,Height);
 }
-public sealed record KvmPeerInfo(string Id,string Name,KvmScreen[] Screens,string Version="",int UpdateProtocol=0,bool RemoteViewOnly=false,int ViewProtocol=0);
+public sealed record KvmPeerInfo(string Id,string Name,KvmScreen[] Screens,string Version="",int UpdateProtocol=0,bool RemoteViewOnly=false,int ViewProtocol=0,int DeckProtocol=0);
 
 static class KvmPairing
 {

@@ -13,6 +13,11 @@
 !/Build.ps1
 !/Enable-Lan.ps1
 !/Install-RecordingTools.ps1
+!/streamdeck/
+!/docs/
+**/node_modules/
+/streamdeck/com.yami.deskglide.sdPlugin/bin/
+*.streamDeckPlugin
 /app/
 /dist/
 /test-app/

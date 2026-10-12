@@ -4,6 +4,16 @@ KVM, screen and audio sharing, and instant replay for Windows 11. Connect your
 PCs, arrange their monitors and move between them with one keyboard and mouse.
 The interface supports English and Russian.
 
+## Stream Deck
+
+**Settings → Stream Deck** installs the bundled plugin and shows its connection.
+Save replay, open KVM or a particular PC/server, lock mouse transitions, and toggle
+replay/streaming with live state on the keys. On a receiving PC, replay and toggle
+actions can target the paired controller PC. Requires DeskGlide 0.7.19+ and Stream
+Deck 7.1+. [Setup guide](docs/STREAM-DECK.md) · [Privacy](docs/STREAM-DECK-PRIVACY.md).
+The installer is also a separate release download. Elgato Marketplace publication
+is pending account setup and review; no official listing is claimed yet.
+
 ## Getting started
 
 NDI Runtime is set up automatically when an NDI sender, receiver or source search

@@ -14,6 +14,7 @@ sealed class SettingsWindow:ShellWindow
     readonly KvmService? service;
     readonly Func<string>? diagnostics;
     readonly Func<StatusSection[]>? overview;
+    readonly Func<int>? deckClients;
     readonly C.StackPanel statusCards=new();
     Action? refreshReceiverVisibility;
     readonly Action? openUpdates;
@@ -42,10 +43,10 @@ sealed class SettingsWindow:ShellWindow
     internal string AudioStatus=>audioStatus.Text;
     internal C.ComboBox AudioChoice(string id)=>choices[id];
     internal C.Slider SliderControl(string id)=>sliders[id];
-    public SettingsWindow(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action? openUpdates=null,int startPage=0,Func<Task<DiscordDevices.Endpoint[]>>? discoverAudio=null,Func<StatusSection[]>? overview=null):base("Settings",1120,820)
+    public SettingsWindow(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action? openUpdates=null,int startPage=0,Func<Task<DiscordDevices.Endpoint[]>>? discoverAudio=null,Func<StatusSection[]>? overview=null,Func<int>? deckClients=null):base("Settings",1120,820)
     {
         AnimateOnReveal=true;
-        initial=value.Copy();ResultSettings=value.Copy();this.service=service;this.diagnostics=diagnostics;this.overview=overview;this.openUpdates=openUpdates;discover=discoverAudio??SettingsAudioDiscovery.Load;
+        initial=value.Copy();ResultSettings=value.Copy();this.service=service;this.diagnostics=diagnostics;this.overview=overview;this.deckClients=deckClients;this.openUpdates=openUpdates;discover=discoverAudio??SettingsAudioDiscovery.Load;
         replayKey=new(value.Replay.HotkeyModifiers,value.Replay.HotkeyKey);kvmKey=new(value.Kvm.OpenHotkeyModifiers,value.Kvm.OpenHotkeyKey);edgeKey=new(value.Kvm.ToggleHotkeyModifiers,value.Kvm.ToggleHotkeyKey);
         var peers=new[]{new KvmPeerInfo(value.Kvm.Id,Environment.MachineName,KvmScreen.Local())}.Concat(service?.Peers??[]).ToArray();
         monitors=new(value.Kvm,KvmLayout.Merge(value.Kvm,peers),peers);
@@ -61,7 +62,7 @@ sealed class SettingsWindow:ShellWindow
         }
         Group("CAPTURE & REPLAY");Link(0,"Screen streaming","Video and audio output");Link(8,"Virtual devices","Receive a screen on this PC");Link(1,"Instant replay","Save your recent gameplay");Link(2,"Recording audio","Choose sources and tracks");
         Group("YOUR COMPUTERS");Link(3,"KVM & pairing","Connect and control");Link(4,"Monitor layout","Arrange it like your desk");
-        Group("APPLICATION");Link(9,"General","Language, startup and power");Link(5,"Updates","Every PC, one place");Link(7,"Backup & restore","Keep your setup safe");Link(6,"Status","Capture and connections");
+        Group("APPLICATION");Link(10,"Stream Deck","Plugin and connection");Link(9,"General","Language, startup and power");Link(5,"Updates","Every PC, one place");Link(7,"Backup & restore","Keep your setup safe");Link(6,"Status","Capture and connections");
         var sidebar=new C.Border{Background=Kit.Brush("#AA0E0D16"),BorderBrush=Kit.Brush("#302B3E"),BorderThickness=new(0,0,1,0),Child=new C.ScrollViewer{Content=nav,VerticalScrollBarVisibility=C.ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=C.ScrollBarVisibility.Disabled}};middle.Children.Add(sidebar);
         scroll.Content=body;C.Grid.SetColumn(scroll,1);middle.Children.Add(scroll);
         var footer=new C.Grid{Margin=new(24,14,24,14)};footer.ColumnDefinitions.Add(new());footer.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});footer.Children.Add(error);
@@ -69,7 +70,7 @@ sealed class SettingsWindow:ShellWindow
         var save=Kit.Button("Save changes",Save,true);save.IsDefault=true;
         var actions=Kit.Actions(cancel,save);C.Grid.SetColumn(actions,1);footer.Children.Add(actions);
         var bar=new C.Border{BorderBrush=Kit.Brush("#302B3E"),BorderThickness=new(0,1,0,0),Child=footer};C.Grid.SetRow(bar,2);root.Children.Add(bar);Content=root;
-        BuildStream(value,autorun);BuildReplay(value);BuildAudio(value);BuildKvm(value);BuildMonitors();BuildUpdates(value);BuildProfile();BuildDiagnostics();BuildDiscord(value);BuildGeneral(value,autorun);
+        BuildStream(value,autorun);BuildReplay(value);BuildAudio(value);BuildKvm(value);BuildMonitors();BuildUpdates(value);BuildProfile();BuildDiagnostics();BuildDiscord(value);BuildGeneral(value,autorun);BuildStreamDeck();
         choices["role"].SelectionChanged+=(_,_)=>ReceiverVisibility();ReceiverVisibility();
         SelectPage(startPage,false);
         Loaded+=async(_,_)=>{await RefreshAudio();};Closed+=(_,_)=>{soundPreview.Dispose();lifetime.Cancel();lifetime.Dispose();if(!Accepted)UiStrings.Shared.Language=initial.Language;};
@@ -157,6 +158,22 @@ sealed class SettingsWindow:ShellWindow
         Row(section,"Autostart",Toggle("startup","Start with Windows",autorun));
         var power=Section(page,"Power");Row(power,"Keep awake",Toggle("awake","Keep PC and screens awake",v.PreventIdleSleep));
         power.Children.Add(Kit.Text("Prevents automatic sleep while DeskGlide is running. Manual sleep is still available.",12,"#B0A9BC"));
+    }
+    void BuildStreamDeck()
+    {
+        var page=Page(10,"Integration","Stream Deck","Save replays, open KVM and lock mouse transitions from your Stream Deck. Live buttons show the buffer and connected computers.");
+        var deck=Section(page,"DeskGlide plugin","Stream Deck 7.1 or later · Windows 10/11 · no hotkey setup required");
+        deck.Children.Add(Kit.Button("Install Stream Deck plugin",StreamDeckInstallation.Install));
+        deck.Children.Add(Kit.Button("Download plugin",()=>Process.Start(new ProcessStartInfo("https://github.com/Aleksei-Melnik/DeskGlide/releases/latest"){UseShellExecute=true})));
+        var connection=Section(page,"Connection");var status=Kit.Text("",13);connection.Children.Add(status);
+        var poll=new System.Windows.Threading.DispatcherTimer{Interval=TimeSpan.FromSeconds(1)};
+        void UpdateStatus()=>status.Text=UiStrings.T((deckClients?.Invoke()??0)>0?"Stream Deck plugin is connected.":"Waiting for Stream Deck. Install the plugin and add a DeskGlide action to a key.");
+        poll.Tick+=(_,_)=>UpdateStatus();Loaded+=(_,_)=>{UpdateStatus();poll.Start();};Closed+=(_,_)=>poll.Stop();
+        var setup=Section(page,"Quick setup");
+        setup.Children.Add(Kit.Text("1. Install the plugin on the PC with your Stream Deck.\n2. Drag a DeskGlide action onto a key in Stream Deck.\n3. Choose This PC or Paired controller PC in the action settings.",13));
+        setup.Children.Add(Kit.Text("Open KVM runs on the controller PC. Choose a computer to open directly, or leave Computer chooser selected.",12,"#B0A9BC"));
+        setup.Children.Add(Kit.Button("Setup guide",()=>Process.Start(new ProcessStartInfo("https://github.com/Aleksei-Melnik/DeskGlide/blob/main/docs/STREAM-DECK.md"){UseShellExecute=true})));
+        deck.Children.Add(Kit.Text("Install on each PC with a Stream Deck. On a receiving PC, select Paired controller PC to save replay on your gaming PC.",12,"#B0A9BC"));
     }
     void ReceiverVisibility()
     {

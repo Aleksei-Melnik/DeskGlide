@@ -14,6 +14,9 @@ $public.ImportFromPem([IO.File]::ReadAllText((Join-Path $repo 'src/Assets/releas
 if([Convert]::ToBase64String($rsa.ExportSubjectPublicKeyInfo()) -ne [Convert]::ToBase64String($public.ExportSubjectPublicKeyInfo())){throw 'Signing key does not match the public key embedded in the app'}
 $release=Join-Path $repo ('dist/'+$version+'-'+[guid]::NewGuid().ToString('N'))
 $payload=Join-Path $release 'payload'
+New-Item -ItemType Directory -Path $release -Force | Out-Null
+& (Join-Path $repo 'scripts/Build-StreamDeck.ps1') -Output (Join-Path $repo 'artifacts/streamdeck') | Out-Host
+Copy-Item -LiteralPath (Join-Path $repo 'artifacts/streamdeck/com.yami.deskglide.streamDeckPlugin') -Destination $release
 & (Join-Path $repo 'Build.ps1') -Output $payload
 foreach($file in @('README.md','LICENSE','THIRD-PARTY-NOTICES.md','Install-RecordingTools.ps1','Enable-Lan.ps1')){Copy-Item -LiteralPath (Join-Path $repo $file) -Destination $payload}
 # Retain license texts supplied by each managed dependency package.

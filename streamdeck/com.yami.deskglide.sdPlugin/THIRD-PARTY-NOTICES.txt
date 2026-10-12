@@ -1,0 +1,1 @@
+DeskGlide uses the official Elgato Stream Deck SDK 3.0.2, @elgato/utils and @elgato/schemas (Corsair Memory Inc., MIT), ws 8.22.0 (MIT), and Zod 3 (MIT). Full license texts are included in licenses. Stream Deck supplies its own Node runtime. No Elgato endorsement is implied.

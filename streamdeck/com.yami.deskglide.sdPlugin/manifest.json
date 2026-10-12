@@ -1,0 +1,144 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "UUID": "com.yami.deskglide",
+  "Name": "DeskGlide",
+  "Category": "DeskGlide",
+  "CategoryIcon": "imgs/category",
+  "Author": "Yami",
+  "Description": "Save instant replays, open remote computers and control mouse transitions with live DeskGlide status.",
+  "Version": "1.0.0.0",
+  "CodePath": "bin/plugin.js",
+  "Icon": "imgs/plugin",
+  "URL": "https://github.com/Aleksei-Melnik/DeskGlide",
+  "SDKVersion": 3,
+  "Nodejs": {
+    "Version": "24"
+  },
+  "Software": {
+    "MinimumVersion": "7.1"
+  },
+  "OS": [
+    {
+      "Platform": "windows",
+      "MinimumVersion": "10"
+    }
+  ],
+  "PropertyInspectorPath": "ui/settings.html",
+  "Actions": [
+    {
+      "UUID": "com.yami.deskglide.save-replay",
+      "Name": "Save Replay",
+      "Tooltip": "Save Replay",
+      "Icon": "imgs/save-replay-list",
+      "Controllers": [
+        "Keypad"
+      ],
+      "DisableAutomaticStates": true,
+      "SupportedInMultiActions": false,
+      "States": [
+        {
+          "Image": "imgs/save-replay",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        },
+        {
+          "Image": "imgs/save-replay",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        }
+      ]
+    },
+    {
+      "UUID": "com.yami.deskglide.open-kvm",
+      "Name": "Open KVM",
+      "Tooltip": "Open KVM",
+      "Icon": "imgs/open-kvm-list",
+      "Controllers": [
+        "Keypad"
+      ],
+      "DisableAutomaticStates": true,
+      "SupportedInMultiActions": true,
+      "States": [
+        {
+          "Image": "imgs/open-kvm",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        },
+        {
+          "Image": "imgs/open-kvm",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        }
+      ]
+    },
+    {
+      "UUID": "com.yami.deskglide.lock-mouse",
+      "Name": "Lock Mouse Transitions",
+      "Tooltip": "Lock Mouse Transitions",
+      "Icon": "imgs/lock-mouse-list",
+      "Controllers": [
+        "Keypad"
+      ],
+      "DisableAutomaticStates": true,
+      "SupportedInMultiActions": true,
+      "States": [
+        {
+          "Image": "imgs/lock-mouse",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        },
+        {
+          "Image": "imgs/lock-mouse",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        }
+      ]
+    },
+    {
+      "UUID": "com.yami.deskglide.toggle-replay",
+      "Name": "Toggle Replay",
+      "Tooltip": "Toggle Replay",
+      "Icon": "imgs/toggle-replay-list",
+      "Controllers": [
+        "Keypad"
+      ],
+      "DisableAutomaticStates": true,
+      "SupportedInMultiActions": true,
+      "States": [
+        {
+          "Image": "imgs/toggle-replay",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        },
+        {
+          "Image": "imgs/toggle-replay",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        }
+      ]
+    },
+    {
+      "UUID": "com.yami.deskglide.toggle-streaming",
+      "Name": "Toggle Streaming",
+      "Tooltip": "Toggle Streaming",
+      "Icon": "imgs/toggle-streaming-list",
+      "Controllers": [
+        "Keypad"
+      ],
+      "DisableAutomaticStates": true,
+      "SupportedInMultiActions": true,
+      "States": [
+        {
+          "Image": "imgs/toggle-streaming",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        },
+        {
+          "Image": "imgs/toggle-streaming",
+          "TitleAlignment": "bottom",
+          "FontSize": 10
+        }
+      ]
+    }
+  ]
+}

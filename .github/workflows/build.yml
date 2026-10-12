@@ -7,6 +7,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '11.25.0'
+      - name: Build and validate Stream Deck plugin
+        shell: pwsh
+        run: ./scripts/Build-StreamDeck.ps1
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
@@ -16,10 +25,16 @@ jobs:
       - name: Build isolated DirectShow probe
         shell: pwsh
         run: ./scripts/Build-Camera.ps1 -Output ./app/camera -Probe
+      - name: Test official Stream Deck SDK against DeskGlide private IPC
+        shell: pwsh
+        run: |
+          $env:DESKGLIDE_TEST_EXE=(Resolve-Path ./app/DeskGlide.exe).Path
+          pnpm --dir streamdeck test
+          if($LASTEXITCODE -ne 0){throw 'Stream Deck integration failed'}
       - name: Test update integrity, rollback, audio clock and windows
         shell: pwsh
         run: |
-          foreach ($flag in @('--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--update-tests', '--restart-tests', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--ui-tests', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--camera-test', '--camera-2k-test', '--camera-hold-test', '--camera-formats-test', '--kvm-video-test', '--kvm-test')) {
+          foreach ($flag in @('--streamdeck-tests', '--streamdeck-network-tests', '--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--update-tests', '--restart-tests', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--ui-tests', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--camera-test', '--camera-2k-test', '--camera-hold-test', '--camera-formats-test', '--kvm-video-test', '--kvm-test')) {
             $p=Start-Process ./app/DeskGlide.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){
               if(Test-Path ./app/error.txt){Get-Content ./app/error.txt}
@@ -36,7 +51,7 @@ jobs:
       - name: Test portable executable without adjacent libraries
         shell: pwsh
         run: |
-          foreach ($flag in @('--portable-tests', '--update-tests', '--restart-tests', '--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--kvm-video-test', '--kvm-test')) {
+          foreach ($flag in @('--streamdeck-tests', '--streamdeck-network-tests', '--portable-tests', '--update-tests', '--restart-tests', '--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--kvm-video-test', '--kvm-test')) {
             $p=Start-Process ./portable-check/DeskGlide.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){
               if(Test-Path "$env:LOCALAPPDATA/SdrCapture/Diagnostics/error.txt"){Get-Content "$env:LOCALAPPDATA/SdrCapture/Diagnostics/error.txt"}
@@ -44,3 +59,14 @@ jobs:
             }
             if($flag -eq '--tray-ui-tests'){Get-Content "$env:LOCALAPPDATA/SdrCapture/Diagnostics/tray-ui-tests.json"}
           }
+      - name: Upload Stream Deck validation and preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: streamdeck-validation
+          path: |
+            artifacts/streamdeck/*.streamDeckPlugin
+            app/streamdeck*.json
+            app/wpf-preview/*-10.png
+            app/wpf-ui-tests.json
+            app/error.txt
