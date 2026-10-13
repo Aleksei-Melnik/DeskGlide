@@ -1,5 +1,55 @@
 # DeskGlide hardware validation — 0.7.17, 2026-10-11
 
+## Replay memory optimization — 0.7.23, 2026-10-13
+
+The raw video encoder is independent of the delayed WASAPI/KVM audio input.
+It writes compressed, timestamped NUT packets to the segment muxer, which
+copies video and encodes audio. This keeps one hardware video encoder. The
+raw input queue is eight frames; the muxer queue holds compressed packets.
+Video retains a 100-ms capture-jitter allowance; audio keeps the existing
+300-ms local / 500-ms KVM allowance and shared epoch/sample timestamps.
+Unused RGB16/P010 GPU readback resources are initialized on demand.
+
+Both builds recorded the same changing 2560 × 1440 GPU fixture at AV1 Ultra,
+120 FPS, while the installed utility continued recording/transmitting.
+Windows performance counters sampled private working set every two seconds;
+the table uses the matching 15–43-second steady interval and excludes export
+processes. All recorder-owned encoding/mux processes are included.
+
+| Private working set, average | Before | 0.7.23 |
+| --- | ---: | ---: |
+| DeskGlide fixture | 278.3 MiB | 134.2 MiB |
+| Hardware encoder FFmpeg | 246.8 MiB | 245.9 MiB |
+| Video-copy/audio mux FFmpeg | — | 13.2 MiB |
+| **Combined** | **525.1 MiB** | **393.3 MiB** |
+
+The final AV1 run lasted 90 seconds before export, with one encoder session,
+zero source-history misses and zero missing local sample positions out of
+5,228,800 read. Raw history plus its reuse cache sampled about 69–79 MiB.
+The fixture intentionally keeps an independent PCM reference in memory;
+its growth is test overhead, not part of the production replay recorder.
+This comparison is replay-only: NDI receivers, remote viewers, UI and native
+drivers can increase full-app memory. It does not establish a long-term memory
+ceiling or a zero-overhead game-FPS result.
+
+Three saves were decoded and checked against source frame IDs: no available
+source frame was lost and save boundaries had no overlap/gap. The producer
+itself skipped frames during scheduling/GPU delays, so 120 output FPS does
+not establish 120 distinct captured images. RMS correlation with independently
+timestamped WASAPI audio measured about 3–10 ms A/V offset without accumulating
+drift or low-energy holes. A pure 440-Hz-only phase assertion flagged the
+mixed desktop sound in both builds; the same phase changes existed in the
+independent reference. Separate synthetic tone checks verify continuous audio
+for the mixed and three-track exports without that background ambiguity.
+
+NVIDIA cadence checks exercised AV1/HEVC/H.264 at 120 FPS, mixed/separate audio,
+the 500-ms network-audio allowance with synthetic data, and silent HEVC at
+60 FPS. The network-audio fixture does not establish actual LAN packet delivery.
+Local AMD H.264/HEVC runs exercise the AMF path at 60 FPS. Physical Intel,
+other GPU generations and 4K/8K recording remain outside this verification.
+Shutdown/reconfiguration checks stop both recording processes; no global
+keyboard/mouse input is injected, and no installed profile is changed.
+
 ## Freeze, memory and AV1 playback investigation — 0.7.21, 2026-10-12
 
 The installed 0.7.19 process stopped responding during its updater exit

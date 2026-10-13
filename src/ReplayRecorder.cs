@@ -151,13 +151,15 @@ public sealed class ReplayRecorder:IDisposable
             {
                 var config=Volatile.Read(ref options);int currentVersion=Volatile.Read(ref version);
                 if(!config.Enabled){Status="Буфер выключен";await Task.Delay(200,stop.Token);continue;}
-                using var first=GetFrame();
-                if(first==null){Status="Ожидание SDR-кадра";await Task.Delay(100,stop.Token);continue;}
-                if(activeVersion!=currentVersion)
+                using(var first=GetFrame())
                 {
-                    lock(chunksGate)foreach(var chunk in chunks.Where(c=>c.Pins==0).ToArray()){TryDelete(chunk.Path);chunks.Remove(chunk);}
-                    activeVersion=currentVersion;
-                    Width=config.Width==0?first.Width:config.Width;Height=config.Width==0?(first.Height&~1):config.Height;
+                    if(first==null){Status="Ожидание SDR-кадра";await Task.Delay(100,stop.Token);continue;}
+                    if(activeVersion!=currentVersion)
+                    {
+                        lock(chunksGate)foreach(var chunk in chunks.Where(c=>c.Pins==0).ToArray()){TryDelete(chunk.Path);chunks.Remove(chunk);}
+                        activeVersion=currentVersion;
+                        Width=config.Width==0?first.Width:config.Width;Height=config.Width==0?(first.Height&~1):config.Height;
+                    }
                 }
                 config.Validate();
                 if(!RecordingTools.Ready)
@@ -194,16 +196,23 @@ public sealed class ReplayRecorder:IDisposable
         var token=sessionStop.Token;
         double epoch=0,lastVideo=Now;int parsed=-1;
         var started=new TaskCompletionSource<double>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var args=new List<string>{"-hide_banner","-loglevel","warning","-nostdin","-y",
-            "-thread_queue_size","32","-threads","1","-probesize","32","-analyzeduration","0","-f","rawvideo","-pixel_format","nv12","-video_size",$"{Width}x{Height}","-framerate",config.Fps.ToString(),"-i",@"\\.\pipe\"+videoName,
-            "-thread_queue_size","16","-probesize","32","-analyzeduration","0","-f","f32le","-ar","48000","-ac","6","-i",@"\\.\pipe\"+audioName};
+        using var videoEncoder=config.IsSilent?null:new RecordingVideoEncoder(videoName,Width,Height,config.Fps,encoder,token);
+        var args=new List<string>{"-hide_banner","-loglevel","warning","-nostdin","-y"};
+        if(videoEncoder!=null)
+            // These are compressed packets: enough for delayed local/KVM audio,
+            // without filling another queue with multi-megabyte raw frames.
+            args.AddRange(["-thread_queue_size","128","-probesize","32","-analyzeduration","0","-f","nut","-i",@"\\.\pipe\"+videoEncoder.PipeName]);
+        else
+            args.AddRange(["-thread_queue_size","8","-threads","1","-probesize","32","-analyzeduration","0","-f","rawvideo","-pixel_format","nv12","-video_size",$"{Width}x{Height}","-framerate",config.Fps.ToString(),"-i",@"\\.\pipe\"+videoName]);
+        args.AddRange(["-thread_queue_size","16","-probesize","32","-analyzeduration","0","-f","f32le","-ar","48000","-ac","6","-i",@"\\.\pipe\"+audioName]);
         if(!config.IsSilent)
         {
             if(config.AudioMode=="Separate")args.AddRange(["-filter_complex","[1:a]asplit=3[g][m][e];[g]pan=stereo|c0=c2|c1=c3[game];[m]pan=stereo|c0=c0|c1=c1[mic];[e]pan=stereo|c0=c4|c1=c5[extra]","-map","0:v","-map","[game]","-map","[mic]","-map","[extra]","-metadata:s:a:0","title=Game PC","-metadata:s:a:1","title=Microphone","-metadata:s:a:2","title=Stream PC"]);
             else args.AddRange(["-filter_complex","[1:a]pan=stereo|c0=c0+c2+c4|c1=c1+c3+c5,alimiter=limit=0.95:level=0:latency=1[mix]","-map","0:v","-map","[mix]","-metadata:s:a:0","title=Mixed audio"]);
         }
         else args.AddRange(["-map","0:v"]);
-        args.AddRange(encoder.Arguments);
+        if(videoEncoder==null)args.AddRange(encoder.Arguments);
+        else args.AddRange(["-c:v","copy"]);
         args.AddRange([
             "-color_range","tv","-colorspace","bt709","-color_primaries","bt709","-color_trc","bt709",
             "-c:a","aac","-b:a","192k","-ar","48000",
@@ -249,8 +258,14 @@ public sealed class ReplayRecorder:IDisposable
             {
                 videoPipe.WaitForConnectionAsync(token).GetAwaiter().GetResult();
                 epoch=Now;lastVideo=epoch;Volatile.Write(ref liveEnd,0);Volatile.Write(ref liveStart,epoch);started.TrySetResult(epoch);
-                // Keep recording video/audio on the same delayed clock. NDI has its own sender.
-                double playout=Math.Max(2.0/config.Fps,ReplayAudio.WaitSeconds(config)+1.0/60);
+                // Both inputs still begin at epoch, with continuous frame/sample
+                // timestamps. Encode video promptly and let the muxer interleave
+                // its small compressed packets while WASAPI catches up, instead
+                // of retaining hundreds of MB of raw video for the audio delay.
+                // Keep a short capture-jitter allowance: GPU readback/packing
+                // can finish after the image's presentation timestamp. This
+                // is independent of the longer local/network audio wait.
+                double playout=Math.Max(2.0/config.Fps,.10);
                 long frameIndex=0,previousCapture=-1;
                 while(!token.IsCancellationRequested&&Volatile.Read(ref version)==currentVersion)
                 {
@@ -300,6 +315,7 @@ public sealed class ReplayRecorder:IDisposable
             {
                 await Task.Delay(200,stop.Token);Scan();
                 if(stop.IsCancellationRequested||Volatile.Read(ref version)!=currentVersion)break;
+                videoEncoder?.Check();
                 if(process.HasExited){lock(errors)throw new IOException(config.Codec+": "+string.Join(" ",errors));}
                 if(videoTask.IsCompleted)await videoTask;
                 if(!config.IsSilent&&audioTask.IsCompleted)await audioTask;
@@ -313,6 +329,7 @@ public sealed class ReplayRecorder:IDisposable
         {
             sessionStop.Cancel();videoPipe.Dispose();audioPipe.Dispose();
             try{await Task.WhenAll(videoTask,audioTask);}catch{}
+            videoEncoder?.Dispose();
             using var timeout=new CancellationTokenSource(3500);
             try{await process.WaitForExitAsync(timeout.Token);}catch{try{process.Kill(true);}catch{}}
             await stderr;await stdout;Scan();Volatile.Write(ref liveEnd,0);

@@ -29,6 +29,9 @@ public sealed class ColorPipeline : IDisposable
     public int Width { get; private set; }
     public int Height { get; private set; }
     public byte[] Pixels { get; private set; } = [];
+    internal long ReadbackBytes => (staging == null ? 0 : (long)Width * Height * 8)
+        + (p010Staging == null ? 0 : (long)Width * Height * 3)
+        + (ndiStaging == null ? 0 : (long)Width * Height * 2);
     Format inputFormat;
     readonly int canvasWidth,canvasHeight;
     int inputWidth,inputHeight;
@@ -145,27 +148,19 @@ public sealed class ColorPipeline : IDisposable
         d.Format = Format.R16G16B16A16_UNorm; d.BindFlags = BindFlags.UnorderedAccess | BindFlags.ShaderResource;
         output = device.CreateTexture2D(d); uav = device.CreateUnorderedAccessView(output);
         outputSrv = device.CreateShaderResourceView(output);
-        d.BindFlags = BindFlags.None; d.Usage = ResourceUsage.Staging; d.CPUAccessFlags = CpuAccessFlags.Read;
-        staging = device.CreateTexture2D(d); Pixels = [];
-        if ((Width & 1) == 0)
-        {
-            uint count=checked((uint)(Width*Height*2));
-            ndiBuffer=device.CreateBuffer(count,BindFlags.UnorderedAccess,ResourceUsage.Default,CpuAccessFlags.None,ResourceOptionFlags.BufferAllowRawViews);
-            ndiUav=device.CreateUnorderedAccessView(ndiBuffer,new UnorderedAccessViewDescription(ndiBuffer,Format.R32_Typeless,0,count/4,BufferUnorderedAccessViewFlags.Raw));
-            ndiStaging=device.CreateBuffer(count,BindFlags.None,ResourceUsage.Staging,CpuAccessFlags.Read);
-        }
-        if ((Width & 1) == 0 && (Height & 1) == 0)
-        {
-            uint count = checked((uint)(Width * Height * 3));
-            p010 = device.CreateBuffer(count, BindFlags.UnorderedAccess, ResourceUsage.Default, CpuAccessFlags.None, ResourceOptionFlags.BufferAllowRawViews);
-            p010Uav = device.CreateUnorderedAccessView(p010, new UnorderedAccessViewDescription(p010, Format.R32_Typeless, 0, count / 4, BufferUnorderedAccessViewFlags.Raw));
-            p010Staging = device.CreateBuffer(count, BindFlags.None, ResourceUsage.Staging, CpuAccessFlags.Read);
-            packed = [];
-        }
+        // Readback formats have separate consumers. Normal replay/NDI never
+        // needs the RGB16 staging texture or the legacy P010 buffers.
+        Pixels = []; packed = [];
     }
     public unsafe byte[] Convert(ID3D11Texture2D source, bool hdr, float exposure)
     {
         Render(source, hdr, exposure);
+        if (staging == null)
+        {
+            var d = output!.Description;
+            d.BindFlags = BindFlags.None; d.Usage = ResourceUsage.Staging; d.CPUAccessFlags = CpuAccessFlags.Read;
+            staging = device.CreateTexture2D(d);
+        }
         if(Pixels.Length!=checked(Width*Height*8))Pixels=new byte[checked(Width*Height*8)];
         context.CopyResource(staging!, output!);
         var map = context.Map(staging!, 0, MapMode.Read);
@@ -181,7 +176,14 @@ public sealed class ColorPipeline : IDisposable
     public unsafe byte[] ConvertP010(ID3D11Texture2D source, bool hdr, float exposure)
     {
         Render(source, hdr, exposure);
-        if (p010 == null) throw new NotSupportedException("P010 requires even dimensions.");
+        if ((Width & 1) != 0 || (Height & 1) != 0) throw new NotSupportedException("P010 requires even dimensions.");
+        if (p010 == null)
+        {
+            uint count = checked((uint)(Width * Height * 3));
+            p010 = device.CreateBuffer(count, BindFlags.UnorderedAccess, ResourceUsage.Default, CpuAccessFlags.None, ResourceOptionFlags.BufferAllowRawViews);
+            p010Uav = device.CreateUnorderedAccessView(p010, new UnorderedAccessViewDescription(p010, Format.R32_Typeless, 0, count / 4, BufferUnorderedAccessViewFlags.Raw));
+            p010Staging = device.CreateBuffer(count, BindFlags.None, ResourceUsage.Staging, CpuAccessFlags.Read);
+        }
         if(packed.Length!=checked(Width*Height*3))packed=new byte[checked(Width*Height*3)];
         context.CSSetShader(packShader); context.CSSetShaderResource(0, outputSrv); context.CSSetUnorderedAccessView(0, p010Uav);
         context.Dispatch(((uint)Width + 15) / 16, ((uint)Height + 15) / 16, 1);
@@ -195,7 +197,14 @@ public sealed class ColorPipeline : IDisposable
     public unsafe VideoBuffer ConvertNdi(ID3D11Texture2D source,bool hdr,float exposure)
     {
         Render(source,hdr,exposure);
-        if(ndiBuffer==null) throw new NotSupportedException("NDI requires an even monitor width.");
+        if((Width & 1) != 0) throw new NotSupportedException("NDI requires an even monitor width.");
+        if(ndiBuffer==null)
+        {
+            uint count=checked((uint)(Width*Height*2));
+            ndiBuffer=device.CreateBuffer(count,BindFlags.UnorderedAccess,ResourceUsage.Default,CpuAccessFlags.None,ResourceOptionFlags.BufferAllowRawViews);
+            ndiUav=device.CreateUnorderedAccessView(ndiBuffer,new UnorderedAccessViewDescription(ndiBuffer,Format.R32_Typeless,0,count/4,BufferUnorderedAccessViewFlags.Raw));
+            ndiStaging=device.CreateBuffer(count,BindFlags.None,ResourceUsage.Staging,CpuAccessFlags.Read);
+        }
         context.CSSetShader(ndiShader);context.CSSetShaderResource(0,outputSrv);context.CSSetUnorderedAccessView(0,ndiUav);
         context.Dispatch(((uint)Width+15)/16,((uint)Height+7)/8,1);
         context.CSSetShaderResource(0,null);context.CSSetUnorderedAccessView(0,null);
@@ -227,6 +236,6 @@ public sealed class ColorPipeline : IDisposable
         context.Dispatch(((uint)Width + 7) / 8, ((uint)Height + 7) / 8, 1);
         context.CSSetShaderResource(0, null); context.CSSetShaderResource(1, null); context.CSSetUnorderedAccessView(0, null);
     }
-    void FreeTextures() { srv?.Dispose(); uav?.Dispose(); outputSrv?.Dispose(); input?.Dispose(); output?.Dispose(); staging?.Dispose(); p010Uav?.Dispose(); p010?.Dispose(); p010Staging?.Dispose(); ndiUav?.Dispose();ndiBuffer?.Dispose();ndiStaging?.Dispose();ndiBuffer=null;p010=null; input = null; }
+    void FreeTextures() { srv?.Dispose(); uav?.Dispose(); outputSrv?.Dispose(); input?.Dispose(); output?.Dispose(); staging?.Dispose(); p010Uav?.Dispose(); p010?.Dispose(); p010Staging?.Dispose(); ndiUav?.Dispose();ndiBuffer?.Dispose();ndiStaging?.Dispose();ndiBuffer=null;ndiStaging=null;p010=null;p010Staging=null;staging=null; input = null; }
     public void Dispose() { FreeTextures(); Cursor.Dispose(); ndiShader.Dispose();packShader.Dispose(); constants.Dispose(); shader.Dispose(); }
 }

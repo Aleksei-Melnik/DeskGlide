@@ -1,4 +1,17 @@
-DeskGlide 0.7.22
+DeskGlide 0.7.23
+
+- Reduced replay memory by encoding video independently of audio capture. Waiting for local/KVM audio now retains compressed packets; a short raw-frame buffer covers capture jitter. Audio keeps its existing sample clock and arrival allowance. Resolution, FPS, codec and quality settings are preserved.
+- Capture allocates RGB16/P010 GPU readback buffers only when that format is used, and releases the startup frame reference promptly.
+- Audio-enabled recording now uses one hardware encoder process and one lightweight video-copy/audio-mux process. The additional `ffmpeg.exe` does not run a second video encoder. Shutdown and failures stop both workers with bounded waits.
+- Includes the Stream Deck installation fix described below.
+
+Measured with the same moving 1440p120 AV1 Ultra fixture: combined private working set fell from about **525 MiB to 393 MiB (25%)**, including every recording FFmpeg process. DeskGlide's part fell from 278 MiB to 134 MiB. These are isolated recording measurements, not a memory ceiling for the complete app with NDI, KVM viewers and settings open.
+
+Validation: decoded NVIDIA AV1/HEVC/H.264, mixed/separate/silent audio and the longer KVM-audio wait. The 90-second AV1 run used one encoder session, no exhausted frame history and no missing local audio samples. Three consecutive saves retained every available source frame without overlap; reference audio/video timing stayed within 10 ms. AMD H.264/HEVC were also exercised on the local Radeon; physical Intel hardware remains unverified. See HARDWARE-VALIDATION.md for measurements and limits.
+
+Update through **Updates → Update all PCs**, or download **DeskGlide.exe**. Existing settings and pairing are preserved.
+
+Previous update: 0.7.22
 
 - Fixed **Stream Deck → Install plugin** doing nothing when Windows redirects the package file association to `streamdeck://app/openfile`. DeskGlide now passes the bundled plugin package directly to the installed Stream Deck executable, including custom installation paths when Stream Deck is running.
 - Plugin 1.0.1 retains the minimal icons, monitor switching, automatic language selection and corrected replay timer. Existing Stream Deck button profiles are preserved.

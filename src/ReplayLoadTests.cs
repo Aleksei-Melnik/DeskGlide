@@ -34,6 +34,7 @@ static class ReplayLoadTests
         },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default)).ToArray():[];
         var encoder=encoderName==null?null:RecordingEncoders.Candidates(options,2560,1440).Single(e=>e.Name==encoderName);
         using var recorder=new ReplayRecorder(options,false,window,encoder);
+        var memorySamples=new List<object>();
         long producerSkipped=0,captured=0,producerOrigin=0;double maxConvertMs=0;
         var sourceMissingIds=new System.Collections.Concurrent.ConcurrentQueue<long>();
         var producer=Task.Factory.StartNew(()=>
@@ -66,6 +67,11 @@ static class ReplayLoadTests
             for(int elapsed=1;elapsed<=seconds;elapsed++)
             {
                 Thread.Sleep(1000);
+                if(elapsed%5==0)
+                {
+                    using var process=Process.GetCurrentProcess();
+                    memorySamples.Add(new{elapsed,recorder.FrameMemoryBytes,process.WorkingSet64,process.PrivateMemorySize64,ManagedBytes=GC.GetTotalMemory(false)});
+                }
                 if(elapsed%5==0)Program.Write("replay-load-progress.json",new{elapsed,fps,codec,captured,producerSkipped,recorder.EncodedFrames,recorder.RepeatedInputFrames,recorder.HistoryMisses,recorder.MaxWriterLateMs,recorder.EncoderStarts,recorder.AudioDiagnostics,recorder.Error});
             }
             if(recorder.Error!=null)throw new Exception(recorder.Error);
@@ -76,7 +82,7 @@ static class ReplayLoadTests
             var third=recorder.SaveAsync("Load").GetAwaiter().GetResult();
             Program.Write($"load-{fps}-{codec}-{stress}{(encoderName==null?"":"-"+encoderName)}{(hdr?"-hdr":"")}{(sync?"-sync":"")}.json",new{fps,codec,stress,seconds,encoderName,hdr,sync,producerOrigin,referenceStart,QpcFrequency=Stopwatch.Frequency,captured,producerSkipped,SourceMissingIds=sourceMissingIds.ToArray(),GpuConvertMs=maxConvertMs,
                 recorder.EncodedFrames,recorder.RepeatedInputFrames,recorder.HistoryMisses,recorder.MaxWriterLateMs,recorder.EncoderStarts,
-                recorder.MaxConvertMs,recorder.MaxPipeWriteMs,recorder.AudioStatus,recorder.AudioDiagnostics,recorder.Error,First=first,Second=second,Third=third,Root=root});
+                recorder.MaxConvertMs,recorder.MaxPipeWriteMs,recorder.AudioStatus,recorder.AudioDiagnostics,recorder.Error,Memory=memorySamples,First=first,Second=second,Third=third,Root=root});
             if(recorder.Error!=null||recorder.EncoderStarts!=1)throw new Exception("Recording restarted under load; see report");
         }
         finally

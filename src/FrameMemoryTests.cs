@@ -37,6 +37,26 @@ static class FrameMemoryTests
         byte[] wide=Enumerable.Repeat((byte)70,8*2*3/2).ToArray();
         RecordingPixels.ResizeNv12(wide,8,2,resized,8,8);
         Require(resized[0]==16&&resized[24]==70&&resized[56]==16&&resized[64]==128,"NV12 letterbox range changed.");
-        Program.Write("frame-memory-tests.json",new{Pass=true,NativeFrameBytes=source.Length,ReplayFrameBytes=2560*1440*3/2,PoolBoundBytes=32L*1024*1024,HeldWriterProtected=true,WarmupReleased=true,SteadyReuse=true,LateReturnProtected=true,ResolutionChange=true});
+        ReadbackFormats();
+        Program.Write("frame-memory-tests.json",new{Pass=true,NativeFrameBytes=source.Length,ReplayFrameBytes=2560*1440*3/2,PoolBoundBytes=32L*1024*1024,HeldWriterProtected=true,WarmupReleased=true,SteadyReuse=true,LateReturnProtected=true,ResolutionChange=true,UnusedReadbacksReleased=true});
+    }
+    static void ReadbackFormats()
+    {
+        using var device=Vortice.Direct3D11.D3D11.D3D11CreateDevice(Vortice.Direct3D.DriverType.Hardware,Vortice.Direct3D11.DeviceCreationFlags.BgraSupport,Vortice.Direct3D.FeatureLevel.Level_11_0);
+        using var context=device.ImmediateContext;
+        using var pipeline=new ColorPipeline(device,context);
+        foreach(int size in new[]{8,16})
+        {
+            using var texture=device.CreateTexture2D(new Vortice.Direct3D11.Texture2DDescription(Vortice.DXGI.Format.R8G8B8A8_UNorm,(uint)size,(uint)size,1,1,Vortice.Direct3D11.BindFlags.ShaderResource));
+            context.UpdateSubresource(Enumerable.Repeat((byte)255,size*size*4).ToArray(),texture,0,(uint)(size*4));
+            using var ndi=pipeline.ConvertNdi(texture,false,1);
+            Require(pipeline.ReadbackBytes==size*size*2,"NDI retained readbacks for unused formats after creation/resize.");
+            Require(ndi.Data[0]==128&&ndi.Data[1]==235,"Lazy NDI readback changed limited-range white.");
+            var rgb=pipeline.Convert(texture,false,1);
+            Require(pipeline.ReadbackBytes==size*size*10&&rgb.Length==size*size*8,"RGB readback did not initialize independently.");
+            var p010=pipeline.ConvertP010(texture,false,1);
+            Require(pipeline.ReadbackBytes==size*size*13&&p010.Length==size*size*3,"P010 readback did not initialize independently.");
+            Require(BitConverter.ToUInt16(p010,0)==940<<6,"Lazy P010 readback changed limited-range white.");
+        }
     }
 }

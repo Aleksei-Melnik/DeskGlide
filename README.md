@@ -160,6 +160,12 @@ settings change. Both English and Russian labels are available.
   only new footage since that Save, up to the chosen duration. A failed export
   does not discard unsaved footage. Recording continues without restarting its
   encoder when you save.
+- Audio-enabled replay uses one hardware video encoder and a lightweight
+  FFmpeg process that copies compressed video and combines it with audio.
+  Seeing two recording `ffmpeg.exe` processes is expected. Video is encoded
+  before waiting for local/remote audio, reducing retained raw frames without
+  changing the selected quality. The matched 1440p120 AV1 memory measurement
+  and full-app limits are documented in [hardware validation](HARDWARE-VALIDATION.md).
 - Clips are exported only by **Save replay**, the configured shortcut or
   `DeskGlide.exe --save-replay`. Updates, shutdown and settings changes do not
   export a clip. An unsaved buffer is discarded on restart or recording-format

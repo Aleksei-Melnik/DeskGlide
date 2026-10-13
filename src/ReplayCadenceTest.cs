@@ -5,11 +5,12 @@ using System.Text.Json;
 namespace SdrCapture;
 static class ReplayCadenceTest
 {
-    public static void Run(int fps,string codec="HEVC",string audio="Mixed",bool liveAudio=false)
+    public static void Run(int fps,string codec="HEVC",string audio="Mixed",bool liveAudio=false,bool remoteAudio=false)
     {
         string root=Path.Combine(AppContext.BaseDirectory,$"cadence-{fps}-{codec}-{audio}-{DateTime.Now:yyyyMMddHHmmss}");
         Directory.CreateDirectory(root);Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",root);
         var options=new ReplayOptions{Enabled=true,Fps=fps,Codec=codec,AudioMode=audio,Width=2560,Height=1440,Folder=Path.Combine(root,"clips")};
+        if(remoteAudio)options.ExtraAudio="kvm:cadence-fixture";
         NAudio.CoreAudioApi.MMDeviceEnumerator? devices=null;NAudio.CoreAudioApi.MMDevice? endpoint=null;NAudio.Wave.WasapiOut? playback=null;
         if(liveAudio)
         {
@@ -57,8 +58,8 @@ static class ReplayCadenceTest
             var streams=probe.RootElement.GetProperty("streams").EnumerateArray().ToArray();
             int audioTracks=streams.Count(s=>s.GetProperty("codec_type").GetString()=="audio");
             string actualCodec=streams.First(s=>s.GetProperty("codec_type").GetString()=="video").GetProperty("codec_name").GetString()!;
-            var report=new{fps,codec,actualCodec,audio,audioTracks,Frames=ids.Count,Repeats=repeats,Skips=skips,MaxStep=steps.Max(),RepeatPercent=100.0*repeats/steps.Length,producerSkipped,recorder.HistoryMisses,recorder.MaxWriterLateMs,recorder.EncoderStarts,recorder.Error,File=clip.LocalPath};
-            Program.Write($"cadence-{fps}-{codec}-{audio}.json",report);
+            var report=new{fps,codec,actualCodec,audio,audioTracks,remoteAudio,Frames=ids.Count,Repeats=repeats,Skips=skips,MaxStep=steps.Max(),RepeatPercent=100.0*repeats/steps.Length,producerSkipped,recorder.HistoryMisses,recorder.MaxWriterLateMs,recorder.EncoderStarts,recorder.Error,File=clip.LocalPath};
+            Program.Write($"cadence-{fps}-{codec}-{audio}{(remoteAudio?"-remote":"")}.json",report);
             if(actualCodec!=(codec=="H264"?"h264":codec.ToLowerInvariant()))throw new Exception("Unexpected codec");
             if(audioTracks!=(audio=="Silent"?0:audio=="Separate"?3:1))throw new Exception("Wrong audio track count");
             if(recorder.EncoderStarts!=1||repeats>steps.Length*.03||steps.Max()>8)throw new Exception("Cadence validation failed; see report.");
