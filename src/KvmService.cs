@@ -137,7 +137,7 @@ sealed class KvmService:IDisposable
                 }
                 if(message.Type.StartsWith("update-"))
                 {
-                    if(wire.Channel=="control"&&Guid.TryParseExact(message.Id,"N",out _)&&message.Text.Length<=1024&&message.Version.Length<=32)Received?.Invoke(wire.Peer.Id,message);
+                    if(wire.Channel=="control"&&Guid.TryParseExact(message.Id,"N",out _)&&message.Text.Length<=1024&&message.Version.Length<=32&&message.UpdateTarget.Length<=32)Received?.Invoke(wire.Peer.Id,message);
                     continue;
                 }
                 if(message.Type=="clipboard-text"&&!options.ClipboardText)continue;

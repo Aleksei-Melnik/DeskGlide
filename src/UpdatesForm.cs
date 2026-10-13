@@ -31,7 +31,7 @@ sealed class UpdatesForm:Form
         all.Enabled=!updater.Busy&&network()?.Options.Role=="Host"&&updater.Latest!=null;
         var computers=new List<string>{Environment.MachineName+" · "+Updates.VersionText+" · этот ПК"};
         foreach(var peer in network()?.Peers??[])
-            computers.Add(updater.Peers.TryGetValue(peer.Id,out string? state)?state:$"{peer.Name} · {(peer.Version.Length==0?"0.5.x":peer.Version)} · {(peer.UpdateProtocol>0?"поддерживает обновления":"нужна первая установка 0.6 вручную")}");
+            computers.Add(updater.PeerStatus(peer));
         details.Text=string.Join("\r\n",computers)+"\r\n\r\n"+(updater.Latest?.Notes??"Пакеты загружаются из публичного GitHub и проверяются по цифровой подписи. Настройки, KVM-код и записи сохраняются. Перед перезапуском сохраняется текущий повтор.");
     }
 }

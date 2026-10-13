@@ -133,6 +133,12 @@ static class WpfUiTests
         {
             _=updateDispatcher.Handle;var updateCoordinator=new UpdateCoordinator(updateDispatcher,()=>null,()=>new UpdateOptions(),()=>Task.CompletedTask,()=>{});
             var appearanceUpdates=new UpdatesWindow(updateCoordinator,()=>null,checkOnOpen:false){ShowInTaskbar=false};SmoothAppearance(appearanceUpdates);
+            var localizedUpdates=new UpdatesWindow(updateCoordinator,()=>null,checkOnOpen:false){ShowInTaskbar=false};localizedUpdates.Reveal();Pump();
+            updateCoordinator.SetStatus("Version 0.7.23 is available");Pump();
+            bool HasUpdateStatus(string text)=>Children((W.DependencyObject)localizedUpdates.Content).OfType<C.TextBlock>().Any(t=>t.Text==text);
+            Require(HasUpdateStatus("Version 0.7.23 is available"),"Updates window did not display the available release");
+            UiStrings.Shared.Language="ru";Pump();Require(HasUpdateStatus("Доступна версия 0.7.23"),"Open Updates window did not switch to Russian");
+            UiStrings.Shared.Language="en";Pump();Require(HasUpdateStatus("Version 0.7.23 is available"),"Open Updates window did not switch back to English");localizedUpdates.Close();
         }
         var noAnimation=new ShellWindow("Motion disabled",420,240){Content=new C.Grid(),AnimateOnReveal=false,ShowInTaskbar=false};noAnimation.Reveal();Pump();var instantFrame=(C.Border)noAnimation.Template.FindName("WindowFrame",noAnimation);Require(instantFrame.Opacity==1&&!instantFrame.HasAnimatedProperties,"Disabling window motion did not show it immediately");noAnimation.Close();
         var pending=new TaskCompletionSource<DiscordDevices.Endpoint[]>(TaskCreationOptions.RunContinuationsAsynchronously);int calls=0;

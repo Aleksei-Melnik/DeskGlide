@@ -13,6 +13,7 @@ sealed record KvmMessage
 {
     public string Version {get;set;}="";
     public int UpdateProtocol {get;set;}
+    public string UpdateTarget {get;set;}="";
     public int DeckProtocol {get;set;}
     public int ViewProtocol {get;set;}
     public bool RemoteViewOnly {get;set;}

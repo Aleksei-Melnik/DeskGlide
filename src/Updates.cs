@@ -117,11 +117,11 @@ static class Updates
             {
                 count+=got;if(count>expectedSize)throw new IOException("Пакет больше подписанного размера.");
                 await output.WriteAsync(chunk.AsMemory(0,got),token);int percent=(int)(100*count/expectedSize);
-                if(percent!=last){last=percent;progress?.Invoke($"Скачивание {release.Manifest.Version}: {percent}%");}
+                if(percent!=last){last=percent;progress?.Invoke($"Downloading {release.Manifest.Version}: {percent}%");}
             }
             if(count!=expectedSize)throw new IOException("Обновление скачалось не полностью.");
         }
-        progress?.Invoke("Проверка подписи и файлов…");
+        progress?.Invoke("Verifying signature and files…");
         await Task.Run(()=>{if(portable==null)ExtractVerified(download,payload,release.Manifest);else VerifyArtifact(download,portable);},token);
         return new(folder,release.Manifest);
     }

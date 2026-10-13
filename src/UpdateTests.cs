@@ -9,8 +9,59 @@ static class UpdateTests
     static void Require(bool value,string message){if(!value)throw new Exception(message);}
     static void Reject(Action action,string message){try{action();}catch(IOException){return;}throw new Exception(message);}
     static string Hash(byte[] bytes)=>Convert.ToHexString(SHA256.HashData(bytes));
+    static void PeerStatuses()
+    {
+        string language=UiStrings.Shared.Language;
+        try
+        {
+            UiStrings.Shared.Language="en";
+            var states=new UpdatePeerStates();var peer=new KvmPeerInfo("server","NMSERVER",[],"0.7.21",1);
+            states.SetTarget("0.7.21");states.Begin(peer.Id,"old-request");
+            Require(states.Prepared(peer.Id,"old-request",new(){Code=2,Version="0.7.21",Text="Уже установлена 0.7.21"}).Code==2,"A current peer was rejected");
+            Require(states.Describe(peer).Contains("Current version: 0.7.21"),"Legacy Russian peer result was not translated");
+            // Exact reported case: the window stays open while a newer release appears.
+            states.SetTarget("0.7.23");
+            Require(states.Describe(peer).Contains("Update available: 0.7.23")&&!states.Describe(peer).Contains("Current version"),"An old already-installed result hid the new release");
+            Require(!states.Progress(peer.Id,new(){Id="old-request",Text="Скачивание 0.7.21: 50%"}),"Unsolicited old progress was accepted");
+            states.Begin(peer.Id,"new-request");
+            Require(!states.Progress(peer.Id,new(){Id="old-request",Text="Перезапуск…"}),"Late previous-request status replaced a new request");
+            Require(!states.Progress(peer.Id,new(){Id="new-request",UpdateTarget="0.7.21",Text="Verifying signature and files…"}),"Progress for another release was accepted");
+            Require(states.Progress(peer.Id,new(){Id="new-request",Text="Скачивание 0.7.23: 42%"}),"Legacy peer progress is no longer compatible");
+            Require(states.Describe(peer).Contains("Downloading 0.7.23: 42%"),"Legacy dynamic download status was not translated");
+            UiStrings.Shared.Language="ru";
+            Require(states.Describe(peer).Contains("Скачивание 0.7.23: 42%"),"Peer status did not follow a language change");
+            UiStrings.Shared.Language="en";
+            states.Prepared(peer.Id,"new-request",new(){Code=1,Version="0.7.21",Text="Пакет скачан и проверен"});
+            Require(states.Describe(peer).Contains("Package downloaded and verified"),"Prepared status used the peer's language");
+            Require(!states.Progress(peer.Id,new(){Id="new-request",Text="Скачивание 0.7.23: 99%"}),"Late download progress overwrote a terminal result");
+            states.Set(peer.Id,"new-request",PeerUpdateStage.Restarting);
+            Require(!states.Progress(peer.Id,new(){Id="new-request",Text="Проверка подписи и файлов…"}),"Preparation progress overwrote restarting");
+            states.Set(peer.Id,"new-request",PeerUpdateStage.Updated);
+            Require(states.Describe(peer with{Version="0.7.23"}).Contains("Current version: 0.7.23"),"Reconnected version was not displayed");
+            Require(states.Describe(peer).Contains("Update available: 0.7.23"),"An outdated connected peer was labelled current");
+            states.Set(peer.Id,"new-request",PeerUpdateStage.AwaitingReconnect);
+            Require(states.Describe(peer with{Version="0.7.23"}).Contains("Current version: 0.7.23"),"Reconnection did not clear the waiting status");
+            states.Begin(peer.Id,"retry");
+            Require(states.Prepared(peer.Id,"retry",new(){Code=2,Version="0.7.21",Text="Уже установлена 0.7.21"}).Code==0,"Older installed version was allowed to skip an available update");
+            Require(states.Describe(peer).Contains("Update failed")&&!states.Describe(peer).Contains("Уже установлена"),"Invalid current-version response was presented as success");
+            states.SetTarget("0.10.0");
+            Require(states.Describe(peer with{Version="0.9.9"}).Contains("Update available: 0.10.0"),"Peer versions were compared lexically");
+            Require(states.Describe(peer with{Version="0.10.1"}).Contains("Current version: 0.10.1"),"A newer peer was prompted to downgrade");
+            Require(states.Describe(peer with{Version="",UpdateProtocol=0}).Contains("Needs a manual update"),"Legacy capability status was lost");
+            Require(UpdateStatusText.Translate("Проверка подписи и файлов…")=="Verifying signature and files…","Legacy verification status was not translated");
+            Require(UpdateStatusText.Translate("Обновления с управляющего ПК выключены в настройках.")=="Updates from the controller PC are disabled in settings.","Known peer error was not translated");
+            UiStrings.Shared.Language="ru";
+            Require(UpdateStatusText.Translate("Version 0.7.23 is available")=="Доступна версия 0.7.23","Formatted main status did not follow the current language");
+            UiStrings.Shared.Language="en";
+            Require(UpdateStatusText.Translate("Доступна версия 0.7.23")=="Version 0.7.23 is available","Formatted main status did not switch back to English");
+            var roundtrip=JsonSerializer.Deserialize<KvmMessage>(JsonSerializer.Serialize(new KvmMessage{UpdateTarget="0.7.23"}))!;
+            Require(roundtrip.UpdateTarget=="0.7.23"&&JsonSerializer.Deserialize<KvmMessage>("{\"Type\":\"update-status\"}")!.UpdateTarget=="","Update target broke older protocol messages");
+        }
+        finally{UiStrings.Shared.Language=language;}
+    }
     public static void Run()
     {
+        PeerStatuses();
         string root=Path.Combine(Path.GetTempPath(),"ScreenCapture-update-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
         string zip=Path.Combine(root,"package.zip"),payload=Path.Combine(root,"payload"),target=Path.Combine(root,"target"),backup=Path.Combine(root,"backup");
         var content=new Dictionary<string,string>{{"ScreenCapture.exe","new exe"},{"ScreenCapture.dll","new dll"},{"ScreenCapture.runtimeconfig.json","{}"},{"DeskGlide.exe","new exe"},{"SdrCapture.exe","new exe"}};
@@ -72,6 +123,6 @@ static class UpdateTests
         var settings=new Settings{NdiAudioVolume=17,Updates=new(){AllowFromHost=false,CheckOnStartup=false}};
         var roundtrip=JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings.Copy()))!;
         Require(roundtrip.NdiAudioVolume==17&&!roundtrip.Updates.AllowFromHost&&!roundtrip.Updates.CheckOnStartup,"Update preferences lost");
-        Program.Write("update-tests.json",new{Pass=true,SignedManifest=true,TamperingRejected=true,WrongKeyRejected=true,UnsafePathsRejected=true,HashValidation=true,InterruptedCopyRolledBack=true,ProfileAndEncoderPreserved=true,SuccessfulInstall=true,NumericVersions=true,PreferencesPreserved=true,PortableSigned=true,PortableMigrationAndRollback=true,UnknownFilesPreserved=true,Root=root});
+        Program.Write("update-tests.json",new{Pass=true,PeerStatusesScopedToRelease=true,StalePeerMessagesRejected=true,OlderInstalledReplyRejected=true,PeerStatusesLocalized=true,LegacyUpdateProtocolCompatible=true,SignedManifest=true,TamperingRejected=true,WrongKeyRejected=true,UnsafePathsRejected=true,HashValidation=true,InterruptedCopyRolledBack=true,ProfileAndEncoderPreserved=true,SuccessfulInstall=true,NumericVersions=true,PreferencesPreserved=true,PortableSigned=true,PortableMigrationAndRollback=true,UnknownFilesPreserved=true,Root=root});
     }
 }

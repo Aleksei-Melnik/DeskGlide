@@ -1,4 +1,14 @@
-DeskGlide 0.7.23
+DeskGlide 0.7.24
+
+- Fixed the Updates window retaining an older “already installed” result after a newer release becomes available. Each connected PC now shows its reported installed version and whether it needs the currently checked release.
+- Peer update progress follows the language of the viewing PC, including progress from older Russian-language clients. Late messages from previous requests cannot replace the current result. A peer reporting an older installed version cannot incorrectly skip the update as already current.
+- Connected PC rows refresh after reconnection and language changes. Existing pairing and older update-capable clients remain compatible.
+
+Validation: regression checks cover 0.7.21 → 0.7.23, repeated requests, late download messages, invalid already-installed replies, English/Russian switching and legacy messages. Update signature, rollback and portable migration checks are retained.
+
+Update through **Updates → Update this PC** to refresh the controlling app, then **Update all PCs**. This release also includes the replay memory reduction from 0.7.23.
+
+Previous release: 0.7.23
 
 - Reduced replay memory by encoding video independently of audio capture. Waiting for local/KVM audio now retains compressed packets; a short raw-frame buffer covers capture jitter. Audio keeps its existing sample clock and arrival allowance. Resolution, FPS, codec and quality settings are preserved.
 - Capture allocates RGB16/P010 GPU readback buffers only when that format is used, and releases the startup frame reference promptly.

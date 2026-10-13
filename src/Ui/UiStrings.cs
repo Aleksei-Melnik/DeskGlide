@@ -23,6 +23,7 @@ sealed class UiStrings:INotifyPropertyChanged
     }
     public static string F(string text,params object[] args)=>string.Format(CultureInfo.CurrentCulture,T(text),args);
     internal static bool HasTranslation(string text)=>russian.ContainsKey(text);
+    internal static string InRussian(string text)=>russian.GetValueOrDefault(text,text);
 }
 sealed class UiTextConverter:IValueConverter
 {
