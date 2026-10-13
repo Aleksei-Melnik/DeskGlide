@@ -195,6 +195,8 @@
   "Lock / unlock edges": "Блокировка переходов",
   "Ctrl+Alt+Esc always returns control here. Monitor shortcuts are configured in Monitor layout.": "Ctrl+Alt+Esc возвращает управление на этот ПК. Клавиши отдельных экранов задаются в раскладке мониторов.",
   "Clipboard": "Буфер обмена",
+  "Files & images": "Файлы и изображения",
+  "Share files, folders and images": "Передавать файлы, папки и изображения",
   "Text": "Текст",
   "Share clipboard text": "Копировать текст между ПК",
   "Files": "Файлы",

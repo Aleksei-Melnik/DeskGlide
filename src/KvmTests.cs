@@ -34,7 +34,7 @@ static class KvmTests
         layoutOptions.Validate();bool conflict=false;try{(layoutOptions with{OpenHotkeyKey=(uint)Keys.F1}).Validate();}catch(ArgumentException){conflict=true;}if(!conflict)throw new Exception("Duplicate monitor/hub shortcut allowed");
         Program.Write("kvm-input-thread-test.json",new{Pass=true,InstalledOnDedicatedThread=true,InjectedInput=false,KeyboardLogging=false});
     }
-    static void Files()
+    public static void Files()
     {
         string folder=Path.Combine(AppContext.BaseDirectory,"kvm-files-test-"+Guid.NewGuid().ToString("N"));
         using var dispatcher=new Control();_=dispatcher.Handle;
@@ -52,7 +52,69 @@ static class KvmTests
         clipboard.HandleFile("peer",new(){Type="file-done",Id=id});
         if(completed?.Length!=2||!File.ReadAllBytes(Path.Combine(completed.First(Directory.Exists),"example.bin")).SequenceEqual(payload))throw new Exception("Received clipboard files do not match");
         if(notifications!=0)throw new Exception("Routine clipboard transfer raised a notification");
-        Program.Write("kvm-files-test.json",new{Pass=true,NestedFolder=true,EmptyFile=true,Bytes=payload.Length,HashVerified=true,ClipboardModified=false});
+        ClipboardImages(folder,service,dispatcher);
+        Program.Write("kvm-files-test.json",new{Pass=true,NestedFolder=true,EmptyFile=true,Bytes=payload.Length,HashVerified=true,ClipboardImages=true,LargePngChunked=true,BitmapAndPngFormats=true,ClipboardModified=false});
+    }
+    static void ClipboardImages(string folder,KvmService service,Control dispatcher)
+    {
+        using var source=new Bitmap(1200,1200,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        var pixels=source.LockBits(new(0,0,source.Width,source.Height),System.Drawing.Imaging.ImageLockMode.WriteOnly,source.PixelFormat);
+        var random=new byte[pixels.Stride*source.Height];new Random(1234).NextBytes(random);for(int i=3;i<random.Length;i+=4)random[i]=255;
+        System.Runtime.InteropServices.Marshal.Copy(random,0,pixels.Scan0,random.Length);source.UnlockBits(pixels);
+        var original=new DataObject();original.SetImage(source);
+        using var captured=KvmClipboardImage.Capture(original)??throw new Exception("Native screenshot bitmap was not captured");
+        string sourceFile=Path.Combine(folder,"screenshot.png");KvmClipboardImage.Save(captured,sourceFile);byte[] png=File.ReadAllBytes(sourceFile);
+        if(png.Length<=4*1024*1024)throw new Exception("Screenshot fixture does not exercise the packet size limit");
+        using var pngStream=new MemoryStream(png,false);pngStream.Position=5;var pngOnly=new DataObject();pngOnly.SetData("PNG",false,pngStream);
+        using var pngCapture=KvmClipboardImage.Capture(pngOnly)??throw new Exception("PNG-only clipboard image was not captured");
+        if(pngStream.Position!=5||pngCapture.Size!=source.Size||pngCapture.GetPixel(117,233)!=source.GetPixel(117,233))throw new Exception("PNG clipboard decoding changed pixels or consumed the source stream");
+        int received=0;
+        using var clipboard=new KvmClipboard(service,new(),dispatcher,paths=>{},Path.Combine(folder,"images"),data=>
+        {
+            if(data.GetImage() is not Bitmap image||image.Size!=source.Size||image.GetPixel(117,233)!=source.GetPixel(117,233))throw new Exception("Received image cannot be pasted as a native bitmap");
+            if(((IDataObject)data).GetData("PNG",false) is not MemoryStream stream||!stream.ToArray().SequenceEqual(png))throw new Exception("Original PNG was not preserved");
+            var paths=data.GetFileDropList();if(paths.Count!=1||!File.ReadAllBytes(paths[0]!).SequenceEqual(png))throw new Exception("Screenshot file fallback was not preserved");
+            received++;
+        });
+        string id=Guid.NewGuid().ToString("N");
+        clipboard.HandleFile("peer",new(){Type="file-begin",Id=id,Flags=2,Files=[new("Скриншот.png",png.Length,false)]});
+        clipboard.HandleFile("peer",new(){Type="file-open",Id=id,Text="Скриншот.png"});
+        for(int offset=0;offset<png.Length;offset+=65536)clipboard.HandleFile("peer",new(){Type="file-data",Id=id,Data=png.AsSpan(offset,Math.Min(65536,png.Length-offset)).ToArray()});
+        clipboard.HandleFile("peer",new(){Type="file-close",Id=id,Data=SHA256.HashData(png)});
+        clipboard.HandleFile("peer",new(){Type="file-done",Id=id});
+        if(received!=1)throw new Exception("Screenshot clipboard result was not delivered exactly once");
+        foreach(var invalid in new[]{new KvmFileEntry[]{new("x.txt",10,false)},[new("x.png",0,true)],[new("x.png",KvmClipboardImage.MaxBytes+1,false)],new[]{new KvmFileEntry("x.png",10,false),new("y.png",10,false)}})
+        {
+            bool rejected=false;try{KvmClipboardImage.ValidateManifest(invalid);}catch(IOException){rejected=true;}
+            if(!rejected)throw new Exception("Invalid image manifest accepted");
+        }
+        string corrupt=Path.Combine(folder,"invalid.png");File.WriteAllBytes(corrupt,new byte[24]);
+        bool badPng=false;try{using var invalid=KvmClipboardImage.Open(corrupt);}catch(IOException){badPng=true;}
+        if(!badPng)throw new Exception("Non-PNG screenshot payload was accepted");
+        Program.Write("kvm-image-tests.json",new{Pass=true,PixelsPreserved=true,PngOnlyClipboard=true,NativeBitmapAndPng=true,FileDropFallback=true,ImageBytes=png.Length,PacketLimitRespected=true,InvalidImageManifestsRejected=true,ClipboardModified=false});
+    }
+    public static void NativeClipboardImage()
+    {
+        if(EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var running))
+        {running.Dispose();throw new InvalidOperationException("This test changes the Windows clipboard. Run it only without a live DeskGlide instance.");}
+        string folder=Path.Combine(Path.GetTempPath(),"DeskGlide-image-clipboard-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
+        string path=Path.Combine(folder,"screenshot.png");using var source=new Bitmap(80,60);
+        using(var graphics=Graphics.FromImage(source))graphics.Clear(Color.FromArgb(255,31,97,173));
+        KvmClipboardImage.Save(source,path);byte[] expected=File.ReadAllBytes(path);
+        try
+        {
+            using(var payload=KvmClipboardImage.Open(path))Clipboard.SetDataObject(payload.Data,true,0,0);
+            GC.Collect();GC.WaitForPendingFinalizers();
+            using var pasted=Clipboard.GetImage();
+            if(pasted is not Bitmap image||image.Size!=source.Size||image.GetPixel(21,17)!=source.GetPixel(21,17))throw new Exception("Persisted native image was lost after disposal of the transfer payload");
+            var data=Clipboard.GetDataObject()??throw new Exception("Empty native clipboard");
+            if(data.GetData("PNG",false) is not MemoryStream stream||!stream.ToArray().AsSpan(0,expected.Length).SequenceEqual(expected))throw new Exception("PNG was not published as a native clipboard format");
+            using var captured=KvmClipboardImage.Capture(data);
+            if(captured==null||captured.Size!=source.Size||captured.GetPixel(21,17)!=source.GetPixel(21,17))throw new Exception("Windows clipboard screenshot could not be captured again");
+            if(!Clipboard.ContainsFileDropList())throw new Exception("File-drop image fallback missing");
+            Program.Write("kvm-native-image-tests.json",new{Pass=true,NativeClipboardBitmap=true,NativeClipboardPng=true,PayloadDisposedBeforePaste=true,PngCaptureFromWindows=true});
+        }
+        finally{Clipboard.Clear();}
     }
     static async Task RunAsync()
     {

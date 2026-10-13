@@ -1,4 +1,14 @@
-DeskGlide 0.7.24
+DeskGlide 0.7.25
+
+- Fixed screenshot clipboard sharing: Windows screenshots and copied PNG/bitmap images now transfer over KVM and can be pasted on the other PC with Ctrl+V. The previous implementation handled text and Explorer file copies but did not publish clipboard images.
+- Images use lossless PNG at their original dimensions, transferred in small chunks over the separate file channel. Recipients publish native bitmap/PNG clipboard formats and a file fallback; no extra mouse or keyboard input is sent. Update both PCs for native image pasting.
+- A temporarily busy Windows clipboard is retried without sleeping on the UI thread. New copies made during an active transfer are checked again afterwards, and the receiving clipboard is retained until the transfer succeeds.
+
+Validation: screenshot/PNG capture and a 4.9 MB image transfer, pixel and SHA-256 checks, native clipboard formats, existing nested/empty-file transfers and invalid image rejection. Windows CI additionally checks persistence after the image payload is disposed. The live gaming installation and clipboard are kept intact during local tests.
+
+Update through **Updates → Update all PCs**. Restarting Windows is unnecessary.
+
+Previous release: 0.7.24
 
 - Fixed the Updates window retaining an older “already installed” result after a newer release becomes available. Each connected PC now shows its reported installed version and whether it needs the currently checked release.
 - Peer update progress follows the language of the viewing PC, including progress from older Russian-language clients. Late messages from previous requests cannot replace the current result. A peer reporting an older installed version cannot incorrectly skip the update as already current.

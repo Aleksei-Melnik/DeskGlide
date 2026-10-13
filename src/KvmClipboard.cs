@@ -18,9 +18,12 @@ sealed class KvmClipboard:NativeWindow,IDisposable
     readonly Task worker;
     readonly SemaphoreSlim sendGate=new(1,1);
     readonly Action<string[]>? testCompleted;
+    readonly Action<DataObject>? testImageCompleted;
     readonly string storage;
+    readonly System.Windows.Forms.Timer publishRetry=new(){Interval=50};
     uint ownSequence;
     int sending;
+    bool publishPending,applying;
     sealed class Transfer:IDisposable
     {
         public required string Id,Folder;
@@ -31,14 +34,16 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         public long Received;
         public long LeaseAt=Environment.TickCount64;
         public bool Drag;
+        public bool Image;
         public void Dispose(){File?.Dispose();Hash?.Dispose();}
     }
     public event Action<string>? Notification;
     public event Action<string,string,string[]>? DragFilesReady;
-    public KvmClipboard(KvmService service,KvmOptions options,Control dispatcher,Action<string[]>? completed=null,string? storage=null)
+    public KvmClipboard(KvmService service,KvmOptions options,Control dispatcher,Action<string[]>? completed=null,string? storage=null,Action<DataObject>? imageCompleted=null)
     {
         this.service=service;this.options=options.Copy();this.dispatcher=dispatcher;
-        testCompleted=completed;this.storage=storage??Path.Combine(Log.Folder,"Kvm","Clipboard");
+        testCompleted=completed;testImageCompleted=imageCompleted;this.storage=storage??Path.Combine(Log.Folder,"Kvm","Clipboard");
+        publishRetry.Tick+=(_,_)=>{publishRetry.Stop();Publish();};
         CreateHandle(new CreateParams{Caption="SDR Capture Clipboard",Parent=new IntPtr(-3)});
         AddClipboardFormatListener(Handle);service.Received+=OnMessage;service.Disconnected+=OnDisconnected;
         worker=Task.Run(ReadLoop);
@@ -50,27 +55,42 @@ sealed class KvmClipboard:NativeWindow,IDisposable
     }
     void Publish()
     {
-        if(service.Peers.Length==0)return;
+        if(applying||GetClipboardSequenceNumber()==ownSequence||service.Peers.Length==0)return;
+        if(Volatile.Read(ref sending)!=0){publishPending=true;return;}
         try
         {
-            if(options.ClipboardFiles&&Clipboard.ContainsFileDropList())
+            var data=Clipboard.GetDataObject();if(data==null)return;
+            if(options.ClipboardFiles&&KvmClipboardImage.Capture(data) is Bitmap image)
+                StartSend(async()=>{using(image)await SendImage(image);});
+            else if(options.ClipboardFiles&&data.GetData(DataFormats.FileDrop,true) is string[] files)
             {
-                string[] files=Clipboard.GetFileDropList().Cast<string>().ToArray();
-                if(Interlocked.CompareExchange(ref sending,1,0)!=0){Log.Write("Clipboard transfer already in progress.");return;}
-                _=Task.Run(async()=>
-                {
-                    try{await SendFiles(files);}
-                    catch(Exception e){Notification?.Invoke("Файлы не переданы: "+e.Message);}
-                    finally{Interlocked.Exchange(ref sending,0);}
-                });
+                StartSend(()=>SendFiles(files));
             }
-            else if(options.ClipboardText&&Clipboard.ContainsText())
+            else if(options.ClipboardText&&data.GetData(DataFormats.UnicodeText,true) is string text)
             {
-                string text=Clipboard.GetText();
                 if(text.Length<=262144)foreach(var peer in service.Peers)service.Send(peer.Id,new(){Type="clipboard-text",Text=text});
             }
         }
-        catch(ExternalException){}
+        catch(ExternalException){publishRetry.Start();}
+        catch(Exception e){Log.Write("Clipboard capture: "+e.Message);Notification?.Invoke("Буфер обмена не передан: "+e.Message);}
+    }
+    void StartSend(Func<Task> send)
+    {
+        Interlocked.Exchange(ref sending,1);
+        _=Task.Run(async()=>
+        {
+            try{await send();}
+            catch(OperationCanceledException)when(stop.IsCancellationRequested){}
+            catch(Exception e){Log.Write("Clipboard send: "+e.Message);Notification?.Invoke("Файлы не переданы: "+e.Message);}
+            finally{Interlocked.Exchange(ref sending,0);Ui(()=>{if(publishPending){publishPending=false;Publish();}});}
+        });
+    }
+    async Task SendImage(Bitmap image)
+    {
+        string folder=Path.Combine(storage,Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);KvmFileCache.Mark(storage,folder);
+        string path=Path.Combine(folder,"Screenshot-"+DateTime.Now.ToString("yyyy-MM-dd-HH-mm-ss")+".png");
+        try{KvmClipboardImage.Save(image,path);await SendFiles([path],image:true);}
+        finally{try{File.Delete(path);Directory.Delete(folder);}catch(IOException){}catch(UnauthorizedAccessException){}}
     }
     static IEnumerable<(string Source,KvmFileEntry Entry)> Enumerate(string path,string relative)
     {
@@ -87,7 +107,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         try{await SendFiles(paths,peer,id,linked.Token);}
         catch{service.Send(peer,new(){Type="file-abort",Id=id});throw;}
     }
-    async Task SendFiles(string[] paths,string? onlyPeer=null,string? dragId=null,CancellationToken token=default)
+    async Task SendFiles(string[] paths,string? onlyPeer=null,string? dragId=null,CancellationToken token=default,bool image=false)
     {
         using var linked=CancellationTokenSource.CreateLinkedTokenSource(stop.Token,token);token=linked.Token;
         await sendGate.WaitAsync(token);
@@ -106,7 +126,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             string id=dragId??Guid.NewGuid().ToString("N");
             try
             {
-            await service.SendBulk(peer.Id,new(){Type="file-begin",Id=id,Flags=dragId==null?0:1,Files=items.Select(i=>i.Entry).ToArray()},token);
+            await service.SendBulk(peer.Id,new(){Type="file-begin",Id=id,Flags=image?2:dragId==null?0:1,Files=items.Select(i=>i.Entry).ToArray()},token);
             foreach(var item in items.Where(i=>!i.Entry.Directory))
             {
                 await service.SendBulk(peer.Id,new(){Type="file-open",Id=id,Text=item.Entry.Path},token);
@@ -134,7 +154,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         if(message.Type=="clipboard-text")
         {
             if(!options.ClipboardText)return;
-            Ui(()=>{Clipboard.SetText(message.Text.Length>0?message.Text:" ");ownSequence=GetClipboardSequenceNumber();});
+            Ui(()=>{var data=new DataObject();data.SetText(message.Text.Length>0?message.Text:" ");PutClipboard(data);});
         }
         else if(message.Type.StartsWith("file-")&&options.ClipboardFiles)
         {
@@ -199,6 +219,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         {
             if(!Guid.TryParseExact(message.Id,"N",out _)||message.Files==null)throw new IOException("Invalid transfer.");
             ValidateManifest(message.Files);
+            if(message.Flags==2)KvmClipboardImage.ValidateManifest(message.Files);
             string folder=Path.Combine(storage,Guid.NewGuid().ToString("N"));
             if(new DriveInfo(Path.GetPathRoot(folder)!).AvailableFreeSpace<message.Files.Sum(e=>e.Length)+512L*1024*1024)throw new IOException("Недостаточно места для файлов.");
             Directory.CreateDirectory(folder);
@@ -206,8 +227,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             if(transfers.Count>=16)throw new IOException("Слишком много одновременных передач.");
             if(transfers.Remove(transferKey,out var old))old.Dispose();
             foreach(var entry in message.Files.Where(e=>e.Directory).OrderBy(e=>e.Path.Length))Directory.CreateDirectory(SafePath(folder,entry.Path));
-            transfers[transferKey]=new(){Id=message.Id,Folder=folder,Entries=message.Files.Where(e=>!e.Directory).ToArray(),Drag=message.Flags==1};
-            if(message.Flags!=1&&testCompleted==null)Ui(()=>{Clipboard.Clear();ownSequence=GetClipboardSequenceNumber();});
+            transfers[transferKey]=new(){Id=message.Id,Folder=folder,Entries=message.Files.Where(e=>!e.Directory).ToArray(),Drag=message.Flags==1,Image=message.Flags==2};
             return;
         }
         if(!transfers.TryGetValue(transferKey,out var state)||state.Id!=message.Id)throw new IOException("Unknown transfer.");
@@ -227,8 +247,14 @@ sealed class KvmClipboard:NativeWindow,IDisposable
                 if(state.File!=null||state.Index!=state.Entries.Length)throw new IOException("Incomplete transfer.");
                 string[] roots=Directory.GetFileSystemEntries(state.Folder);transfers.Remove(transferKey);state.Dispose();
                 if(state.Drag){KvmFileCache.Mark(storage,state.Folder);Ui(()=>DragFilesReady?.Invoke(peer,message.Id,roots));break;}
+                if(state.Image)
+                {
+                    var payload=KvmClipboardImage.Open(roots.Single());
+                    if(testImageCompleted!=null){using(payload)testImageCompleted(payload.Data);break;}
+                    Ui(()=>PutClipboard(payload.Data),payload.Dispose);break;
+                }
                 if(testCompleted!=null){testCompleted(roots);break;}
-                Ui(()=>{var list=new StringCollection();list.AddRange(roots);Clipboard.SetFileDropList(list);ownSequence=GetClipboardSequenceNumber();});break;
+                Ui(()=>{var list=new StringCollection();list.AddRange(roots);var data=new DataObject();data.SetFileDropList(list);PutClipboard(data);});break;
             default:throw new IOException("Unknown file operation.");
         }
     }
@@ -238,8 +264,27 @@ sealed class KvmClipboard:NativeWindow,IDisposable
         if(!path.StartsWith(root,StringComparison.OrdinalIgnoreCase))throw new IOException("Path outside clipboard folder.");
         return path;
     }
-    void Ui(Action action){try{dispatcher.BeginInvoke(()=>{if(stop.IsCancellationRequested)return;try{action();}catch(ExternalException){Log.Write("Clipboard temporarily busy.");}});}catch(InvalidOperationException){}}
-    public void Dispose(){service.Received-=OnMessage;service.Disconnected-=OnDisconnected;RemoveClipboardFormatListener(Handle);DestroyHandle();stop.Cancel();incoming.Writer.TryComplete();}
+    void PutClipboard(DataObject data)
+    {
+        applying=true;
+        try{Clipboard.SetDataObject(data,true,0,0);ownSequence=GetClipboardSequenceNumber();}
+        finally{applying=false;}
+    }
+    void Ui(Action action,Action? cleanup=null,int attempt=0)
+    {
+        try{dispatcher.BeginInvoke(()=>
+        {
+            if(stop.IsCancellationRequested){cleanup?.Invoke();return;}
+            try{action();cleanup?.Invoke();}
+            catch(ExternalException)
+            {
+                if(attempt>=10){Log.Write("Clipboard remained busy; incoming data could not be applied.");cleanup?.Invoke();return;}
+                var retry=new System.Windows.Forms.Timer{Interval=50};retry.Tick+=(_,_)=>{retry.Dispose();Ui(action,cleanup,attempt+1);};retry.Start();
+            }
+            catch(Exception e){cleanup?.Invoke();Log.Write("Clipboard apply: "+e.Message);Notification?.Invoke("Буфер обмена не обновлён: "+e.Message);}
+        });}catch(InvalidOperationException){cleanup?.Invoke();}
+    }
+    public void Dispose(){publishRetry.Dispose();service.Received-=OnMessage;service.Disconnected-=OnDisconnected;RemoveClipboardFormatListener(Handle);DestroyHandle();stop.Cancel();incoming.Writer.TryComplete();}
     [DllImport("user32.dll")] static extern bool AddClipboardFormatListener(IntPtr hwnd);
     [DllImport("user32.dll")] static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
     [DllImport("user32.dll")] static extern uint GetClipboardSequenceNumber();

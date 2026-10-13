@@ -52,6 +52,8 @@ internal static class Program
             if(args.Contains("--recording-pipe-test")){RecordingPipeTests.Run();return 0;}
             if(args.Contains("--audio-live-test")){int d=Array.IndexOf(args,"--audio-device");AudioTimingTests.Live(args.Contains("--play-tone"),d<0?null:args[d+1]);return 0;}
             if(args.Contains("--kvm-test")){KvmTests.Run();return 0;}
+            if(args.Contains("--kvm-files-tests")){KvmTests.Files();return 0;}
+            if(args.Contains("--kvm-native-image-tests")){KvmTests.NativeClipboardImage();return 0;}
             if(args.Contains("--kvm-video-test")){KvmVideoTests.Codec();return 0;}
             if(args.Contains("--kvm-video-live-test")){KvmVideoTests.Live();return 0;}
             if(args.Contains("--replay-local-test")){int i=Array.IndexOf(args,"--seconds"),f=Array.IndexOf(args,"--fps"),c=Array.IndexOf(args,"--codec");ReplayTests.LiveLocal(i<0?35:int.Parse(args[i+1]),f<0?120:int.Parse(args[f+1]),c<0?"HEVC":args[c+1]);return 0;}
