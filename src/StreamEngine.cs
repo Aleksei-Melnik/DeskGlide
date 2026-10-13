@@ -14,12 +14,16 @@ public sealed class StreamEngine:IDisposable
     VideoBuffer? pending;
     Task? captureTask,sendTask;
     int restartVersion;
+    int disposed;
     public string Status {get;private set;}="Остановлено";
     public string CaptureStatus {get;private set;}="Подготовка";
     public string? Error {get;private set;}
     public string SourceName {get;private set;}="SdrCapture SDR";
     public long Frames {get;private set;}
     public long CapturedFrames {get;private set;}
+    public long DesktopFrames {get;private set;}
+    public long AccumulatedDesktopFrames {get;private set;}
+    public long SkippedDesktopFrames {get;private set;}
     public long ReplacedFrames {get;private set;}
     public long MissedSlots {get;private set;}
     public long Recoveries {get;private set;}
@@ -27,6 +31,9 @@ public sealed class StreamEngine:IDisposable
     public double Fps {get;private set;}
     public double WhiteNits {get;private set;}
     public double CaptureMs {get;private set;}
+    public double MaxCaptureMs {get;private set;}
+    public double TotalCaptureMs {get;private set;}
+    public double MaxObserverMs {get;private set;}
     public double SendMs {get;private set;}
     public double MaxSendMs {get;private set;}
     public long LastFreshAt {get;private set;}
@@ -93,12 +100,16 @@ public sealed class StreamEngine:IDisposable
                     long begin=Stopwatch.GetTimestamp();
                     var fresh=capture.Next();
                     CaptureMs=Stopwatch.GetElapsedTime(begin).TotalMilliseconds;
+                    MaxCaptureMs=Math.Max(MaxCaptureMs,CaptureMs);TotalCaptureMs+=CaptureMs;
                     WhiteNits=capture.WhiteNits;
                     if(fresh!=null)
                     {
+                        if(capture.DesktopUpdated){DesktopFrames++;AccumulatedDesktopFrames+=capture.AccumulatedFrames;SkippedDesktopFrames+=Math.Max(0,(long)capture.AccumulatedFrames-1);}
                         sizes.TryAdd((fresh.Width,fresh.Height),0);
                         LastFreshAt=fresh.CapturedAt;
+                        long observer=Stopwatch.GetTimestamp();
                         try{FrameAvailable?.Invoke(fresh);}catch(Exception e){Log.Write("Replay frame observer: "+e.Message);}
+                        MaxObserverMs=Math.Max(MaxObserverMs,Stopwatch.GetElapsedTime(observer).TotalMilliseconds);
                         var displaced=Interlocked.Exchange(ref pending,fresh);
                         if(displaced!=null){displaced.Dispose();ReplacedFrames++;}
                         CapturedFrames++;Error=null;CaptureStatus="Захват";
@@ -179,9 +190,16 @@ public sealed class StreamEngine:IDisposable
     }
     public void Dispose()
     {
+        if(Interlocked.Exchange(ref disposed,1)!=0)return;
         stop.Cancel();
-        try{captureTask?.GetAwaiter().GetResult();sendTask?.GetAwaiter().GetResult();}
-        finally{Interlocked.Exchange(ref pending,null)?.Dispose();stop.Dispose();}
+        var workers=new[]{captureTask,sendTask}.OfType<Task>();
+        if(!MediaShutdown.Drain(workers,()=>{Interlocked.Exchange(ref pending,null)?.Dispose();stop.Dispose();}))
+        {
+            // Do not call NDI's global destroy concurrently with the blocked
+            // sender destroy. Process termination releases the remaining native state.
+            NdiNative.AbandonShutdown();
+            Log.Write("Capture/NDI shutdown exceeded 1500 ms; allowing application exit.");
+        }
     }
 }
 

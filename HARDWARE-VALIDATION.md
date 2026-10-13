@@ -1,5 +1,56 @@
 # DeskGlide hardware validation — 0.7.17, 2026-10-11
 
+## Freeze, memory and AV1 playback investigation — 0.7.21, 2026-10-12
+
+The installed 0.7.19 process stopped responding during its updater exit
+handshake. Managed stacks showed the UI waiting in StreamEngine.Dispose while
+the sender worker was inside native NdiSender.Dispose. The old process was
+recovered for the user's Discord call; all subsequent work used isolated
+folders. No global keyboard/mouse input was injected, no installed profile was
+changed, and no additional synthetic saturation workload was run while the
+user played Phasmophobia.
+
+The production NDI exit path now has a bounded drain. Timed-out workers retain
+their resources until completion; global NDI teardown is skipped if an owning
+worker remains inside the runtime. Tests cover blocked/completed/faulted workers,
+deferred cleanup, rejection of live duplicate instances and recovery of an
+existing unowned mutex. These tests exercise the deadline policy; they cannot
+guarantee that the vendor's native destroy call will return.
+
+The original Phasmophobia clip contains AV1 2560 × 1440 at 120 FPS, with
+13,840 video packets over 115.333 seconds. Video/audio packet timelines are
+continuous and nondecreasing. Continuous mixed audio does not establish that
+every individual audio input remained audible or prove perceptual A/V sync.
+
+Both playback PCs had MPC-HC 1.8.8 and LAV 0.74.1.24. A process-local DirectShow
+graph using the registered LAV splitter/decoder and a frame-counting null
+renderer decoded 1,201 frames (10 seconds) in 21.227 seconds: 56.58 FPS. It had
+no display, audio renderer or reference-clock pacing. The same 10-second footage
+transcoded to HEVC decoded at 286.66 FPS in that graph, and the user confirmed
+normal-speed playback in MPC-HC. Modern FFmpeg D3D11 decoded the original AV1
+at approximately 229 FPS, including GPU-to-CPU transfer. LAV's official 0.75
+release introduced AV1 hardware decoding; 0.74 does not support it. This explains
+the reproduced slow playback without changing the source file's timestamps.
+
+Replay memory experiments first demonstrated that compact managed buffers
+alone still left over 1 GiB committed through LOH/ArrayPool retention. Replay
+now owns exact-sized native NV12 slabs, with at most 32 MiB/four free slabs;
+NDI's private cross-thread pool retains at most 64 MiB/eight buffers. Live
+recording history is separate from these free-cache limits.
+
+A final isolated replay-only process recorded the user's actual game for
+90 seconds at AV1 High/native 1440p120, alongside the installed recorder. Its
+working set sampled every five seconds stayed 221,917,184–297,238,528 bytes
+(approximately 212–284 MiB), with no continuing growth. Managed memory stayed
+around 40 MiB. The 88.810-second export used one encoder session; 4,892,800
+local audio sample positions had zero missing samples, and source history never
+exhausted. The source supplied 5,859 acquired frames (about 65/s) and the recorder
+repeated the latest source image as necessary on its 120 FPS timeline. These
+results do not establish 120 distinct game frames per second or an NVIDIA App
+performance comparison. Full-app memory with NDI/remote viewing enabled may be
+higher; physical Intel, other GPU generations and perceptual full-source audio
+sync remain outside this measurement.
+
 ## Tray interaction update — 0.7.18, 2026-10-12
 
 The tray-only update adds a single left click for Settings, creates the menu

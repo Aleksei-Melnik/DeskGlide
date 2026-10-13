@@ -9,6 +9,7 @@ internal static class NdiNative
 {
     const string Dll="Processing.NDI.Lib.x64.dll";
     static bool initialized;
+    static volatile bool abandonShutdown;
     static IntPtr nativeLibrary;
     static readonly object gate=new();
     public static string RuntimePath {get;private set;}="";
@@ -56,7 +57,15 @@ internal static class NdiNative
             initialized=true;
         }
     }
-    public static void Shutdown(){lock(gate){if(initialized){NDIlib_destroy();initialized=false;}}}
+    internal static void AbandonShutdown()=>abandonShutdown=true;
+    public static void Shutdown()
+    {
+        if(abandonShutdown)return;
+        // This is final process teardown only. A stuck vendor runtime must not
+        // strand the old process and prevent the verified updater from restarting it.
+        var finished=Task.Run(()=>{lock(gate){if(initialized){NDIlib_destroy();initialized=false;}}});
+        if(!MediaShutdown.Drain([finished],()=>{},500))Log.Write("NDI final shutdown exceeded 500 ms; allowing process exit.");
+    }
     [StructLayout(LayoutKind.Sequential)] internal struct Source {public IntPtr Name,Url;}
     [StructLayout(LayoutKind.Sequential)] internal struct FindSettings {[MarshalAs(UnmanagedType.I1)]public bool Local;public IntPtr Groups,ExtraIps;}
     [DllImport(Dll,CallingConvention=CallingConvention.Cdecl)] internal static extern IntPtr NDIlib_find_create_v2(ref FindSettings settings);
@@ -103,7 +112,11 @@ internal static class NdiNative
 
 public sealed class VideoBuffer:IDisposable
 {
-    sealed class Storage(int length){public readonly byte[] Data=ArrayPool<byte>.Shared.Rent(length);public int References=1;}
+    // Cross-thread Shared ArrayPool returns populate many per-CPU buckets. With
+    // full-screen frames this can retain over a gigabyte after replay releases
+    // them. Bound the reusable frame memory across all capture/sender threads.
+    static readonly FrameBufferPool pool=new(64L*1024*1024,8);
+    sealed class Storage(int length){public readonly byte[] Data=pool.Rent(length);public int References=1;}
     readonly Storage storage;
     public byte[] Data=>storage.Data;
     public int Width {get;} public int Height {get;}
@@ -123,7 +136,7 @@ public sealed class VideoBuffer:IDisposable
         while(Interlocked.CompareExchange(ref storage.References,count+1,count)!=count);
         return new VideoBuffer(this);
     }
-    public void Dispose(){if(Interlocked.Exchange(ref disposed,1)==0&&Interlocked.Decrement(ref storage.References)==0)ArrayPool<byte>.Shared.Return(storage.Data);}
+    public void Dispose(){if(Interlocked.Exchange(ref disposed,1)==0&&Interlocked.Decrement(ref storage.References)==0)pool.Return(storage.Data);}
 }
 
 sealed class NdiSender:IDisposable

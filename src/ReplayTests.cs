@@ -13,13 +13,19 @@ static class ReplayTests
         hub.RenderPreview(Path.Combine(AppContext.BaseDirectory,"ui-preview","kvm-hub.png"));
     }
     public static void Live(int seconds,int fps=60)=>LiveAsync(seconds,fps).GetAwaiter().GetResult();
-    public static void LiveLocal(int seconds,int fps=120)=>LiveAsync(seconds,fps,true).GetAwaiter().GetResult();
-    static async Task LiveAsync(int seconds,int fps,bool localOnly=false)
+    public static void LiveLocal(int seconds,int fps=120,string codec="HEVC")=>LiveAsync(seconds,fps,true,codec).GetAwaiter().GetResult();
+    static async Task LiveAsync(int seconds,int fps,bool localOnly=false,string codec="HEVC")
     {
         string root=Path.Combine(AppContext.BaseDirectory,"replay-live-"+DateTime.Now.ToString("yyyyMMdd-HHmmss"));Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",root);
-        var display=DisplayInfo.All().First();var config=new ReplayOptions{Enabled=true,Fps=fps,Folder=Path.Combine(root,"clips")};
+        var display=DisplayInfo.All().First();var savedSettings=Settings.Load();
+        var config=savedSettings.Replay with{Enabled=true,Fps=fps,Codec=codec,Quality="High",Width=0,Height=0,Folder=Path.Combine(root,"clips")};
+        // A hardware diagnostic must exercise the current endpoint rather than
+        // silently passing with an obsolete device ID from an old profile.
+        if(localOnly)config=config with{AudioMode="Mixed",Silent=false,Microphone="",GameAudio="default:render",ExtraAudio=""};
         using var replay=new ReplayRecorder(config);
-        using var engine=new StreamEngine{NdiEnabled=!localOnly,ReplayEnabled=true,ReplayFrameRate=fps,FrameAvailable=replay.Offer};
+        var intervals=new System.Collections.Concurrent.ConcurrentQueue<double>();long priorSource=0;
+        using var engine=new StreamEngine{NdiEnabled=!localOnly,ReplayEnabled=true,ReplayFrameRate=fps,FrameAvailable=frame=>
+        {if(priorSource>0)intervals.Enqueue((frame.CapturedAt-priorSource)*1000.0/Stopwatch.Frequency);priorSource=frame.CapturedAt;replay.Offer(frame);}};
         engine.Start(new(display.Device,true,true),"SdrCapture Replay Test");
         var samples=new List<object>();var clock=Stopwatch.StartNew();long priorRecorded=0,priorNdi=0;
         while(clock.Elapsed.TotalSeconds<seconds)
@@ -29,15 +35,19 @@ static class ReplayTests
             if(second>=8&&engine.CapturedFrames==0)throw new Exception("Desktop capture unavailable: "+engine.Error);
             if(!localOnly&&second==10){engine.NdiEnabled=false;priorRecorded=replay.EncodedFrames;}
             if(!localOnly&&second==15){if(replay.EncodedFrames-priorRecorded<fps*3)throw new Exception("Turning NDI off stopped replay: "+(replay.EncodedFrames-priorRecorded));engine.NdiEnabled=true;}
-            if(second==20)engine.RequestCaptureRestart();
-            if(second%5==0)samples.Add(new{second,engine.NdiEnabled,engine.Fps,engine.Frames,engine.CapturedFrames,engine.ReplacedFrames,engine.MissedSlots,replay.EncodedFrames,replay.EncoderStarts,replay.BufferedSeconds,replay.CacheBytes,replay.AudioStatus,replay.Error});
+            if(!localOnly&&second==20)engine.RequestCaptureRestart();
+            if(second%5==0){using var process=Process.GetCurrentProcess();samples.Add(new{second,engine.NdiEnabled,engine.Fps,engine.Frames,engine.CapturedFrames,engine.DesktopFrames,engine.AccumulatedDesktopFrames,engine.SkippedDesktopFrames,engine.CaptureMs,engine.MaxCaptureMs,engine.TotalCaptureMs,engine.MaxObserverMs,replay.MaxConvertMs,engine.ReplacedFrames,engine.MissedSlots,replay.EncodedFrames,replay.RepeatedInputFrames,replay.HistoryMisses,replay.MaxWriterLateMs,replay.MaxPipeWriteMs,replay.EncoderStarts,replay.BufferedSeconds,replay.CacheBytes,replay.FrameMemoryBytes,process.WorkingSet64,process.PrivateMemorySize64,ManagedBytes=GC.GetTotalMemory(false),CommittedBytes=GC.GetGCMemoryInfo().TotalCommittedBytes,replay.AudioStatus,replay.AudioDiagnostics,replay.Error});}
             if(second>5&&replay.Error!=null)throw new Exception("Live replay error: "+replay.Error);
         }
         var saved=await replay.SaveAsync("Live-test");
         var info=await Probe(saved.LocalPath);double duration=double.Parse(info.RootElement.GetProperty("format").GetProperty("duration").GetString()!,System.Globalization.CultureInfo.InvariantCulture);
+        string audioStatus=replay.AudioStatus,audioDiagnostics=replay.AudioDiagnostics;long audioMissing=replay.AudioMissingSamples,audioRead=replay.AudioReadSamples;
         replay.Update(config with{Enabled=false});engine.ReplayEnabled=false;await Task.Delay(1500);priorNdi=engine.Frames;await Task.Delay(1500);
         if(!localOnly&&engine.Frames-priorNdi<60)throw new Exception("Turning replay off stopped NDI.");
-        Program.Write(localOnly?"replay-local-test.json":"replay-live-test.json",new{Pass=true,LocalOnly=localOnly,seconds,fps,duration,Source=engine.SourceName,File=saved.LocalPath,Audio=replay.AudioStatus,Samples=samples});
+        var deltas=intervals.Order().ToArray();
+        bool pass=!localOnly||(audioRead>48000&&audioMissing==0&&replay.HistoryMisses==0);
+        Program.Write(localOnly?"replay-local-test.json":"replay-live-test.json",new{Pass=pass,LocalOnly=localOnly,seconds,fps,codec,config.Quality,duration,Source=engine.SourceName,File=saved.LocalPath,Audio=audioStatus,AudioDiagnostics=audioDiagnostics,AudioMissingSamples=audioMissing,AudioReadSamples=audioRead,replay.RepeatedInputFrames,replay.HistoryMisses,replay.MaxPipeWriteMs,replay.MaxWriterLateMs,SourceIntervalMedianMs=deltas.Length==0?0:deltas[deltas.Length/2],SourceIntervalP95Ms=deltas.Length==0?0:deltas[(int)(deltas.Length*.95)],Samples=samples});
+        if(!pass)throw new Exception("Real-game diagnostic found missing audio or exhausted frame history.");
     }
     public static void Run()=>RunAsync().GetAwaiter().GetResult();
     static async Task RunAsync()

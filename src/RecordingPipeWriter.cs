@@ -9,8 +9,10 @@ namespace SdrCapture;
 sealed class RecordingPipeWriter(NamedPipeServerStream pipe):IDisposable
 {
     readonly EventWaitHandle ready=new(false,EventResetMode.ManualReset);
-    public unsafe void Write(byte[] data,int count,CancellationToken token)
+    public void Write(byte[] data,int count,CancellationToken token)=>Write(data.AsSpan(0,count),token);
+    public unsafe void Write(ReadOnlySpan<byte> data,CancellationToken token)
     {
+        int count=data.Length;
         token.ThrowIfCancellationRequested();
         var handle=pipe.SafePipeHandle;bool held=false;
         try

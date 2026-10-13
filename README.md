@@ -101,6 +101,15 @@ supports hardware AV1 recording; HEVC is the alternative. For 1920 × 1080 at
 broader compatibility with players and editing software. Unsupported hardware
 choices report an error rather than switching to CPU encoding.
 
+AV1 playback also needs a current decoder. Old MPC-HC/K-Lite installations with
+LAV 0.74 cannot hardware-decode AV1 and may play 1440p120 recordings in slow
+motion. Update [MPC-HC](https://github.com/clsid2/mpc-hc/releases/latest) or your
+codec pack; on Windows 10/11, use MPC Video Renderer with **D3D11** hardware
+decoding in LAV Video Decoder. AV1 hardware support was added in
+[LAV 0.75](https://github.com/Nevcairiel/LAVFilters/releases/tag/0.75).
+HEVC or H.264 is an alternative when the playback GPU cannot decode AV1.
+Changing the recording preset does not repair an outdated playback decoder.
+
 | Quality | When to use it | NVIDIA quality target | Maximum bitrate at 1440p60 |
 | --- | --- | --- | --- |
 | Ultra | More detail in difficult motion; larger clips | CQ 18 | 60 Mbps |

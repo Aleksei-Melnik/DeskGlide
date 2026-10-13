@@ -154,7 +154,17 @@ sealed class DiscordReceiver:IDisposable
         {float value=*((float*)((byte*)frame.Data+Math.Min(channel,frame.Channels-1)*frame.Stride)+i)*gain;((float*)ptr)[i*2+channel]=float.IsFinite(value)?Math.Clamp(value,-1,1):0;}
         return pcm;
     }
-    public void Dispose(){stop.Cancel();task.GetAwaiter().GetResult();stop.Dispose();}
+    int disposed;
+    public void Dispose()
+    {
+        if(Interlocked.Exchange(ref disposed,1)!=0)return;
+        stop.Cancel();
+        if(!MediaShutdown.Drain([task],()=>stop.Dispose()))
+        {
+            NdiNative.AbandonShutdown();
+            Log.Write("Camera/NDI receiver shutdown exceeded 1500 ms; allowing application exit.");
+        }
+    }
 }
 
 static class CameraInstallation

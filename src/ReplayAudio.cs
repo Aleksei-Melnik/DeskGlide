@@ -61,6 +61,8 @@ sealed class ReplayAudio:IDisposable
     readonly string[] remote=["","",""];
     readonly bool[] active;
     public string Diagnostics=>string.Join("; ",Enumerable.Range(0,3).Where(i=>active[i]).Select(i=>$"track{i}: missing={tracks[i].MissingSamples}/{tracks[i].ReadSamples}"));
+    public long MissingSamples=>Enumerable.Range(0,3).Where(i=>active[i]&&remote[i].Length==0).Sum(i=>tracks[i].MissingSamples);
+    public long ReadSamples=>Enumerable.Range(0,3).Where(i=>active[i]&&remote[i].Length==0).Sum(i=>tracks[i].ReadSamples);
     public string Status=>string.Join("\n",new[]{"Микрофон: "+status[0],"Игра: "+status[1],"Доп. звук: "+status[2]});
     public ReplayAudio(ReplayOptions options,bool synthetic=false,int captureBufferMilliseconds=100)
     {

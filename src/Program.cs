@@ -13,6 +13,8 @@ internal static class Program
             if(args.Length==3&&args[0]=="--restart-test-parent"){RestartTests.Parent(args[1],args[2]);return 0;}
             if(args.Length==3&&args[0]=="--restart-test-child"){RestartTests.Child(args[1],args[2]);return 0;}
             if(args.Contains("--restart-tests")){RestartTests.Run();return 0;}
+            if(args.Contains("--shutdown-tests")){ShutdownTests.Run();return 0;}
+            if(args.Contains("--frame-memory-tests")){FrameMemoryTests.Run();return 0;}
             if(args.Contains("--streamdeck-tests")){StreamDeckTests.Run();return 0;}
             if(args.Contains("--streamdeck-network-tests")){StreamDeckTests.Network();return 0;}
             if(args.Length==3&&args[0]=="--streamdeck-fixture"){StreamDeckTests.FixtureServer(args[1],args[2]);return 0;}
@@ -52,7 +54,7 @@ internal static class Program
             if(args.Contains("--kvm-test")){KvmTests.Run();return 0;}
             if(args.Contains("--kvm-video-test")){KvmVideoTests.Codec();return 0;}
             if(args.Contains("--kvm-video-live-test")){KvmVideoTests.Live();return 0;}
-            if(args.Contains("--replay-local-test")){int i=Array.IndexOf(args,"--seconds"),f=Array.IndexOf(args,"--fps");ReplayTests.LiveLocal(i<0?35:int.Parse(args[i+1]),f<0?120:int.Parse(args[f+1]));return 0;}
+            if(args.Contains("--replay-local-test")){int i=Array.IndexOf(args,"--seconds"),f=Array.IndexOf(args,"--fps"),c=Array.IndexOf(args,"--codec");ReplayTests.LiveLocal(i<0?35:int.Parse(args[i+1]),f<0?120:int.Parse(args[f+1]),c<0?"HEVC":args[c+1]);return 0;}
             if(args.Contains("--cadence-test")){int f=Array.IndexOf(args,"--fps"),c=Array.IndexOf(args,"--codec"),a=Array.IndexOf(args,"--audio");ReplayCadenceTest.Run(f<0?60:int.Parse(args[f+1]),c<0?"HEVC":args[c+1],a<0?"Mixed":args[a+1],args.Contains("--live-audio"));return 0;}
             if(args.Contains("--replay-load-test")){int f=Array.IndexOf(args,"--fps"),c=Array.IndexOf(args,"--codec"),s=Array.IndexOf(args,"--seconds"),e=Array.IndexOf(args,"--encoder"),w=Array.IndexOf(args,"--window");ReplayLoadTests.Run(f<0?60:int.Parse(args[f+1]),c<0?"AV1":args[c+1],args.Contains("--stress"),s<0?30:int.Parse(args[s+1]),e<0?null:args[e+1],args.Contains("--hdr"),args.Contains("--sync"),w<0?12:int.Parse(args[w+1]));return 0;}
             if(args.Contains("--save-replay"))
@@ -73,8 +75,8 @@ internal static class Program
                 NdiTests.Integration(seconds,args.Contains("--chaos"));return 0;
             }
             if(args.Contains("--diagnose")){Write("diagnostics.json",DisplayInfo.All());return 0;}
-            using var mutex=new Mutex(true,"Local\\SdrCapture.Tray",out bool first);
-            if(!first) return 0;
+            using var instance=ApplicationInstance.Acquire();
+            if(instance==null)return 0;
             Application.EnableVisualStyles();
             DesktopMessageLoop.EnableFormsInterop();
             var desktop=new System.Windows.Application{ShutdownMode=System.Windows.ShutdownMode.OnExplicitShutdown};

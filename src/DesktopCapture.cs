@@ -18,6 +18,8 @@ public sealed class DesktopCapture:IDisposable
     public bool CompensateSdr {get;set;}
     public bool CaptureCursor {get;set;}=true;
     public double WhiteNits {get;private set;}
+    internal uint AccumulatedFrames {get;private set;}
+    internal bool DesktopUpdated {get;private set;}
     public int Width=>color.Width;
     public int Height=>color.Height;
     public DesktopCapture(DisplayInfo display,bool compensate,int canvasWidth=0,int canvasHeight=0)
@@ -56,6 +58,7 @@ public sealed class DesktopCapture:IDisposable
         var result=duplication.AcquireNextFrame(0,out var info,out var resource);
         if(result.Code==unchecked((int)0x887A0027)) return null;
         result.CheckError();
+        AccumulatedFrames=info.AccumulatedFrames;DesktopUpdated=info.LastPresentTime>0;
         VideoBuffer? frame=null;
         try
         {

@@ -1,4 +1,15 @@
-DeskGlide 0.7.20
+DeskGlide 0.7.21
+
+- Fixed an update/exit freeze when the NDI runtime stalls while destroying a sender or receiver. Shutdown now has a deadline and keeps native resources alive until their owning worker finishes. An existing, unowned single-instance mutex no longer prevents a replacement from starting.
+- Reduced replay memory: frames are packed once into NV12, consumed frames are released promptly, and native replay buffers have a bounded reuse cache. NDI frame pooling is bounded across threads. Recording-only capture avoids allocating unused RGB/P010 readback arrays.
+- Added frame-lifetime/shutdown regression checks and capture diagnostics distinguishing desktop updates from accumulated/skipped frames.
+- Documented AV1 playback requirements. The reported Phasmophobia slow motion was reproduced with the installed MPC-HC 1.8.8/LAV 0.74 decoder: 10 seconds took 21.2 seconds to decode (56.6 FPS). D3D11 decoded the original at about 229 FPS; the same footage in HEVC played normally for the user. Update MPC-HC/LAV on playback PCs to hardware-decode AV1.
+
+Real gameplay verification: an isolated AV1 High 1440p120 recorder ran alongside the installed utility for 90 seconds. Its working set stayed about 212–284 MiB, with no missing local audio samples or exhausted frame history. This is a replay-only process measurement, not a RAM ceiling for all enabled features. The game/capture supplied fewer than 120 fresh images per second; configured output FPS is not proof of 120 distinct game frames. See HARDWARE-VALIDATION.md for checks and limits.
+
+Update through **Updates → Update all PCs**, or download **DeskGlide.exe**. Settings, pairing and virtual devices are preserved. The currently running installation is not replaced during gameplay testing.
+
+Previous release: 0.7.20
 
 - Redesigned the Stream Deck page with a compact install button, an inline live connection indicator and three clear setup steps. Removed the redundant download button.
 - Cleaned up KVM pairing: the computer name is separate, the pairing code is hidden by default, and reveal/copy controls sit inside the code field. Copy works without exposing the code.

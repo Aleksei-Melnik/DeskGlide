@@ -33,7 +33,8 @@ public sealed class ReplayRecorder:IDisposable
     readonly RecordingEncoder? validationEncoder;
     ReplayOptions options;
     readonly object framesGate=new();
-    readonly List<VideoBuffer> frames=[];
+    readonly List<RecordingFrame> frames=[];
+    readonly RecordingFramePool framePool=new();
     ReplayAudio? audio;
     int version,disposed;
     long warmupUntil;
@@ -43,6 +44,8 @@ public sealed class ReplayRecorder:IDisposable
     public string? Error {get;private set;}
     public string AudioStatus=>audio?.Status??"Звук не запущен";
     public string AudioDiagnostics=>audio?.Diagnostics??"";
+    public long AudioMissingSamples=>audio?.MissingSamples??0;
+    public long AudioReadSamples=>audio?.ReadSamples??0;
     public int Width {get;private set;}
     public int Height {get;private set;}
     public long EncodedFrames {get;private set;}
@@ -51,6 +54,7 @@ public sealed class ReplayRecorder:IDisposable
     public double MaxWriterLateMs {get;private set;}
     public double MaxConvertMs {get;private set;}
     public double MaxPipeWriteMs {get;private set;}
+    public long FrameMemoryBytes {get{lock(framesGate)return frames.Sum(f=>(long)f.Data.Length)+framePool.CachedBytes;}}
     public int EncoderStarts {get;private set;}
     public double BufferedSeconds {get{lock(chunksGate)return Math.Min(WindowSeconds,chunks.Sum(c=>Math.Max(0,c.End-Math.Max(c.Start,savedUntil))));}}
     // Display the written part of the open segment too; closed segments arrive
@@ -98,9 +102,9 @@ public sealed class ReplayRecorder:IDisposable
     public void Offer(VideoBuffer frame)
     {
         if(Volatile.Read(ref disposed)!=0||!Volatile.Read(ref options).Enabled)return;
-        var reference=frame.Retain();
-        if(reference==null)return;
-        if(reference.CapturedAt<=0)reference.CapturedAt=Stopwatch.GetTimestamp();
+        long begin=Stopwatch.GetTimestamp();
+        var reference=new RecordingFrame(frame,framePool);
+        MaxConvertMs=Math.Max(MaxConvertMs,Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
         lock(framesGate)
         {
             if(Volatile.Read(ref disposed)!=0){reference.Dispose();return;}
@@ -111,16 +115,24 @@ public sealed class ReplayRecorder:IDisposable
             int wanted=warming?Math.Max(steady,config.Fps):steady;
             // Encoder initialization can hold the first pipe write for hundreds
             // of milliseconds. Keep its source frames until it catches up.
-            int budget=1073741824;
+            int budget=512*1024*1024;
             int limit=Math.Min(wanted,Math.Max(12,budget/Math.Max(1,reference.Data.Length)));
             while(frames.Count>limit){frames[0].Dispose();frames.RemoveAt(0);}
         }
     }
-    VideoBuffer? GetFrame(long timestamp=long.MaxValue)
+    RecordingFrame? GetFrame(long timestamp=long.MaxValue)
     {
         lock(framesGate)
         {
-            for(int i=frames.Count-1;i>=0;i--)if(frames[i].CapturedAt<=timestamp)return frames[i].Retain();
+            for(int i=frames.Count-1;i>=0;i--)if(frames[i].CapturedAt<=timestamp)
+            {
+                var selected=frames[i].Retain();
+                // Once a recording timestamp is consumed, older frames cannot
+                // be selected again. Keep the selected image for a slow source.
+                if(timestamp!=long.MaxValue&&i>0)
+                {for(int old=0;old<i;old++)frames[old].Dispose();frames.RemoveRange(0,i);}
+                return selected;
+            }
             if(frames.Count>0){HistoryMisses++;return frames[0].Retain();}return null;
         }
     }
@@ -232,8 +244,7 @@ public sealed class ReplayRecorder:IDisposable
             Thread.CurrentThread.Priority=ThreadPriority.AboveNormal;
             using var pacing=new Pacer();
             using var writer=new RecordingPipeWriter(videoPipe);
-            byte[] resized=ArrayPool<byte>.Shared.Rent(Width*Height*2);
-            byte[] nv12=ArrayPool<byte>.Shared.Rent(Width*Height*3/2);
+            byte[]? resized=null;
             try
             {
                 videoPipe.WaitForConnectionAsync(token).GetAwaiter().GetResult();
@@ -250,18 +261,16 @@ public sealed class ReplayRecorder:IDisposable
                     if(frameIndex>config.Fps*5&&Now-due>1)throw new IOException(UiStrings.F("{0} cannot keep up with {1} FPS. Lower recording resolution or frame rate.",encoder.Label,config.Fps));
                     using var frame=GetFrame((long)(due*Stopwatch.Frequency));if(frame==null){Thread.Sleep(1);continue;}
                     if(frame.CapturedAt==previousCapture)RepeatedInputFrames++;previousCapture=frame.CapturedAt;
-                    byte[] data=frame.Data;
-                    if(frame.Width!=Width||frame.Height!=Height){Resize(frame,resized,Width,Height);data=resized;}
-                    long converted=Stopwatch.GetTimestamp();
-                    RecordingPixels.Nv12(data,nv12,Width,Height);
-                    MaxConvertMs=Math.Max(MaxConvertMs,Stopwatch.GetElapsedTime(converted).TotalMilliseconds);
+                    var data=frame.Data;
+                    if(frame.Width!=Width||frame.Height!=Height)
+                    {resized??=new byte[Width*Height*3/2];RecordingPixels.ResizeNv12(data,frame.Width,frame.Height,resized,Width,Height);data=resized;}
                     long written=Stopwatch.GetTimestamp();
-                    writer.Write(nv12,Width*Height*3/2,token);
+                    writer.Write(data[..(Width*Height*3/2)],token);
                     MaxPipeWriteMs=Math.Max(MaxPipeWriteMs,Stopwatch.GetElapsedTime(written).TotalMilliseconds);
                     frameIndex++;EncodedFrames++;lastVideo=Now;Volatile.Write(ref liveUpdated,lastVideo);Volatile.Write(ref liveEnd,epoch+frameIndex/(double)config.Fps);
                 }
             }
-            finally{ArrayPool<byte>.Shared.Return(resized);ArrayPool<byte>.Shared.Return(nv12);videoPipe.Dispose();}
+            finally{videoPipe.Dispose();}
         },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
         var audioTask=Task.Factory.StartNew(()=>
         {
@@ -410,6 +419,7 @@ public sealed class ReplayRecorder:IDisposable
         if(Interlocked.Exchange(ref disposed,1)!=0)return;
         stop.Cancel();try{worker.Wait(7000);}catch{}
         lock(framesGate){foreach(var frame in frames)frame.Dispose();frames.Clear();}
+        framePool.Dispose();
         // Completed clips and delivery jobs are never part of ring cleanup.
         if(worker.IsCompleted)lock(chunksGate)foreach(var chunk in chunks.Where(c=>c.Pins==0))TryDelete(chunk.Path);
     }

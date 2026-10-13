@@ -146,7 +146,7 @@ public sealed class ColorPipeline : IDisposable
         output = device.CreateTexture2D(d); uav = device.CreateUnorderedAccessView(output);
         outputSrv = device.CreateShaderResourceView(output);
         d.BindFlags = BindFlags.None; d.Usage = ResourceUsage.Staging; d.CPUAccessFlags = CpuAccessFlags.Read;
-        staging = device.CreateTexture2D(d); Pixels = new byte[checked(Width * Height * 8)];
+        staging = device.CreateTexture2D(d); Pixels = [];
         if ((Width & 1) == 0)
         {
             uint count=checked((uint)(Width*Height*2));
@@ -160,12 +160,13 @@ public sealed class ColorPipeline : IDisposable
             p010 = device.CreateBuffer(count, BindFlags.UnorderedAccess, ResourceUsage.Default, CpuAccessFlags.None, ResourceOptionFlags.BufferAllowRawViews);
             p010Uav = device.CreateUnorderedAccessView(p010, new UnorderedAccessViewDescription(p010, Format.R32_Typeless, 0, count / 4, BufferUnorderedAccessViewFlags.Raw));
             p010Staging = device.CreateBuffer(count, BindFlags.None, ResourceUsage.Staging, CpuAccessFlags.Read);
-            packed = new byte[count];
+            packed = [];
         }
     }
     public unsafe byte[] Convert(ID3D11Texture2D source, bool hdr, float exposure)
     {
         Render(source, hdr, exposure);
+        if(Pixels.Length!=checked(Width*Height*8))Pixels=new byte[checked(Width*Height*8)];
         context.CopyResource(staging!, output!);
         var map = context.Map(staging!, 0, MapMode.Read);
         try
@@ -181,6 +182,7 @@ public sealed class ColorPipeline : IDisposable
     {
         Render(source, hdr, exposure);
         if (p010 == null) throw new NotSupportedException("P010 requires even dimensions.");
+        if(packed.Length!=checked(Width*Height*3))packed=new byte[checked(Width*Height*3)];
         context.CSSetShader(packShader); context.CSSetShaderResource(0, outputSrv); context.CSSetUnorderedAccessView(0, p010Uav);
         context.Dispatch(((uint)Width + 15) / 16, ((uint)Height + 15) / 16, 1);
         context.CSSetShaderResource(0, null); context.CSSetUnorderedAccessView(0, null);
