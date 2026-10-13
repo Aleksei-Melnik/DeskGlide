@@ -393,6 +393,8 @@
   "Installed automatically when replay starts. You can also set them up here.": "Установится автоматически при включении повтора. Можно установить его и здесь.",
   "Recording tools are not installed.": "Компонент записи ещё не установлен.",
   "Set up recording": "Настроить запись",
+  "Install Stream Deck 7.1 or later first.": "Сначала установите Stream Deck версии 7.1 или новее.",
+  "Could not start the Stream Deck installer.": "Не удалось запустить установку плагина Stream Deck.",
   "Setting up recording tools…": "Подготовка компонента записи…",
   "Downloading recording tools…": "Загрузка компонента записи…",
   "Downloading recording tools: {0}%": "Загрузка компонента записи: {0}%",

@@ -36,7 +36,6 @@ static class DeckProtocol
         return null;
     }
 }
-
 // Same Windows user only. No TCP listener, password, shell command or keyboard injection.
 sealed class StreamDeckBridge:IDisposable
 {
@@ -145,10 +144,4 @@ sealed class StreamDeckBridge:IDisposable
         }
         catch(Exception e){Log.Write("Stream Deck discovery cleanup: "+e.Message);}
     }
-}
-
-static class StreamDeckInstallation
-{
-    public const string Package="streamdeck/com.yami.deskglide.streamDeckPlugin";
-    public static void Install()=>System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(PortableResources.FilePath(Package)){UseShellExecute=true});
 }

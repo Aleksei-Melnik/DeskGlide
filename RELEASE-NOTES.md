@@ -1,4 +1,11 @@
-DeskGlide 0.7.21
+DeskGlide 0.7.22
+
+- Fixed **Stream Deck → Install plugin** doing nothing when Windows redirects the package file association to `streamdeck://app/openfile`. DeskGlide now passes the bundled plugin package directly to the installed Stream Deck executable, including custom installation paths when Stream Deck is running.
+- Plugin 1.0.1 retains the minimal icons, monitor switching, automatic language selection and corrected replay timer. Existing Stream Deck button profiles are preserved.
+
+Validation: reproduced the file-association failure in the installed Stream Deck 7.4.2 and confirmed that direct package activation installs plugin 1.0.1. Added a regression check for paths containing spaces and punctuation; no keyboard or mouse input is injected by this check.
+
+Previous release: 0.7.21
 
 - Fixed an update/exit freeze when the NDI runtime stalls while destroying a sender or receiver. Shutdown now has a deadline and keeps native resources alive until their owning worker finishes. An existing, unowned single-instance mutex no longer prevents a replacement from starting.
 - Reduced replay memory: frames are packed once into NV12, consumed frames are released promptly, and native replay buffers have a bounded reuse cache. NDI frame pooling is bounded across threads. Recording-only capture avoids allocating unused RGB/P010 readback arrays.
