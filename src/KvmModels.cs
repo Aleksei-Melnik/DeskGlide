@@ -12,6 +12,8 @@ public sealed record KvmOptions
     public string Id {get;set;}=Guid.NewGuid().ToString("N");
     public bool Seamless {get;set;}=true;
     public bool BlockScreenCorners {get;set;}
+    public bool? AdministratorInput {get;set;}
+    [JsonIgnore] public bool UsesAdministratorInput=>AdministratorInput??Role=="Host";
     public uint OpenHotkeyModifiers {get;set;}=3;
     public uint OpenHotkeyKey {get;set;}=(uint)Keys.K;
     public uint ToggleHotkeyModifiers {get;set;}=3;

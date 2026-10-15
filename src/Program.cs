@@ -9,6 +9,10 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         try
         {
+            if(args.FirstOrDefault()==KvmInputHelper.Argument)return KvmInputHelper.Run(args);
+            if(args.Length==3&&args[0]=="--kvm-pipe-fixture")return KvmInputTests.PipeFixture(args[1],int.Parse(args[2]));
+            if(args.Contains("--kvm-input-tests")){KvmInputTests.Run();return 0;}
+            if(args.Contains("--kvm-helper-approval-test")){KvmInputTests.Approval();return 0;}
             if(args.FirstOrDefault()=="--restart-after")args=ApplicationRestart.WaitForPreviousInstance(args);
             if(args.Length==3&&args[0]=="--restart-test-parent"){RestartTests.Parent(args[1],args[2]);return 0;}
             if(args.Length==3&&args[0]=="--restart-test-child"){RestartTests.Child(args[1],args[2]);return 0;}

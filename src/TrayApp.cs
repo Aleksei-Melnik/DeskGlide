@@ -40,7 +40,7 @@ sealed partial class TrayApp:ApplicationContext
     readonly RegisteredWaitHandle saveWait;
     readonly Control dispatcher=new();
     KvmService? kvm;
-    KvmController? controller;
+    KvmInputManager? controller;
     KvmClipboard? clipboard;
     KvmDragDrop? dragDrop;
     DiscordReceiver? discord;
@@ -203,7 +203,7 @@ sealed partial class TrayApp:ApplicationContext
         settings.Discord=result.Discord;settings.Save();if(discordChanged)StartDiscord();
         SelectRemoteAudio();notifications.Enqueue("Настройки применены.");
     }
-    string Diagnostics()=>$"{engine.SourceName}\r\n{engine.Status}\r\n{engine.CaptureStatus}\r\nЗахват: {engine.CaptureMs:F1} мс; NDI: {engine.SendMs:F1} мс\r\n\r\n{replay.Status}\r\n{replay.AudioStatus}\r\nNDI audio: {engine.NdiAudioStatus}\r\nБуфер: {replay.CacheBytes/1048576.0:F0} МБ\r\nКадры записи: {replay.EncodedFrames}; повторы: {replay.RepeatedInputFrames}\r\nПримечание: неподвижный экран тоже даёт повторы.\r\nЗапусков кодировщика: {replay.EncoderStarts}\r\n{replay.Error}\r\n{delivery.Status}\r\n\r\nDiscord: {discord?.Status??"выключен"}\r\n\r\nKVM: {kvm?.Status}\r\n{string.Join("\r\n",kvm?.Peers.Select(p=>p.Name+" · экранов: "+p.Screens.Length)??[])}";
+    string Diagnostics()=>$"{engine.SourceName}\r\n{engine.Status}\r\n{engine.CaptureStatus}\r\nЗахват: {engine.CaptureMs:F1} мс; NDI: {engine.SendMs:F1} мс\r\n\r\n{replay.Status}\r\n{replay.AudioStatus}\r\nNDI audio: {engine.NdiAudioStatus}\r\nБуфер: {replay.CacheBytes/1048576.0:F0} МБ\r\nКадры записи: {replay.EncodedFrames}; повторы: {replay.RepeatedInputFrames}\r\nПримечание: неподвижный экран тоже даёт повторы.\r\nЗапусков кодировщика: {replay.EncoderStarts}\r\n{replay.Error}\r\n{delivery.Status}\r\n\r\nDiscord: {discord?.Status??"выключен"}\r\n\r\nKVM: {kvm?.Status}\r\n{UiStrings.T(controller?.Status??"Standard input control is active.")}\r\n{string.Join("\r\n",kvm?.Peers.Select(p=>p.Name+" · экранов: "+p.Screens.Length)??[])}";
     async Task CheckForUpdatesQuietly()
     {
         try{await updater.Check();if(updater.Latest!=null&&Updates.ParseVersion(updater.Latest.Manifest.Version)>Updates.Current)notifications.Enqueue("Доступна DeskGlide "+updater.Latest.Manifest.Version+". Откройте «Обновления».");}
@@ -236,7 +236,8 @@ sealed partial class TrayApp:ApplicationContext
             deckRemote?.Dispose();deckRemote=null;
             kvm=new KvmService(settings.Kvm);kvm.Notification+=m=>notifications.Enqueue(m);kvm.Received+=updater.Receive;
             deckRemote=new DeckRemote(kvm,ExecuteDeckLocal);
-            controller=new KvmController(kvm,settings.Kvm);
+            controller=new KvmInputManager(kvm,settings.Kvm);
+            controller.Notification+=m=>notifications.Enqueue(UiStrings.T(m));
             controller.OpenRequested+=()=>{if(!closing)try{dispatcher.BeginInvoke(OpenKvm);}catch(InvalidOperationException){}};
             controller.EmergencyReturn+=()=>{if(!closing)dispatcher.BeginInvoke(()=>{foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();});};
             controller.SeamlessChanged+=enabled=>{if(!closing)dispatcher.BeginInvoke(()=>{settings.Kvm.Seamless=enabled;settings.Save();});};
@@ -268,7 +269,7 @@ sealed partial class TrayApp:ApplicationContext
     Ui.StatusSection[] StatusOverview()=>[
         new("Screen streaming",("State",UiStrings.T(!engine.NdiEnabled?"Off":engine.Error!=null?"Recovering capture":"On")),("NDI source",engine.SourceName),("Output",string.Join(", ",engine.CaptureSizes)),("Delivery rate",$"{engine.Fps:F1} FPS"),("Capture time",$"{engine.CaptureMs:F1} ms")),
         new("Instant replay",("State",UiStrings.T(!settings.Replay.Enabled?"Off":replay.Error!=null?"Recording error":!RecordingTools.Ready?"Setting up recording tools…":"On")),("Buffered",$"{ReplayTime.Format(replay.BufferedSeconds)} / {ReplayTime.Format(settings.Replay.BufferSeconds)}"),("Buffer size",$"{replay.CacheBytes/1048576.0:F0} MB"),("Error",replay.Error??UiStrings.T("None"))),
-        new("KVM & pairing",("This PC",Environment.MachineName),("Role",UiStrings.T(settings.Kvm.Role)),("Connected computers",string.Join(", ",kvm?.Peers.Select(p=>p.Name)??[]) is {Length:>0} peers?peers:UiStrings.T("None"))),
+        new("KVM & pairing",("Input control",UiStrings.T(controller?.Status??"Standard input control is active.")),("This PC",Environment.MachineName),("Role",UiStrings.T(settings.Kvm.Role)),("Connected computers",string.Join(", ",kvm?.Peers.Select(p=>p.Name)??[]) is {Length:>0} peers?peers:UiStrings.T("None"))),
         new("Virtual devices",("Receiver",UiStrings.T(settings.Discord.Enabled?"On":"Off")),("Video",discord?.Status??UiStrings.T("Off")))
     ];
     void ApplyReplay(ReplayOptions options)

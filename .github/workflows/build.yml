@@ -34,7 +34,7 @@ jobs:
       - name: Test update integrity, rollback, audio clock and windows
         shell: pwsh
         run: |
-          foreach ($flag in @('--shutdown-tests', '--frame-memory-tests', '--streamdeck-tests', '--streamdeck-network-tests', '--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--update-tests', '--restart-tests', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--ui-tests', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--camera-test', '--camera-2k-test', '--camera-hold-test', '--camera-formats-test', '--kvm-video-test', '--kvm-test', '--monitor-layout-tests', '--kvm-native-image-tests')) {
+          foreach ($flag in @('--shutdown-tests', '--frame-memory-tests', '--streamdeck-tests', '--streamdeck-network-tests', '--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--update-tests', '--restart-tests', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--ui-tests', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--camera-test', '--camera-2k-test', '--camera-hold-test', '--camera-formats-test', '--kvm-video-test', '--kvm-test', '--monitor-layout-tests', '--kvm-input-tests', '--kvm-native-image-tests')) {
             $p=Start-Process ./app/DeskGlide.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){
               if(Test-Path ./app/error.txt){Get-Content ./app/error.txt}
@@ -51,7 +51,7 @@ jobs:
       - name: Test portable executable without adjacent libraries
         shell: pwsh
         run: |
-          foreach ($flag in @('--shutdown-tests', '--frame-memory-tests', '--streamdeck-tests', '--streamdeck-network-tests', '--portable-tests', '--update-tests', '--restart-tests', '--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--kvm-video-test', '--kvm-test', '--monitor-layout-tests', '--kvm-native-image-tests')) {
+          foreach ($flag in @('--shutdown-tests', '--frame-memory-tests', '--streamdeck-tests', '--streamdeck-network-tests', '--portable-tests', '--update-tests', '--restart-tests', '--recording-tools-tests', '--dependency-tests', '--ndi-runtime-package-test', '--audio-timing-test', '--recording-pixels-test', '--recording-pipe-test', '--wpf-ui-tests', '--tray-ui-tests', '--feature-tests', '--kvm-video-test', '--kvm-test', '--monitor-layout-tests', '--kvm-input-tests', '--kvm-native-image-tests')) {
             $p=Start-Process ./portable-check/DeskGlide.exe -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){
               if(Test-Path "$env:LOCALAPPDATA/SdrCapture/Diagnostics/error.txt"){Get-Content "$env:LOCALAPPDATA/SdrCapture/Diagnostics/error.txt"}
@@ -67,6 +67,10 @@ jobs:
           path: |
             artifacts/streamdeck/*.streamDeckPlugin
             app/streamdeck*.json
+            app/kvm-input-tests.json
+            app/kvm-test.json
+            app/kvm-input-thread-test.json
+            app/monitor-layout-tests.json
             app/wpf-preview/*-10.png
             app/wpf-preview/*-3.png
             app/wpf-ui-tests.json

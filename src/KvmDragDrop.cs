@@ -47,7 +47,7 @@ sealed class KvmDragDrop:IDisposable
         public readonly string Peer=peer,Id=id;public readonly string[] Paths=paths;public volatile bool Drop,Cancel;
     }
     public event Action<string>? Notification;
-    public KvmDragDrop(KvmService service,KvmClipboard files,KvmController controller,KvmOptions options,Control ui)
+    public KvmDragDrop(KvmService service,KvmClipboard files,KvmInputManager controller,KvmOptions options,Control ui)
     {
         this.service=service;this.files=files;this.options=options.Copy();this.ui=ui;
         files.DragFilesReady+=FilesReady;service.Received+=Receive;service.Disconnected+=Disconnected;service.BeforeInput=Input;
@@ -86,7 +86,8 @@ sealed class KvmDragDrop:IDisposable
         if(message.Type=="mouse")
         {
             if((message.Flags&4)!=0)drag.Drop=true;
-            KvmInput.Inject(message with{Flags=0,Code=0});return true;
+            bool accepted=service.InputInjector?.Invoke(message with{Flags=0,Code=0})??KvmInput.Inject(message with{Flags=0,Code=0});
+            if(!accepted){drag.Cancel=true;service.ReportInputBlocked();}return true;
         }
         return false;
     }

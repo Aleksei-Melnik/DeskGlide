@@ -285,17 +285,23 @@ sealed class SettingsWindow:ShellWindow
         var hint=Kit.Text("",12,"#B0A9BC");hint.Margin=new(0,12,0,0);connection.Children.Add(hint);
         var advanced=new C.Expander{Header=Kit.Text("Advanced network settings"),Margin=new(0,16,0,0)};var port=Input("port",v.Kvm.Port.ToString());advanced.Content=port;connection.Children.Add(advanced);
         var control=Section(page,"Control & shortcuts");Row(control,"Edge switching",Toggle("seamless","Move between physical displays",v.Kvm.Seamless));Row(control,"Open KVM",kvmKey);Row(control,"Lock / unlock edges",edgeKey);control.Children.Add(Kit.Text("Ctrl+Alt+Esc always returns control here. Monitor shortcuts are configured in Monitor layout.",12,"#B0A9BC"));
+        var administrator=Section(page,"Administrator apps");Row(administrator,"Input control",Toggle("administratorInput","Control apps run as administrator",v.Kvm.UsesAdministratorInput));
+        administrator.Children.Add(Kit.Text("Windows asks for approval when DeskGlide starts. Only a local input helper receives administrator rights. Windows security prompts and lock screens remain local. Disable this option to use standard input control.",12,"#B0A9BC"));
         Row(control,"Screen corners",Toggle("blockCorners","Block switching near screen corners",v.Kvm.BlockScreenCorners));
         control.Children.Add(Kit.Text("Protects the first and last 32 pixels of each screen edge. Monitor shortcuts still work.",12,"#B0A9BC"));
         var clipboard=Section(page,"Clipboard");Row(clipboard,"Text",Toggle("clipboardText","Share clipboard text",v.Kvm.ClipboardText));Row(clipboard,"Files & images",Toggle("clipboardFiles","Share files, folders and images",v.Kvm.ClipboardFiles));clipboard.Children.Add(Kit.Text("Copy with Ctrl+C on one PC and paste with Ctrl+V on the other. Temporary transfer files expire after 4 hours. Copies pasted into your folders stay.",12,"#B0A9BC"));
         var client=Section(page,"Client permissions");Row(client,"Desktop",Toggle("allowView","Allow remote desktop viewing",v.Kvm.AllowView));Row(client,"Server mode",Toggle("remoteOnly","Remote view only · no edge switching",v.Kvm.RemoteViewOnly));Row(client,"Send audio to host",Audio("remoteAudio",v.Kvm.AudioDevice));
         client.Children.Add(Kit.Text("A headless server needs an active desktop from a virtual display or HDMI dummy plug. Windows lock screens and elevated windows may be unavailable.",12,"#B0A9BC"));
+        string previousRole=Id("role");
         void Update()
         {
             bool isHost=Id("role")=="Host",isClient=Id("role")=="Client";
             host.Visibility=pairing.Visibility=isClient?W.Visibility.Visible:W.Visibility.Collapsed;codeRow.Visibility=computerRow.Visibility=isHost?W.Visibility.Visible:W.Visibility.Collapsed;
             HideCode();copied.Visibility=W.Visibility.Collapsed;
             ((W.UIElement)client.Parent).Visibility=isClient?W.Visibility.Visible:W.Visibility.Collapsed;control.IsEnabled=isHost;clipboard.IsEnabled=isHost||isClient;
+            administrator.IsEnabled=isHost||isClient;
+            if(v.Kvm.AdministratorInput==null&&previousRole!=Id("role"))toggles["administratorInput"].IsChecked=isHost;
+            previousRole=Id("role");
             hint.Text=UiStrings.T(isHost?"On the other PC, choose Client and enter this computer name and pairing code.":isClient?"Enter the host name and code from your gaming PC. Audio sent to the host is used for recording.":"Choose a role to pair computers. Screen streaming and replay work independently.");
         }
         role.SelectionChanged+=(_,_)=>Update();System.ComponentModel.PropertyChangedEventHandler languageChanged=(_,_)=>Update();UiStrings.Shared.PropertyChanged+=languageChanged;Closed+=(_,_)=>UiStrings.Shared.PropertyChanged-=languageChanged;Update();
@@ -350,7 +356,7 @@ sealed class SettingsWindow:ShellWindow
         int width=int.Parse(Id("resolution"),CultureInfo.InvariantCulture);int height=width switch{1280=>720,1920=>1080,2560=>1440,3840=>2160,_=>0};
         int duration=(int)sliders["replayDuration"].Value*60;
         result.Replay=result.Replay with{Enabled=On("replay"),Minutes=(duration+59)/60,DurationSeconds=duration,SaveSoundEnabled=On("saveSound"),SaveSoundVolume=(int)sliders["saveSoundVolume"].Value,Codec=Id("codec"),Quality=Id("quality"),Fps=int.Parse(Id("fps")),Width=width,Height=height,Folder=texts["folder"].Text.Trim(),GroupByApp=true,Silent=false,AudioMode=Id("audioMode"),GameAudio=Id("game"),Microphone=Id("mic"),ExtraAudio=Id("extra"),HotkeyModifiers=replayKey.Modifiers,HotkeyKey=replayKey.Key};
-        result.Kvm=result.Kvm with{Role=Id("role"),Host=texts["host"].Text.Trim(),PairingCode=texts["pairing"].Text.Trim(),Port=int.Parse(texts["port"].Text,CultureInfo.InvariantCulture),Seamless=On("seamless"),BlockScreenCorners=On("blockCorners"),ClipboardText=On("clipboardText"),ClipboardFiles=On("clipboardFiles"),AllowView=On("allowView"),RemoteViewOnly=On("remoteOnly"),AudioDevice=Id("remoteAudio"),OpenHotkeyModifiers=kvmKey.Modifiers,OpenHotkeyKey=kvmKey.Key,ToggleHotkeyModifiers=edgeKey.Modifiers,ToggleHotkeyKey=edgeKey.Key,Layout=monitors.Result,RemoteOnlyPeers=monitors.RemoteOnlyPeers,ExcludedMonitors=monitors.ExcludedMonitors};
+        result.Kvm=result.Kvm with{Role=Id("role"),Host=texts["host"].Text.Trim(),PairingCode=texts["pairing"].Text.Trim(),Port=int.Parse(texts["port"].Text,CultureInfo.InvariantCulture),Seamless=On("seamless"),BlockScreenCorners=On("blockCorners"),AdministratorInput=On("administratorInput"),ClipboardText=On("clipboardText"),ClipboardFiles=On("clipboardFiles"),AllowView=On("allowView"),RemoteViewOnly=On("remoteOnly"),AudioDevice=Id("remoteAudio"),OpenHotkeyModifiers=kvmKey.Modifiers,OpenHotkeyKey=kvmKey.Key,ToggleHotkeyModifiers=edgeKey.Modifiers,ToggleHotkeyKey=edgeKey.Key,Layout=monitors.Result,RemoteOnlyPeers=monitors.RemoteOnlyPeers,ExcludedMonitors=monitors.ExcludedMonitors};
         result.Updates=new(){CheckOnStartup=On("checkUpdates"),AllowFromHost=On("remoteUpdates")};
         result.Discord=result.Discord with{Enabled=On("discord")&&result.Kvm.Role!="Host",CameraName=texts["cameraName"].Text.Trim(),Source=texts["source"].Text.Trim(),AudioMode=Id("discordMode"),AudioDevice=Id("discordOutput"),CaptureDevice=Id("discordInput"),Volume=(int)sliders["discordVolume"].Value};
         Validate(result);return result;

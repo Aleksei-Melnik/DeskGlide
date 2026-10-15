@@ -1,4 +1,14 @@
-DeskGlide 0.7.26
+DeskGlide 0.7.27
+
+- Fixed KVM input ownership when an administrator app has focus. The Host now offers a Windows-approved local input helper so edge switching and input suppression can work with MSI Afterburner, RTSS, Rufus and similar elevated apps. Networking, clipboard, capture and recording remain in the ordinary process. No driver is installed and Windows security prompts/lock screens stay local.
+- Input failures now return control to this PC and tell the Host when the receiving PC cannot accept input. Keys and mouse buttons are tracked only after Windows accepts a press; failed releases are retained and retried. Cursor activation checks both the Windows result and the actual cursor position. Mouse hook loss and recovery from an inaccessible desktop re-establish input hooks.
+- On Hosts, administrator app control is enabled by default and Windows asks for approval when DeskGlide starts. Clients retain standard input control by default; it can be enabled locally if elevated windows must be controlled there. Canceling approval falls back to standard control. Input mode is visible on the Status page.
+
+Update from **0.7.26 → Updates → Update all PCs**. The existing update signing key is retained. Clients update first and reconnect; the Host updates last. Accept the Windows prompt on the Host after restart. No manual EXE replacement is needed from 0.7.26.
+
+Validation: regression tests cover focus/access loss, local return before forwarding a click, failed cursor activation, modifier recovery, accepted/failed key and mouse injection, deferred releases, no phantom right-button release, private IPC process identities, ordered delivery, malformed frames, bounded queues, child exit on pipe closure and exclusion of pairing credentials from helper configuration. These deterministic tests do not inject OS input. A physical two-PC Afterburner/RTSS test still needs verification after updating.
+
+Previous release: 0.7.26
 
 **One-time installation:** download `DeskGlide.exe`, save any needed replay, quit the old app from the tray and replace its EXE. This release establishes a new update signing key. Versions 0.7.25 and earlier cannot install it through their old automatic updater. From 0.7.26 onward, signed automatic updates continue normally. Settings and pairing are preserved.
 

@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 
 namespace SdrCapture;
-sealed class KvmService:IDisposable
+sealed class KvmService:IDisposable,IKvmInputTransport
 {
     readonly CancellationTokenSource stop=new();
     readonly ConcurrentDictionary<string,KvmWire> controls=new(),bulk=new(),audio=new(),video=new();
@@ -121,7 +121,13 @@ sealed class KvmService:IDisposable
                 }
                 if(wire.Channel=="control"&&message.Type is "mouse" or "key" or "release")
                 {
-                    if(options.Role=="Client"&&BeforeInput?.Invoke(wire.Peer.Id,message)!=true)KvmInput.Inject(message);
+                    if(options.Role=="Client"&&BeforeInput?.Invoke(wire.Peer.Id,message)!=true&&!(InputInjector?.Invoke(message)??KvmInput.Inject(message)))
+                        wire.Post(new(){Type="input-blocked"});
+                    continue;
+                }
+                if(wire.Channel=="control"&&message.Type=="input-blocked")
+                {
+                    if(options.Role=="Host")InputBlocked?.Invoke();
                     continue;
                 }
                 if(wire.Channel=="bulk"&&message.Type=="view-request"&&options.Role=="Client")
@@ -156,7 +162,7 @@ sealed class KvmService:IDisposable
                 if(bulk.TryRemove(wire.Peer.Id,out var b))b.Dispose();
                 if(audio.TryRemove(wire.Peer.Id,out var a))a.Dispose();
                 if(video.TryRemove(wire.Peer.Id,out var v))v.Dispose();
-                if(options.Role=="Client")KvmInput.ReleaseAll();
+                if(options.Role=="Client")ReleaseInput();
                 Disconnected?.Invoke(wire.Peer.Id);PeersChanged?.Invoke();
             }
             if(wire.Channel=="audio")KvmAudioBus.Remove(wire.Peer.Id);
@@ -165,6 +171,10 @@ sealed class KvmService:IDisposable
     public bool Send(string peer,KvmMessage message)=>controls.TryGetValue(peer,out var connection)&&connection.Post(message);
     public bool SendVideo(string peer,KvmMessage message)=>video.TryGetValue(peer,out var connection)&&connection.Post(message);
     public Func<string,KvmMessage,bool>? BeforeInput {get;set;}
+    public Func<KvmMessage,bool>? InputInjector {get;set;}
+    public event Action? InputBlocked;
+    void ReleaseInput(){if(InputInjector is {} inject)inject(new(){Type="release"});else KvmInput.ReleaseAll();}
+    public void ReportInputBlocked(){foreach(var connection in controls.Values)connection.Post(new(){Type="input-blocked"});}
     public async Task SendControl(string peer,KvmMessage message)
     {
         if(!controls.TryGetValue(peer,out var connection))throw new IOException("ПК отключился.");
@@ -190,7 +200,7 @@ sealed class KvmService:IDisposable
     {
         stop.Cancel();listener?.Stop();
         foreach(var c in controls.Values.Concat(bulk.Values).Concat(audio.Values).Concat(video.Values))c.Dispose();
-        if(options.Role=="Client")KvmInput.ReleaseAll();
+        if(options.Role=="Client")ReleaseInput();
         // Identity remains alive until every handshake has left AuthenticateAsServer.
     }
 }

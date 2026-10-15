@@ -7,55 +7,70 @@ static class KvmInput
     static readonly object gate=new();
     static readonly Dictionary<int,KvmMessage> keys=new();
     static readonly KvmMouseButtons buttons=new();
+    static bool releasePending;
+    internal static Func<KvmMessage,bool>? TestSend;
     [StructLayout(LayoutKind.Sequential)] internal struct PointNative {public int X,Y;}
     [StructLayout(LayoutKind.Sequential)] struct MouseInput {public int X,Y;public uint Data,Flags,Time;public UIntPtr Extra;}
     [StructLayout(LayoutKind.Sequential)] struct KeyInput {public ushort Vk,Scan;public uint Flags,Time;public UIntPtr Extra;}
     [StructLayout(LayoutKind.Explicit)] struct Union {[FieldOffset(0)]public MouseInput Mouse;[FieldOffset(0)]public KeyInput Key;}
     [StructLayout(LayoutKind.Sequential)] struct Input {public uint Type;public Union Data;}
-    public static void Inject(KvmMessage message)
+    internal static bool Valid(KvmMessage message)=>message.Type=="release"||
+        message.Type=="key"&&message.Code is >=1 and <=254&&message.X is >=0 and <=255&&(message.Flags&~3)==0||
+        message.Type=="mouse"&&(message.Flags&~(0x2|0x4|0x8|0x10|0x20|0x40|0x80|0x100|0x800|0x1000))==0&&((message.Flags&(0x80|0x100))==0||message.Code is 1 or 2);
+    public static bool Inject(KvmMessage message)
     {
+        if(!Valid(message))return false;
         lock(gate)
         {
-            if(message.Type=="release"){ReleaseAll();return;}
+            if(message.Type=="release")return ReleaseAll();
+            if(KvmInputAccess.Check()!=KvmInputBlock.None){releasePending=true;return false;}
+            if(releasePending&&!ReleaseAll())return false;
+            bool sent=Send(message);
+            if(!sent){releasePending=true;return false;}
             if(message.Type=="key")
             {
-                if(message.Code<1||message.Code>254||message.X<0||message.X>255||(message.Flags&~3)!=0)return;
                 bool up=(message.Flags&2)!=0;
                 if(up)keys.Remove(message.Code);else keys[message.Code]=message;
-                var input=new Input{Type=1,Data=new(){Key=new(){Vk=(ushort)(message.X==0?message.Code:0),Scan=(ushort)message.X,Flags=(uint)(message.Flags|(message.X!=0?8:0)),Extra=Marker}}};
-                SendInput(1,[input],Marshal.SizeOf<Input>());
             }
-            else if(message.Type=="mouse")
-            {
-                const int allowed=0x2|0x4|0x8|0x10|0x20|0x40|0x80|0x100|0x800|0x1000;
-                if((message.Flags&~allowed)!=0)return;
-                if((message.Flags&(0x80|0x100))!=0&&message.Code is not (1 or 2))return;
-                var bounds=SystemInformation.VirtualScreen;
-                if(bounds.Width<2||bounds.Height<2)return;
-                var input=new Input{Type=0,Data=new(){Mouse=new()
-                {
-                    X=(int)((long)(Math.Clamp(message.X,bounds.Left,bounds.Right-1)-bounds.Left)*65535/(bounds.Width-1)),
-                    Y=(int)((long)(Math.Clamp(message.Y,bounds.Top,bounds.Bottom-1)-bounds.Top)*65535/(bounds.Height-1)),
-                    Data=unchecked((uint)message.Code),Flags=0x8000|0x4000|1|(uint)message.Flags,Extra=Marker
-                }}};
-                if(SendInput(1,[input],Marshal.SizeOf<Input>())==1)buttons.Track(message.Flags,message.Code);
-            }
+            else buttons.Track(message.Flags,message.Code);
+            return true;
         }
     }
-    public static void ReleaseAll()
+    static bool Send(KvmMessage message,bool move=true)
+    {
+        if(TestSend!=null)return TestSend(message);
+        Input input;
+        if(message.Type=="key")input=new(){Type=1,Data=new(){Key=new(){Vk=(ushort)(message.X==0?message.Code:0),Scan=(ushort)message.X,Flags=(uint)(message.Flags|(message.X!=0?8:0)),Extra=Marker}}};
+        else
+        {
+            var bounds=SystemInformation.VirtualScreen;
+            if(bounds.Width<2||bounds.Height<2)return false;
+            input=new(){Data=new(){Mouse=new(){
+                X=move?(int)((long)(Math.Clamp(message.X,bounds.Left,bounds.Right-1)-bounds.Left)*65535/(bounds.Width-1)):0,
+                Y=move?(int)((long)(Math.Clamp(message.Y,bounds.Top,bounds.Bottom-1)-bounds.Top)*65535/(bounds.Height-1)):0,
+                Data=unchecked((uint)message.Code),Flags=(move?0x8000u|0x4000u|1u:0)|(uint)message.Flags,Extra=Marker}}};
+        }
+        return SendInput(1,[input],Marshal.SizeOf<Input>())==1;
+    }
+    public static bool ReleaseAll()
     {
         lock(gate)
         {
-            foreach(var key in keys.Values.ToArray())Inject(key with{Flags=key.Flags|2});keys.Clear();
+            if(keys.Count==0&&buttons.Count==0){releasePending=false;return true;}
+            if(KvmInputAccess.Check()!=KvmInputBlock.None){releasePending=true;return false;}
+            bool complete=true;
+            foreach(var key in keys.Values.ToArray())
+                if(Send(key with{Flags=key.Flags|2}))keys.Remove(key.Code);else complete=false;
             foreach(var pair in buttons.Release())
             {
-                var input=new Input{Data=new(){Mouse=new(){Flags=(uint)pair.Item1,Data=(uint)pair.Item2,Extra=Marker}}};
-                SendInput(1,[input],Marshal.SizeOf<Input>());
+                if(!Send(new(){Type="mouse",Flags=pair.Up,Code=pair.Code},false)){buttons.Track(pair.Up/2,pair.Code);complete=false;}
             }
+            releasePending=!complete;return complete;
         }
     }
-    [DllImport("user32.dll")] static extern uint SendInput(uint count,Input[] inputs,int size);
-    [DllImport("user32.dll")] internal static extern bool SetCursorPos(int x,int y);
+    public static void RetryRelease(){lock(gate){if(releasePending)ReleaseAll();}}
+    [DllImport("user32.dll",SetLastError=true)] static extern uint SendInput(uint count,Input[] inputs,int size);
+    [DllImport("user32.dll",SetLastError=true)] internal static extern bool SetCursorPos(int x,int y);
     [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int key);
 }
 
@@ -64,6 +79,7 @@ static class KvmInput
 sealed class KvmMouseButtons
 {
     readonly HashSet<(int Up,int Code)> pressed=[];
+    public int Count=>pressed.Count;
     public void Track(int flags,int code)
     {
         if((flags&0x1fe)==0)return;
@@ -86,7 +102,7 @@ sealed class KvmController:IDisposable
     Control? inputDispatcher;
     Thread? inputThread;
     int disposed;
-    readonly KvmService service;
+    readonly IKvmInputTransport service;
     KvmOptions options;
     MonitorPlacement? remote;
     Point logical,anchor,returnPoint;
@@ -102,11 +118,19 @@ sealed class KvmController:IDisposable
     public event Action<bool>? SeamlessChanged;
     public event Action? EmergencyReturn;
     public event Action? OpenRequested;
-    public KvmController(KvmService service,KvmOptions options)
+    public event Action<string>? Notification;
+    public event Action? StateChanged;
+    System.Windows.Forms.Timer? inputWatch;
+    KvmInputBlock lastBlock;
+    long lastMouseHook=Environment.TickCount64,missingHookSince;
+    internal static Func<Point,bool>? TestWarp;
+    readonly bool testMode;
+    public KvmController(IKvmInputTransport service,KvmOptions options,bool installHooks=true)
     {
-        this.service=service;this.options=options.Copy();Seamless=options.Seamless;
+        this.service=service;this.options=options.Copy();Seamless=options.Seamless;testMode=!installHooks;
         Refresh();
         mouseProc=MouseHook;keyProc=KeyHook;
+        if(testMode)return;
         // The KVM launcher shortcut is also available when networking is off.
         {
             using var ready=new ManualResetEventSlim();Exception? failure=null;bool started=false;
@@ -118,12 +142,13 @@ sealed class KvmController:IDisposable
                     if(options.Role=="Host")mouseHook=SetWindowsHookEx(14,mouseProc,GetModuleHandle(null),0);
                     keyHook=SetWindowsHookEx(13,keyProc,GetModuleHandle(null),0);
                     if((options.Role=="Host"&&mouseHook==IntPtr.Zero)||keyHook==IntPtr.Zero)throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+                    inputWatch=new(){Interval=100};inputWatch.Tick+=(_,_)=>{CheckAccess();KvmInput.RetryRelease();};inputWatch.Start();
                     started=true;ready.Set();Application.Run();
                 }
                 catch(Exception e){failure=e;if(!started)ready.Set();else Log.Write("KVM input thread: "+e);}
                 finally
                 {
-                    ReturnLocal();if(mouseHook!=IntPtr.Zero)UnhookWindowsHookEx(mouseHook);if(keyHook!=IntPtr.Zero)UnhookWindowsHookEx(keyHook);
+                    inputWatch?.Stop();inputWatch?.Dispose();ReturnLocal();if(mouseHook!=IntPtr.Zero)UnhookWindowsHookEx(mouseHook);if(keyHook!=IntPtr.Zero)UnhookWindowsHookEx(keyHook);
                     mouseHook=keyHook=IntPtr.Zero;inputDispatcher?.Dispose();
                 }
             }){IsBackground=true,Name="KVM input",Priority=ThreadPriority.AboveNormal};
@@ -161,10 +186,11 @@ sealed class KvmController:IDisposable
         if(!TryPhysical(target,position,out var physical))return;
         if(remote!=null)service.Send(remote.Peer,new(){Type="release"});
         if(target.Peer==options.Id){ReturnLocalCore(physical);return;}
-        if(remote==null){returnPoint=Cursor.Position;anchor=Screen.FromPoint(returnPoint).Bounds.Location;var bounds=Screen.FromPoint(returnPoint).Bounds;anchor=new(bounds.Left+bounds.Width/2,bounds.Top+bounds.Height/2);Cursor.Hide();}
+        if(!CheckAccess()){LoseControl(KvmInputAccess.Check());return;}
+        if(remote==null){returnPoint=Cursor.Position;var bounds=Screen.FromPoint(returnPoint).Bounds;anchor=new(bounds.Left+bounds.Width/2,bounds.Top+bounds.Height/2);if(!Warp(anchor)){LoseControl(KvmInputBlock.Unavailable);return;}if(!testMode)Cursor.Hide();}
         remote=target;logical=position;
-        Warp(anchor);
-        service.Send(target.Peer,new(){Type="mouse",X=physical.X,Y=physical.Y});
+        if(!service.Send(target.Peer,new(){Type="mouse",X=physical.X,Y=physical.Y})){ReturnLocalCore();return;}
+        StateChanged?.Invoke();
     }
     public void ReturnLocal()
     {
@@ -173,13 +199,42 @@ sealed class KvmController:IDisposable
     }
     void ReturnLocalCore(Point? destination=null)
     {
-        if(remote!=null){service.Send(remote.Peer,new(){Type="release"});remote=null;Cursor.Show();Warp(destination??returnPoint);}
+        if(remote!=null){service.Send(remote.Peer,new(){Type="release"});remote=null;if(!testMode)Cursor.Show();Warp(destination??returnPoint);}
         else if(destination.HasValue)Warp(destination.Value);
+        StateChanged?.Invoke();
     }
-    void Warp(Point point){pendingWarp=point;KvmInput.SetCursorPos(point.X,point.Y);}
+    bool Warp(Point point)
+    {
+        // SetCursorPos can succeed while ClipCursor clamps the requested position.
+        bool success=TestWarp?.Invoke(point)??(KvmInput.SetCursorPos(point.X,point.Y)&&Cursor.Position==point);
+        pendingWarp=success?point:null;return success;
+    }
+    bool CheckAccess()
+    {
+        var block=KvmInputAccess.Check();
+        if(block==KvmInputBlock.None){if(lastBlock!=KvmInputBlock.None)RepairHooks();lastBlock=block;return true;}
+        KvmInput.ReleaseAll();
+        if(remote!=null)LoseControl(block);else{physicalKeys.Clear();swallowed.Clear();lastBlock=block;}
+        return false;
+    }
+    internal void TestWatch()=>CheckAccess();
+    internal void TestMove(int dx,int dy)=>MoveRemote(dx,dy);
+    void LoseControl(KvmInputBlock reason)
+    {
+        ReturnLocalCore();physicalKeys.Clear();swallowed.Clear();pendingWarp=null;
+        if(lastBlock!=reason){lastBlock=reason;Notification?.Invoke(KvmInputAccess.Describe(reason));}
+    }
     void MoveRemote(int dx,int dy)
     {
-        if(remote==null||ViewerActive||(dx==0&&dy==0))return;
+        if(ViewerActive||(dx==0&&dy==0)||!CheckAccess())return;
+        long now=Environment.TickCount64;
+        if(now-lastMouseHook>150)
+        {
+            if(missingHookSince==0)missingHookSince=now;
+            else if(now-missingHookSince>=30){LoseControl(KvmInputBlock.Unavailable);RepairHooks();return;}
+        }
+        else missingHookSince=0;
+        if(remote==null)return;
         var candidate=new Point((int)Math.Clamp((long)logical.X+dx,-100000,100000),(int)Math.Clamp((long)logical.Y+dy,-100000,100000));
         var target=Seamless?KvmLayout.At(Monitors,candidate):null;
         bool cornerBlocked=options.BlockScreenCorners&&physicalScreens.TryGetValue(remote.Key,out var screen)&&KvmLayout.ProtectedCorner(remote,screen,candidate);
@@ -195,14 +250,22 @@ sealed class KvmController:IDisposable
         try{Marshal.StructureToPtr(new KeyData{Vk=(uint)key,Flags=(up?128u:0)|(injected?16u:0)},ptr,false);return KeyHook(0,IntPtr.Zero,ptr);}
         finally{Marshal.FreeHGlobal(ptr);}
     }
+    internal IntPtr TestMouse(int message,Point point)
+    {
+        var ptr=Marshal.AllocHGlobal(Marshal.SizeOf<MouseData>());
+        try{Marshal.StructureToPtr(new MouseData{Point=new(){X=point.X,Y=point.Y}},ptr,false);return MouseHook(0,(IntPtr)message,ptr);}
+        finally{Marshal.FreeHGlobal(ptr);}
+    }
     IntPtr MouseHook(int code,IntPtr w,IntPtr l)
     {
         if(code<0)return CallNextHookEx(IntPtr.Zero,code,w,l);
         var data=Marshal.PtrToStructure<MouseData>(l);int message=w.ToInt32();
         if(data.Extra==KvmInput.Marker||(data.Flags&1)!=0)return CallNextHookEx(IntPtr.Zero,code,w,l);
+        lastMouseHook=Environment.TickCount64;missingHookSince=0;
         var point=new Point(data.Point.X,data.Point.Y);
         try
         {
+            if(!CheckAccess())return CallNextHookEx(IntPtr.Zero,code,w,l);
             // Ignore our own recentering event, without delaying the next physical movement.
             if(message==0x200&&pendingWarp==point){pendingWarp=null;return remote!=null?(IntPtr)1:CallNextHookEx(IntPtr.Zero,code,w,l);}
             if(remote==null)
@@ -241,6 +304,7 @@ sealed class KvmController:IDisposable
         var data=Marshal.PtrToStructure<KeyData>(l);
         // Ignore only our own remote input. Stream Deck and accessibility tools set LLKHF_INJECTED too.
         if(data.Extra==KvmInput.Marker)return CallNextHookEx(IntPtr.Zero,code,w,l);
+        if(!CheckAccess())return CallNextHookEx(IntPtr.Zero,code,w,l);
         int key=(int)data.Vk;bool up=(data.Flags&128)!=0;
         bool repeat=!up&&!physicalKeys.Add(key);if(up)physicalKeys.Remove(key);
         if(up&&swallowed.Remove(key))return (IntPtr)1;
@@ -264,6 +328,19 @@ sealed class KvmController:IDisposable
         {if(Dispatch(Dispose))inputThread.Join(1500);return;}
         if(Interlocked.Exchange(ref disposed,1)!=0)return;
         ReturnLocal();if(inputThread!=null)Application.ExitThread();
+    }
+    void RepairHooks()
+    {
+        if(testMode||inputDispatcher==null||Volatile.Read(ref disposed)!=0)return;
+        if(options.Role=="Host")
+        {
+            if(mouseHook!=IntPtr.Zero)UnhookWindowsHookEx(mouseHook);
+            mouseHook=SetWindowsHookEx(14,mouseProc,GetModuleHandle(null),0);
+        }
+        if(keyHook!=IntPtr.Zero)UnhookWindowsHookEx(keyHook);
+        keyHook=SetWindowsHookEx(13,keyProc,GetModuleHandle(null),0);
+        lastMouseHook=Environment.TickCount64;missingHookSince=0;
+        if(keyHook==IntPtr.Zero||(options.Role=="Host"&&mouseHook==IntPtr.Zero))LoseControl(KvmInputBlock.Unavailable);
     }
     [DllImport("user32.dll",SetLastError=true)] static extern IntPtr SetWindowsHookEx(int id,Hook callback,IntPtr module,uint thread);
     [DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(IntPtr hook);

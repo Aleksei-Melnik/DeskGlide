@@ -59,7 +59,7 @@ jobs:
         env:
           RELEASE_FOLDER: ${{ steps.package.outputs.folder }}
         run: |
-          foreach($flag in @('--monitor-layout-tests','--update-tests','--streamdeck-tests')) {
+          foreach($flag in @('--monitor-layout-tests', '--kvm-input-tests','--update-tests','--streamdeck-tests')) {
             $p=Start-Process (Join-Path $env:RELEASE_FOLDER 'DeskGlide.exe') -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){throw "Packaged app failed $flag"}
           }

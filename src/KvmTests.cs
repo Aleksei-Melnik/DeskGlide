@@ -15,6 +15,9 @@ static class KvmTests
         if(KvmRawMouse.RelativeDelta(mousePacket,8)!=new Point(-47,13))throw new Exception("Physical raw mouse deltas parsed incorrectly");
         mousePacket[8]=0;if(KvmRawMouse.RelativeDelta(mousePacket,8)!=null)throw new Exception("Synthetic game warp accepted as physical input");
         mousePacket[8]=1;mousePacket[24]=1;if(KvmRawMouse.RelativeDelta(mousePacket,8)!=null)throw new Exception("Absolute input interpreted as relative movement");
+        KvmInputAccess.TestProbe=()=>KvmInputBlock.None;
+        try
+        {
         using var service=new KvmService(new KvmOptions());
         using var input=new KvmController(service,new KvmOptions{Role="Host",Seamless=false});
         input.Refresh();input.ReturnLocal();
@@ -33,6 +36,8 @@ static class KvmTests
         var layoutOptions=new KvmOptions{Layout=[new(){Peer="local",Device="center",Width=100,Height=100,Hotkey=1}]};
         layoutOptions.Validate();bool conflict=false;try{(layoutOptions with{OpenHotkeyKey=(uint)Keys.F1}).Validate();}catch(ArgumentException){conflict=true;}if(!conflict)throw new Exception("Duplicate monitor/hub shortcut allowed");
         Program.Write("kvm-input-thread-test.json",new{Pass=true,InstalledOnDedicatedThread=true,InjectedInput=false,KeyboardLogging=false});
+        }
+        finally{KvmInputAccess.TestProbe=null;}
     }
     public static void Files()
     {

@@ -63,6 +63,26 @@ Signed updates replace the current EXE. Older folder installations migrate in
 place, preserving the active launcher name, settings, pairing and recording tools.
 Only files owned by the signed app package are removed; unknown user files remain.
 
+## KVM and administrator apps
+
+On the Host, **KVM & pairing → Administrator apps** is enabled by default from
+0.7.27. Accept Windows' administrator prompt at startup to switch away from apps
+such as MSI Afterburner, RTSS and Rufus while they have focus. A separate local
+input helper receives those rights. The main app, network connections, screen
+capture, clipboard, recording and updater keep their ordinary rights.
+
+Clients keep ordinary input control by default, so **Updates → Update all PCs**
+can update them without visiting each screen. If you need to control elevated
+windows on a Client, enable the same option there and approve Windows locally.
+Protected Windows security prompts, lock screens and other desktops stay local.
+The app does not disable UAC or change another program's privileges.
+
+If approval is canceled, standard control continues. An elevated foreground app
+then prevents edge switching until you focus an ordinary window or the desktop.
+Loss of input access or a disconnected input helper releases the remote session
+and returns control here. **Ctrl+Alt+Esc** also returns local control on the
+interactive desktop. The **Status** page shows which input mode is active.
+
 ## Virtual camera and audio
 
 **Virtual devices** is available on a receiving PC, and hidden on the KVM host.
