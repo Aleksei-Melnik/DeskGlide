@@ -1,0 +1,71 @@
+name: Publish signed DeskGlide release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version in ScreenCapture.csproj (for example 0.7.26)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: deskglide-release
+  cancel-in-progress: false
+jobs:
+  validation:
+    uses: ./.github/workflows/build.yml
+  release:
+    needs: validation
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: '11.25.0'
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build and sign
+        id: package
+        shell: pwsh
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+          RELEASE_PRIVATE_KEY: ${{ secrets.DESKGLIDE_RELEASE_PRIVATE_KEY }}
+        run: |
+          $ErrorActionPreference='Stop'
+          [xml]$project=Get-Content ./src/ScreenCapture.csproj
+          if($env:EXPECTED_VERSION -notmatch '^\d+\.\d+\.\d+$' -or $project.Project.PropertyGroup.Version -ne $env:EXPECTED_VERSION){throw 'Release version mismatch'}
+          if(!$env:RELEASE_PRIVATE_KEY){throw 'Release signing secret is missing'}
+          $key=Join-Path $env:RUNNER_TEMP ('deskglide-signing-'+[guid]::NewGuid().ToString('N')+'.pem')
+          try {
+            [IO.File]::WriteAllText($key,$env:RELEASE_PRIVATE_KEY)
+            $env:RELEASE_PRIVATE_KEY=$null
+            ./scripts/New-Release.ps1 -SigningKey $key | Out-Host
+          } finally {if(Test-Path -LiteralPath $key){Remove-Item -LiteralPath $key -Force}}
+          $folder=(Get-ChildItem ./dist -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+          "folder=$folder" >> $env:GITHUB_OUTPUT
+          $notes=([IO.File]::ReadAllText((Resolve-Path ./RELEASE-NOTES.md)) -split '(?m)^Previous release:',2)[0].Trim()
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'deskglide-release-notes.md'),$notes)
+      - name: Check packaged app
+        shell: pwsh
+        env:
+          RELEASE_FOLDER: ${{ steps.package.outputs.folder }}
+        run: |
+          foreach($flag in @('--monitor-layout-tests','--update-tests','--streamdeck-tests')) {
+            $p=Start-Process (Join-Path $env:RELEASE_FOLDER 'DeskGlide.exe') -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
+            if($p.ExitCode -ne 0){throw "Packaged app failed $flag"}
+          }
+      - name: Publish verified release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_FOLDER: ${{ steps.package.outputs.folder }}
+        run: ./scripts/Publish-Release.ps1 -ReleaseFolder $env:RELEASE_FOLDER -NotesFile (Join-Path $env:RUNNER_TEMP 'deskglide-release-notes.md') -TargetCommit $env:GITHUB_SHA

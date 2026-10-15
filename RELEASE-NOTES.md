@@ -1,5 +1,7 @@
 DeskGlide 0.7.26
 
+**One-time installation:** download `DeskGlide.exe`, save any needed replay, quit the old app from the tray and replace its EXE. This release establishes a new update signing key. Versions 0.7.25 and earlier cannot install it through their old automatic updater. From 0.7.26 onward, signed automatic updates continue normally. Settings and pairing are preserved.
+
 - Fixed phantom monitors in Monitor layout after a monitor driver reinstall changes a Windows display name, for example DISPLAY5 to DISPLAY1. Connected PCs now use their current screen inventory; obsolete screens are also removed from Available monitors when the layout is saved.
 - When one saved screen is renamed to one current screen, its desk position, logical dimensions, shortcut and edge exclusion are preserved. PCs that are offline retain their saved layout, and real monitors with identical resolutions remain separate.
 
