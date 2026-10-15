@@ -180,6 +180,11 @@ Use × to remove one monitor from edge switching, and drag it back from
 server select **Remote view only** under client permissions; it stays outside
 physical edge switching. An active desktop/virtual display is still required.
 
+Monitor layout removes disconnected displays when their PC reports its current
+screens, including obsolete `DISPLAY` names left by a monitor driver reinstall.
+Offline PCs keep their saved layout. When a PC has one saved and one current
+screen, a changed display name retains its position, shortcut and edge exclusion.
+
 **Computers · KVM** opens a separate chooser. The default launcher shortcut is
 Ctrl+Alt+K, edge-lock toggle Ctrl+Alt+Pause, emergency return Ctrl+Alt+Esc.
 Monitor shortcuts are configurable. Stream Deck injected keystrokes are supported.

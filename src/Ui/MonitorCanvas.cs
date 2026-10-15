@@ -27,9 +27,10 @@ sealed class MonitorCanvas:C.StackPanel
     public List<string> ExcludedMonitors=>excluded.ToList();
     public MonitorCanvas(KvmOptions options,List<MonitorPlacement> source,IEnumerable<KvmPeerInfo>? peers=null)
     {
-        original=options.Copy();remoteOnly=options.RemoteOnlyPeers.ToHashSet();excluded=options.ExcludedMonitors.ToHashSet();monitors=source.Select(m=>m with{}).ToList();
-        foreach(var old in options.Layout.Where(m=>!monitors.Any(n=>n.Key==m.Key)))available[old.Key]=old with{};
-        foreach(var peer in peers??[]){if(peer.RemoteViewOnly)serverPeers.Add(peer.Id);foreach(var screen in peer.Screens){string key=peer.Id+"|"+screen.Device;if(monitors.Any(m=>m.Key==key)||available.ContainsKey(key))continue;available[key]=new(){Peer=peer.Id,Name=peer.Name+" · "+screen.Device,Device=screen.Device,Width=screen.Width,Height=screen.Height};}}
+        var connected=peers?.ToArray()??[];
+        original=KvmLayout.Reconcile(options,connected);remoteOnly=original.RemoteOnlyPeers.ToHashSet();excluded=original.ExcludedMonitors.ToHashSet();monitors=source.Select(m=>m with{}).ToList();
+        foreach(var old in original.Layout.Where(m=>!monitors.Any(n=>n.Key==m.Key)))available[old.Key]=old with{};
+        foreach(var peer in connected){if(peer.RemoteViewOnly)serverPeers.Add(peer.Id);foreach(var screen in peer.Screens){string key=peer.Id+"|"+screen.Device;if(monitors.Any(m=>m.Key==key)||available.ContainsKey(key))continue;available[key]=new(){Peer=peer.Id,Name=peer.Name+" · "+screen.Device,Device=screen.Device,Width=screen.Width,Height=screen.Height};}}
         Children.Add(canvas);label.Margin=new(0,16,0,12);Children.Add(label);
         shortcut.ItemTemplate=Kit.ChoiceTemplate();shortcut.Items.Add(new SettingsWindow.Choice("0","No shortcut"));for(int i=1;i<=12;i++)shortcut.Items.Add(new SettingsWindow.Choice(i.ToString(),"Ctrl+Alt+F"+i));
         var tools=new C.WrapPanel();foreach(var item in new W.FrameworkElement[]{Kit.Text("X"),x,Kit.Text("Y"),y,shortcut}){item.Margin=new(0,0,8,8);item.VerticalAlignment=W.VerticalAlignment.Center;tools.Children.Add(item);}Children.Add(tools);

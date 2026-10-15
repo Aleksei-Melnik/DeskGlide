@@ -52,6 +52,7 @@ internal static class Program
             if(args.Contains("--recording-pipe-test")){RecordingPipeTests.Run();return 0;}
             if(args.Contains("--audio-live-test")){int d=Array.IndexOf(args,"--audio-device");AudioTimingTests.Live(args.Contains("--play-tone"),d<0?null:args[d+1]);return 0;}
             if(args.Contains("--kvm-test")){KvmTests.Run();return 0;}
+            if(args.Contains("--monitor-layout-tests")){MonitorLayoutTests.Run();return 0;}
             if(args.Contains("--kvm-files-tests")){KvmTests.Files();return 0;}
             if(args.Contains("--kvm-native-image-tests")){KvmTests.NativeClipboardImage();return 0;}
             if(args.Contains("--kvm-video-test")){KvmVideoTests.Codec();return 0;}

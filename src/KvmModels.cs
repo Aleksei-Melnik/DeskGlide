@@ -105,6 +105,7 @@ static class KvmLayout
     public static List<MonitorPlacement> Merge(KvmOptions options,IEnumerable<KvmPeerInfo> peers)
     {
         var available=peers.ToArray();
+        options=Reconcile(options,available);
         var remoteOnly=options.RemoteOnlyPeers.Concat(available.Where(p=>p.RemoteViewOnly&&p.Id!=options.Id).Select(p=>p.Id)).ToHashSet();
         var result=options.Layout.Where(m=>!remoteOnly.Contains(m.Peer)&&!options.ExcludedMonitors.Contains(m.Key)).Select(m=>m with{}).ToList();
         foreach(var peer in available.Where(p=>!remoteOnly.Contains(p.Id)))
@@ -117,6 +118,30 @@ static class KvmLayout
             if(found!=null){found.Name=peer.Name+" · "+screen.Device;continue;}
             int x=peer.Id==options.Id?screen.X:result.Count==0?0:result.Max(m=>m.X+m.Width);
             result.Add(new(){Peer=peer.Id,Device=screen.Device,Name=peer.Name+" · "+screen.Device,X=x,Y=peer.Id==options.Id?screen.Y:0,Width=screen.Width,Height=screen.Height});
+        }
+        return result;
+    }
+    public static KvmOptions Reconcile(KvmOptions options,IEnumerable<KvmPeerInfo> peers)
+    {
+        var result=options.Copy();
+        foreach(var peer in peers)
+        {
+            var saved=result.Layout.Where(m=>m.Peer==peer.Id).ToArray();
+            // Windows can renumber a single display after a driver reinstall.
+            // Keep its desk position, logical size, shortcut and exclusion when
+            // there is exactly one saved and one current screen to match.
+            if(saved.Length==1&&peer.Screens.Length==1&&saved[0].Device!=peer.Screens[0].Device)
+            {
+                string oldKey=saved[0].Key;
+                saved[0].Device=peer.Screens[0].Device;
+                result.ExcludedMonitors=result.ExcludedMonitors.Select(k=>k==oldKey?saved[0].Key:k).Distinct().ToList();
+            }
+            var devices=peer.Screens.Select(s=>s.Device).ToHashSet();
+            // Only an online PC can tell us a monitor is gone. Retain the saved
+            // layout of offline PCs so a network disconnect never resets a desk.
+            result.Layout.RemoveAll(m=>m.Peer==peer.Id&&!devices.Contains(m.Device));
+            result.ExcludedMonitors.RemoveAll(k=>k.StartsWith(peer.Id+"|",StringComparison.Ordinal)&&!devices.Contains(k[(peer.Id.Length+1)..]));
+            foreach(var monitor in result.Layout.Where(m=>m.Peer==peer.Id))monitor.Name=peer.Name+" · "+monitor.Device;
         }
         return result;
     }

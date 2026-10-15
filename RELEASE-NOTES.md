@@ -1,4 +1,11 @@
-DeskGlide 0.7.25
+DeskGlide 0.7.26
+
+- Fixed phantom monitors in Monitor layout after a monitor driver reinstall changes a Windows display name, for example DISPLAY5 to DISPLAY1. Connected PCs now use their current screen inventory; obsolete screens are also removed from Available monitors when the layout is saved.
+- When one saved screen is renamed to one current screen, its desk position, logical dimensions, shortcut and edge exclusion are preserved. PCs that are offline retain their saved layout, and real monitors with identical resolutions remain separate.
+
+Validation: a regression fixture reproduces the stale local monitor on the previous code and passes with the fix. Checks cover local/remote stale displays, renumbering, fullscreen resolution changes, offline PCs, remote-only servers and restoring an excluded monitor. Tests do not change user settings or inject input. A Stream Deck button that still selects an old display ID needs its current monitor selected again.
+
+Previous release: 0.7.25
 
 - Fixed screenshot clipboard sharing: Windows screenshots and copied PNG/bitmap images now transfer over KVM and can be pasted on the other PC with Ctrl+V. The previous implementation handled text and Explorer file copies but did not publish clipboard images.
 - Images use lossless PNG at their original dimensions, transferred in small chunks over the separate file channel. Recipients publish native bitmap/PNG clipboard formats and a file fallback; no extra mouse or keyboard input is sent. Update both PCs for native image pasting.
