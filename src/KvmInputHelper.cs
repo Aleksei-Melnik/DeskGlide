@@ -2,6 +2,8 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text.Json;
 using System.Threading.Channels;
 
@@ -64,6 +66,18 @@ sealed class KvmHelperPipe:IDisposable
 static class KvmInputHelper
 {
     public const string Argument="--input-helper";
+    internal static NamedPipeServerStream CreatePipe(string name)
+    {
+        // .NET 10 CurrentUserOnly compares the token's owner (Administrators
+        // after elevation), rather than its user SID. Explicit user ownership
+        // keeps both integrity levels private to the same actual account.
+        using var identity=WindowsIdentity.GetCurrent();var user=identity.User!;
+        var security=new PipeSecurity();security.SetAccessRuleProtection(true,false);security.SetOwner(user);
+        security.AddAccessRule(new(new SecurityIdentifier(WellKnownSidType.NetworkSid,null),PipeAccessRights.FullControl,AccessControlType.Deny));
+        security.AddAccessRule(new(user,PipeAccessRights.FullControl,AccessControlType.Allow));
+        return NamedPipeServerStreamAcl.Create(name,PipeDirection.InOut,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.FirstPipeInstance,0,0,security);
+    }
+    internal static NamedPipeClientStream ClientPipe(string name)=>new(".",name,PipeDirection.InOut,PipeOptions.Asynchronous,TokenImpersonationLevel.Anonymous);
     internal static KvmOptions SafeOptions(KvmOptions value)=>new()
     {
         Id=value.Id,Role=value.Role,Seamless=value.Seamless,BlockScreenCorners=value.BlockScreenCorners,
@@ -87,7 +101,7 @@ static class KvmInputHelper
     public static async Task<(KvmHelperPipe Pipe,Process Process)> Start(CancellationToken token)
     {
         string name="DeskGlide.Input."+Environment.ProcessId+"."+Guid.NewGuid().ToString("N");
-        var pipe=new NamedPipeServerStream(name,PipeDirection.InOut,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly|PipeOptions.FirstPipeInstance);
+        var pipe=CreatePipe(name);
         Process? child=null;
         try
         {
@@ -110,7 +124,7 @@ static class KvmInputHelper
         using var parent=Process.GetProcessById(pid);using var current=Process.GetCurrentProcess();
         if(parent.StartTime.ToUniversalTime().Ticks!=started||parent.SessionId!=current.SessionId||
             !string.Equals(parent.MainModule?.FileName,Environment.ProcessPath,StringComparison.OrdinalIgnoreCase))throw new IOException("Input helper parent mismatch.");
-        using var pipe=new NamedPipeClientStream(".",args[1],PipeDirection.InOut,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+        using var pipe=ClientPipe(args[1]);
         pipe.Connect(10000);
         VerifyServer(pipe,pid);
         using var link=new KvmHelperPipe(pipe);
@@ -119,7 +133,11 @@ static class KvmInputHelper
     internal static void VerifyClient(NamedPipeServerStream pipe,int expected)
     {if(!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out uint pid)||pid!=expected)throw new IOException("Input helper identity mismatch.");}
     internal static void VerifyServer(NamedPipeClientStream pipe,int expected)
-    {if(!GetNamedPipeServerProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out uint pid)||pid!=expected)throw new IOException("Input helper server mismatch.");}
+    {
+        using var identity=WindowsIdentity.GetCurrent();
+        if(!GetNamedPipeServerProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out uint pid)||pid!=expected||
+            !identity.User!.Equals(pipe.GetAccessControl().GetOwner(typeof(SecurityIdentifier))))throw new IOException("Input helper server mismatch.");
+    }
     sealed class Transport(KvmHelperPipe link):IKvmInputTransport
     {
         public KvmPeerInfo[] Peers {get;set;}=[];

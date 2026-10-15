@@ -47,7 +47,10 @@ app can acknowledge an update and reconnect before consent completes.
 UI, capture, clipboard, updater or recording subsystem. The parent verifies
 the pipe client's PID against the launched child. The child requires elevation,
 checks parent PID/start time, session, EXE path and actual pipe server PID.
-Pipes are same-user only, frames are bounded to 128 KiB, outgoing queues to
+Pipes have an explicit ACL/owner for the actual user SID, deny network logons,
+and the child connects with anonymous impersonation to prevent borrowing its
+elevated token. Do not substitute .NET 10 `CurrentUserOnly`: its token-owner
+comparison fails across elevation (dotnet/runtime#123903). Frames are bounded to 128 KiB, outgoing queues to
 512 items. Only sanitized layout/shortcut/peer data and input commands cross
 this boundary. Injection commands are allowed only in Client role. Invalid
 commands, a full queue, parent loss or missing heartbeat terminate the helper
@@ -126,6 +129,10 @@ OS input, clipboard, settings or live connections. `--kvm-test` checks TLS,
 queue ordering, file/image transfers and dedicated-thread hook startup.
 `--monitor-layout-tests` covers inventories, driver renumbering and geometry.
 `--update-tests` covers signatures, staging, rollback and old payloads.
+`--kvm-helper-approval-test` explicitly exercises a real approved helper with
+native hooks, private cross-integrity IPC and clean shutdown, without activating
+remote control or injecting input. It requires an interactive desktop and is
+excluded from unattended CI. This integration check passed on the gaming PC.
 
 `.github/workflows/build.yml` runs media, lifecycle, UI, KVM, update and plugin
 checks against both folder and standalone builds. UI/native clipboard tests

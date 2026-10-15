@@ -6,7 +6,7 @@ DeskGlide 0.7.27
 
 Update from **0.7.26 → Updates → Update all PCs**. The existing update signing key is retained. Clients update first and reconnect; the Host updates last. Accept the Windows prompt on the Host after restart. No manual EXE replacement is needed from 0.7.26.
 
-Validation: regression tests cover focus/access loss, local return before forwarding a click, failed cursor activation, modifier recovery, accepted/failed key and mouse injection, deferred releases, no phantom right-button release, private IPC process identities, ordered delivery, malformed frames, bounded queues, child exit on pipe closure and exclusion of pairing credentials from helper configuration. These deterministic tests do not inject OS input. A physical two-PC Afterburner/RTSS test still needs verification after updating.
+Validation: regression tests cover focus/access loss, local return before forwarding a click, failed cursor activation, modifier recovery, accepted/failed key and mouse injection, deferred releases, no phantom right-button release, private IPC process identities, ordered delivery, malformed frames, bounded queues, child exit on pipe closure and exclusion of pairing credentials from helper configuration. A real Windows-approved elevated helper was also tested for hook startup, cross-integrity private IPC and clean exit. These checks do not inject OS input. A physical two-PC Afterburner/RTSS test still needs verification after updating.
 
 Previous release: 0.7.26
 

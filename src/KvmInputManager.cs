@@ -77,7 +77,7 @@ sealed class KvmInputManager:IDisposable
                 }
             }
         }
-        catch(Exception e)when(e is IOException or OperationCanceledException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        catch(Exception e)when(e is IOException or OperationCanceledException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
         {if(!stop.IsCancellationRequested){Status="Administrator app control was not started. Enable it again in KVM settings to retry.";Log.Write("KVM helper: "+e.GetType().Name);}}
         finally
         {
@@ -119,8 +119,15 @@ sealed class KvmInputManager:IDisposable
         if(!ready||helper?.Post(new(){Type="activate",Key=monitor.Key,Point=point})!=true)throw new IOException("Waiting for Windows approval for administrator app control…");
     }
     public void ReturnLocal(){active="";if(native!=null)native.ReturnLocal();helper?.Post(new(){Type="local"});}
-    bool Inject(KvmMessage message)=>helper!=null?ready&&helper.Post(new(){Type="input",Input=message}):KvmInput.Inject(message);
-    void RemoteBlocked(){ReturnLocal();Notification?.Invoke("The other PC could not accept input. Control has returned to this PC.");}
+    bool Inject(KvmMessage message)
+    {
+        if(disposed)return false;
+        if(helper is {} link)return ready&&link.Post(new(){Type="input",Input=message});
+        // Never split one pressed-key set between ordinary and elevated processes
+        // while the user is still deciding the Windows consent prompt.
+        return native!=null&&KvmInput.Inject(message);
+    }
+    void RemoteBlocked(){ReturnLocal();EmergencyReturn?.Invoke();Notification?.Invoke("The other PC could not accept input. Control has returned to this PC.");}
     public void Dispose()
     {
         lock(gate){if(disposed)return;disposed=true;}

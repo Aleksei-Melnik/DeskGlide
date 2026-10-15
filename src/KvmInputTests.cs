@@ -108,7 +108,14 @@ static class KvmInputTests
     {
         using var deadline=new CancellationTokenSource(15000);
         string name="DeskGlide.Input.Test."+Guid.NewGuid().ToString("N");
-        using var server=new NamedPipeServerStream(name,PipeDirection.InOut,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly|PipeOptions.FirstPipeInstance);
+        using var server=KvmInputHelper.CreatePipe(name);
+        using(var identity=System.Security.Principal.WindowsIdentity.GetCurrent())
+        {
+            var security=server.GetAccessControl();
+            Require(identity.User!.Equals(security.GetOwner(typeof(System.Security.Principal.SecurityIdentifier))),"Helper pipe is not owned by the actual user SID.");
+            var allows=security.GetAccessRules(true,true,typeof(System.Security.Principal.SecurityIdentifier)).Cast<PipeAccessRule>().Where(r=>r.AccessControlType==System.Security.AccessControl.AccessControlType.Allow);
+            Require(allows.All(r=>r.IdentityReference.Equals(identity.User)),"Helper pipe grants access to another user/group.");
+        }
         var start=new ProcessStartInfo(Environment.ProcessPath!){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden};
         foreach(var argument in new[]{"--kvm-pipe-fixture",name,Environment.ProcessId.ToString()})start.ArgumentList.Add(argument);
         using var child=Process.Start(start)??throw new Exception("Pipe fixture failed to start.");
@@ -140,8 +147,8 @@ static class KvmInputTests
     {
         using var deadline=new CancellationTokenSource(12000);
         string name="DeskGlide.Input.Test."+Guid.NewGuid().ToString("N");
-        using var server=new NamedPipeServerStream(name,PipeDirection.InOut,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
-        using var client=new NamedPipeClientStream(".",name,PipeDirection.InOut,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+        using var server=KvmInputHelper.CreatePipe(name);
+        using var client=KvmInputHelper.ClientPipe(name);
         var connecting=client.ConnectAsync(deadline.Token);await server.WaitForConnectionAsync(deadline.Token);await connecting;
         using var parent=new KvmHelperPipe(server);using var child=new KvmHelperPipe(client);using var process=Process.GetCurrentProcess();
         var worker=KvmInputHelper.RunLoop(child,process,installHooks:false);
@@ -167,7 +174,7 @@ static class KvmInputTests
     public static int PipeFixture(string name,int parent)
     {
         if(!name.StartsWith("DeskGlide.Input.Test.",StringComparison.Ordinal))throw new IOException("Invalid fixture pipe.");
-        using var pipe=new NamedPipeClientStream(".",name,PipeDirection.InOut,PipeOptions.Asynchronous|PipeOptions.CurrentUserOnly);
+        using var pipe=KvmInputHelper.ClientPipe(name);
         pipe.Connect(5000);KvmInputHelper.VerifyServer(pipe,parent);
         using var link=new KvmHelperPipe(pipe);using var deadline=new CancellationTokenSource(15000);
         while(true)
