@@ -92,7 +92,9 @@ Since 0.7.28, desktop conversion queues up to three UYVY staging buffers and
 maps only a completed copy (`DO_NOT_WAIT`). It keeps the original DXGI timestamp,
 drains on desktop timeouts and resets the queue on format/size changes. This
 avoids waiting immediately on GPU work but can add one capture interval of
-delivery latency. Do not claim a zero-copy desktop-to-NVENC path: replay still
+delivery latency. The replay acquisition worker uses 20% polling headroom and
+drains all completed copies on each poll; encoding stays at 60/120 FPS and the
+independent NDI sender stays at 60 FPS. Do not claim a zero-copy desktop-to-NVENC path: replay still
 packs CPU UYVY into NV12 and transports native-sized raw frames to FFmpeg.
 
 `ReplayRecorder` packs offered frames into a bounded history and owns rolling

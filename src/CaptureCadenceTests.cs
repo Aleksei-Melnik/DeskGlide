@@ -124,7 +124,7 @@ static class CaptureCadenceTests
         ReplayResult? saved=null;int captureRate=0;
         using var receiveStop=new CancellationTokenSource();
         Task receive=Task.CompletedTask;Exception? receiveError=null;
-        var ndiAges=new List<double>();long ndiFrames=0;
+        var ndiAges=new List<double>();long ndiFrames=0,ndiRepeated=0;int ndiPrevious=-1;
         surface.Shown+=async(_,_)=>
         {
             try
@@ -152,7 +152,7 @@ static class CaptureCadenceTests
                                 var source=observations.LastOrDefault(s=>s.Id==id&&s.Valid);
                                 if(source.Time>0)ndiAges.Add((ReplayRecorder.Now-source.Time/(double)Stopwatch.Frequency)*1000);
                             }
-                            ndiFrames++;
+                            if(id==ndiPrevious)ndiRepeated++;ndiPrevious=id;ndiFrames++;
                         },100);
                     }
                     catch(Exception e){receiveError=e;}
@@ -160,7 +160,12 @@ static class CaptureCadenceTests
                 await Task.Delay(seconds*1000);captureRate=engine.CaptureRate;saved=await recorder.SaveAsync("Capture cadence");
             }
             catch(Exception e){surface.Failure=e;}
-            finally{receiveStop.Cancel();await receive;surface.Close();}
+            finally
+            {
+                receiveStop.Cancel();await receive;
+                engine.NdiEnabled=false;engine.ReplayEnabled=false;engine.FrameAvailable=null;
+                surface.Close();
+            }
         };
         Application.Run(surface);engine.ReplayEnabled=false;
         if(surface.Failure!=null)throw surface.Failure;
@@ -186,7 +191,7 @@ static class CaptureCadenceTests
         Program.Write("capture-cadence-test.json",new{Pass=valid,MarkerValid=valid,InvalidMarkers=invalid,codec,options.Width,options.Height,ndi,CaptureRate=captureRate,QpcFrequency=Stopwatch.Frequency,fps,seconds,surface.Presented,Captured=samples.Length,SourceRepeated=samples.Zip(samples.Skip(1),(a,b)=>a.Id==b.Id).Count(v=>v),
             SourceIntervalMedian=deltas.Order().ElementAt(deltas.Length/2),SourceIntervalP95=deltas.Order().ElementAt((int)(deltas.Length*.95)),SourceIntervalMaximum=deltas.Max(),
             engine.MaxCaptureMs,engine.MaxObserverMs,recorder.MaxConvertMs,recorder.MaxPipeWriteMs,recorder.RepeatedInputFrames,recorder.HistoryMisses,
-            NdiFrames=ndiFrames,NdiMatchedFrames=ndiAges.Count,NdiAgeMedianMs=orderedAges.Length==0?0:orderedAges[orderedAges.Length/2],NdiAgeP95Ms=orderedAges.Length==0?0:orderedAges[(int)(orderedAges.Length*.95)],NdiReceiveError=receiveError?.Message,
+            NdiFrames=ndiFrames,NdiRepeated=ndiRepeated,NdiMatchedFrames=ndiAges.Count,NdiAgeMedianMs=orderedAges.Length==0?0:orderedAges[orderedAges.Length/2],NdiAgeP95Ms=orderedAges.Length==0?0:orderedAges[(int)(orderedAges.Length*.95)],NdiReceiveError=receiveError?.Message,
             OutputFrames=ids.Count,OutputRepeated=steps.Count(s=>s==0),OutputMaxStep=steps.Max(),recorder.Error,clip.LocalPath,Root=root,Samples=samples.Select(s=>new{s.Time,s.Id,s.Arrival,s.Valid}).ToArray(),OutputIds=ids});
         if(!valid)throw new Exception("Presentation marker or local NDI receive validation failed; see report.");
     }

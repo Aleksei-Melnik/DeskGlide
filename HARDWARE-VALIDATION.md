@@ -1,4 +1,15 @@
-# DeskGlide hardware validation — 0.7.17, 2026-10-11
+# DeskGlide hardware validation
+
+## Recording cadence, scaling and SDR — 0.7.28, 2026-10-18
+
+The RTX 5070 matrix covers all 24 UI codec/resolution/frame-rate combinations:
+AV1/HEVC/H.264, 720p/1080p/1440p/4K and 60/120 FPS. Decoded source-frame IDs,
+three consecutive saves, mixed/separate AAC and elementary-stream SDR headers
+passed. Additional native/CUDA-scaled color checks matched flat NDI-derived
+patches. See [the detailed recording report](docs/RECORDING-VALIDATION-0.7.28.md)
+for long-run/audio/NDI results, the limited NVIDIA App comparison and remaining
+desktop-source repetitions at 120 FPS. The older hardware coverage statements
+below describe their dated releases rather than the current matrix.
 
 ## Replay memory optimization — 0.7.23, 2026-10-13
 
