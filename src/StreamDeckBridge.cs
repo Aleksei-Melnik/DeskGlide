@@ -44,7 +44,7 @@ sealed class StreamDeckBridge:IDisposable
     readonly string descriptor,pipeName;
     readonly Task worker;
     DeckSnapshot? snapshot;
-    int clients;
+    int clients,disposed;
     public int Clients=>Volatile.Read(ref clients);
     public void Publish(DeckSnapshot value)=>Volatile.Write(ref snapshot,value);
     public static string Descriptor=>Path.Combine(Log.Folder,"streamdeck-bridge.json");
@@ -137,7 +137,15 @@ sealed class StreamDeckBridge:IDisposable
     }
     public void Dispose()
     {
+        if(Interlocked.Exchange(ref disposed,1)!=0)return;
         stop.Cancel();
+        // Listen may still be publishing the next pipe's descriptor. Stop that
+        // writer before removing discovery, or it can recreate the file after
+        // shutdown (and race an updater's replacement process).
+        MediaShutdown.Drain([worker],RemoveDiscovery);
+    }
+    void RemoveDiscovery()
+    {
         try
         {
             if(File.Exists(descriptor)&&JsonDocument.Parse(File.ReadAllText(descriptor)).RootElement.GetProperty("pipe").GetString()==pipeName)File.Delete(descriptor);

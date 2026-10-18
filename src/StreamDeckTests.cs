@@ -51,7 +51,8 @@ static class StreamDeckTests
         await client.WriteAsync(Encoding.UTF8.GetBytes("{\"id\":\"bad\",\"command\":\"shell\"}\n"),token);
         await using var next=new NamedPipeClientStream(".",name,PipeDirection.InOut,PipeOptions.Asynchronous);await next.ConnectAsync(token);
         Require(JsonDocument.Parse((await DeckProtocol.ReadLine(next,token))!).RootElement.GetProperty("type").GetString()=="status","Malformed client killed listener");
-        server.Dispose();Require(!File.Exists(discovery),"Stale discovery retained after shutdown");
+        server.Dispose();server.Dispose();
+        Require(!File.Exists(discovery)&&!File.Exists(discovery+".tmp"),"Discovery writer retained files after shutdown");
         Program.Write("streamdeck-tests.json",new{Pass=true,DirectPluginInstallation=true,ConcurrentSaveAndStatus=true,DuplicateSuppressed=true,CommandsWhitelisted=true,BoundedInput=true,LocalNamedPipeRoundtrip=true,LiveInputInjected=false});
         Directory.Delete(folder);
     }

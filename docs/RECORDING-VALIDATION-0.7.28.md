@@ -81,6 +81,12 @@ NVIDIA parity. PresentMon could not collect ETW metrics with the current user
 permissions; no privilege/group/security settings were changed to obtain them.
 NVIDIA preferences were restored and the test game was closed.
 
+An additional 60-second real-game HEVC/native1440p120 run, with GPU utilization
+sampled at 98%, acquired about 134.97 images/s. It encoded 7,294 frames with
+58 repeated input timestamps (0.80%), one encoder session, zero history misses
+and no recorder error. There was no known frame-ID marker in the game, so this
+is an exploratory source/encoder observation rather than proof of distinct
+pixel images or a matched NVIDIA120/game-FPS-impact benchmark.
 ## Long recording, audio and NDI follow-up
 
 The AV1 native 1440p120 run exported a full 600-second replay followed by
@@ -149,6 +155,11 @@ SDR fixture initially exported only 103 frames after cold startup
 consumed a fixed sleep. It now waits for four seconds of actual closed media
 with a bounded startup deadline. Actual offered-image conservation and source
 gaps are checked separately from frame order, repetition, color and audio.
+
+The release gate also exposed a Stream Deck discovery-writer shutdown race.
+The bridge now stops its listener before deleting discovery, with bounded
+drain and idempotent disposal. Twelve local protocol/shutdown runs passed;
+the final release gate runs the entire folder/portable suite again.
 
 The 0.7.27 narrow elevated-input helper and existing update signing key are
 retained. These recording tests do not replace physical two-PC input testing.
