@@ -155,9 +155,11 @@ public sealed class ReplayRecorder:IDisposable
             {
                 var config=Volatile.Read(ref options);int currentVersion=Volatile.Read(ref version);
                 if(!config.Enabled){Status="Буфер выключен";await Task.Delay(200,stop.Token);continue;}
+                int inputWidth,inputHeight;
                 using(var first=GetFrame())
                 {
                     if(first==null){Status="Ожидание SDR-кадра";await Task.Delay(100,stop.Token);continue;}
+                    inputWidth=first.Width;inputHeight=first.Height;
                     if(activeVersion!=currentVersion)
                     {
                         lock(chunksGate)foreach(var chunk in chunks.Where(c=>c.Pins==0).ToArray()){TryDelete(chunk.Path);chunks.Remove(chunk);}
@@ -175,10 +177,10 @@ public sealed class ReplayRecorder:IDisposable
                 // Setup may outlive a settings change. Re-read on the next pass.
                 if(!Volatile.Read(ref options).Enabled||Volatile.Read(ref version)!=currentVersion)continue;
                 Status=UiStrings.T("Checking GPU recording support…");
-                var encoder=validationEncoder??await RecordingEncoders.SelectAsync(config,Width,Height,stop.Token);
+                var encoder=validationEncoder??await RecordingEncoders.SelectAsync(config,Width,Height,stop.Token,inputWidth,inputHeight);
                 if(!Volatile.Read(ref options).Enabled||Volatile.Read(ref version)!=currentVersion)continue;
                 using var captureAudio=new ReplayAudio(config,syntheticAudio,200);audio=captureAudio;
-                await RecordSession(config,currentVersion,captureAudio,encoder);
+                await RecordSession(config,currentVersion,captureAudio,encoder,inputWidth,inputHeight);
                 audio=null;
             }
             catch(OperationCanceledException) when(stop.IsCancellationRequested){break;}
@@ -189,7 +191,7 @@ public sealed class ReplayRecorder:IDisposable
             }
         }
     }
-    async Task RecordSession(ReplayOptions config,int currentVersion,ReplayAudio captureAudio,RecordingEncoder encoder)
+    async Task RecordSession(ReplayOptions config,int currentVersion,ReplayAudio captureAudio,RecordingEncoder encoder,int inputWidth,int inputHeight)
     {
         Volatile.Write(ref warmupUntil,Stopwatch.GetTimestamp()+Stopwatch.Frequency*2);
         string folder=Path.Combine(runFolder,Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
@@ -200,7 +202,7 @@ public sealed class ReplayRecorder:IDisposable
         var token=sessionStop.Token;
         double epoch=0,lastVideo=Now;int parsed=-1;
         var started=new TaskCompletionSource<double>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var videoEncoder=config.IsSilent?null:new RecordingVideoEncoder(videoName,Width,Height,config.Fps,encoder,token);
+        using var videoEncoder=config.IsSilent&&inputWidth==Width&&inputHeight==Height?null:new RecordingVideoEncoder(videoName,inputWidth,inputHeight,Width,Height,config.Fps,encoder,token);
         var args=new List<string>{"-hide_banner","-loglevel","warning","-nostdin","-y"};
         if(videoEncoder!=null)
             // These are compressed packets: enough for delayed local/KVM audio,
@@ -280,14 +282,14 @@ public sealed class ReplayRecorder:IDisposable
                     pacing.WaitUntil((long)((due+playout)*Stopwatch.Frequency),token);
                     token.ThrowIfCancellationRequested();
                     MaxWriterLateMs=Math.Max(MaxWriterLateMs,(Now-due)*1000);
-                    if(frameIndex>config.Fps*5&&Now-due>1)throw new IOException(UiStrings.F("{0} cannot keep up with {1} FPS. Lower recording resolution or frame rate.",encoder.Label,config.Fps));
+                    if(Now-epoch>5&&Now-due>1)throw new IOException(UiStrings.F("{0} cannot keep up with {1} FPS. Lower recording resolution or frame rate.",encoder.Label,config.Fps));
                     using var frame=GetFrame((long)(due*Stopwatch.Frequency),previousCapture,Stopwatch.Frequency*3/(config.Fps*4));if(frame==null){Thread.Sleep(1);continue;}
                     if(frame.CapturedAt==previousCapture)RepeatedInputFrames++;previousCapture=frame.CapturedAt;
                     var data=frame.Data;
-                    if(frame.Width!=Width||frame.Height!=Height)
-                    {resized??=new byte[Width*Height*3/2];RecordingPixels.ResizeNv12(data,frame.Width,frame.Height,resized,Width,Height);data=resized;}
+                    if(frame.Width!=inputWidth||frame.Height!=inputHeight)
+                    {resized??=new byte[inputWidth*inputHeight*3/2];RecordingPixels.ResizeNv12(data,frame.Width,frame.Height,resized,inputWidth,inputHeight);data=resized;}
                     long written=Stopwatch.GetTimestamp();
-                    writer.Write(data[..(Width*Height*3/2)],token);
+                    writer.Write(data[..(inputWidth*inputHeight*3/2)],token);
                     MaxPipeWriteMs=Math.Max(MaxPipeWriteMs,Stopwatch.GetElapsedTime(written).TotalMilliseconds);
                     frameIndex++;EncodedFrames++;lastVideo=Now;Volatile.Write(ref liveUpdated,lastVideo);Volatile.Write(ref liveEnd,epoch+frameIndex/(double)config.Fps);
                 }

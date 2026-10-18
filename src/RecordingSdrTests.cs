@@ -10,7 +10,7 @@ namespace SdrCapture;
 static class RecordingSdrTests
 {
     static void Require(bool value,string message){if(!value)throw new Exception(message);}
-    public static void Run(bool hardware)
+    public static void Run(bool hardware,bool scaled=false)
     {
         string root=Path.Combine(AppContext.BaseDirectory,"recording-sdr-"+DateTime.Now.ToString("yyyyMMdd-HHmmss"));Directory.CreateDirectory(root);
         Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",root);
@@ -25,9 +25,10 @@ static class RecordingSdrTests
         var results=new List<object>();
         foreach(string codec in hardware?new[]{"AV1","HEVC","H264"}:new[]{"H264"})foreach(string audio in new[]{"Mixed","Silent"})
         {
+            int width=scaled?1280:hardware?640:320,height=scaled?960:hardware?360:240;
             int fps=codec=="H264"&&(hardware||audio=="Mixed")?60:120;
-            var options=new ReplayOptions{Enabled=true,Codec=codec,Fps=fps,AudioMode=audio,Width=640,Height=360,Folder=Path.Combine(root,"clips")};
-            var encoder=hardware?RecordingEncoders.Candidates(options,640,360)[0]:new RecordingEncoder("libx264","Software regression",["-c:v","libx264","-preset","ultrafast","-crf","12","-g",(fps*2).ToString(),"-bf","0","-pix_fmt","yuv420p"]);
+            var options=new ReplayOptions{Enabled=true,Codec=codec,Fps=fps,AudioMode=audio,Width=width,Height=height,Folder=Path.Combine(root,"clips")};
+            var encoder=hardware?RecordingEncoders.Candidates(options,width,height)[0]:new RecordingEncoder("libx264","Software regression",["-c:v","libx264","-preset","ultrafast","-crf","12","-g",(fps*2).ToString(),"-bf","0","-pix_fmt","yuv420p"]);
             using var recorder=new ReplayRecorder(options,true,4,encoder);using var stop=new CancellationTokenSource();
             long producerSkipped=0;
             var producer=Task.Factory.StartNew(()=>
@@ -60,14 +61,18 @@ static class RecordingSdrTests
             byte[] decoded=File.ReadAllBytes(raw);int maximum=0;
             for(int patch=0;patch<8;patch++)
             {
-                int x=patch*80+40;
-                foreach(int at in new[]{180*640+x,640*360+90*640+x,640*360+90*640+x+1})maximum=Math.Max(maximum,Math.Abs(decoded[at]-expected[at]));
+                int x=patch*80+40,dx=x*width/640;
+                int[] sourcePoints=[180*640+x,640*360+90*640+x,640*360+90*640+x+1];
+                int[] outputPoints=[height/2*width+dx,width*height+height/4*width+dx,width*height+height/4*width+dx+1];
+                for(int at=0;at<3;at++)maximum=Math.Max(maximum,Math.Abs(decoded[outputPoints[at]]-expected[sourcePoints[at]]));
             }
             Require(maximum<=8,"Encoded SDR patches differ from the NDI source: "+maximum);
+            if((long)width*360!=(long)height*640)Require(decoded[0]<=18&&decoded[(height-1)*width]<=18,"Resizing lost limited-range black letterboxing.");
             using var container=ReplayTests.Probe(saved.LocalPath).GetAwaiter().GetResult();int tracks=container.RootElement.GetProperty("streams").EnumerateArray().Count(s=>s.GetProperty("codec_type").GetString()=="audio");
             Require(tracks==(audio=="Silent"?0:1),"Audio mode changed while testing SDR.");
             string idsFile=Path.Combine(root,codec+"-"+audio+"-ids.raw");
-            ReplayTools.RunAsync(ReplayTools.Ffmpeg,["-v","error","-y","-i",saved.LocalPath,"-an","-vf","crop=256:16:0:0,scale=16:1:flags=neighbor,format=gray","-fps_mode","passthrough","-f","rawvideo",idsFile],deadline.Token).GetAwaiter().GetResult();
+            int markerWidth=256*width/640,markerHeight=16*width/640,top=(height-360*width/640)/2;
+            ReplayTools.RunAsync(ReplayTools.Ffmpeg,["-v","error","-y","-i",saved.LocalPath,"-an","-vf",$"crop={markerWidth}:{markerHeight}:0:{top},scale=16:1:flags=neighbor,format=gray","-fps_mode","passthrough","-f","rawvideo",idsFile],deadline.Token).GetAwaiter().GetResult();
             byte[] strip=File.ReadAllBytes(idsFile);var ids=new List<int>();
             for(int at=0;at+16<=strip.Length;at+=16){int id=0;for(int bit=0;bit<16;bit++)if(strip[at+bit]>128)id|=1<<bit;ids.Add(id);}
             var steps=ids.Skip(1).Zip(ids,(a,b)=>(a-b+65536)%65536).Skip(4).ToArray();int repeated=steps.Count(s=>s==0);
@@ -81,9 +86,9 @@ static class RecordingSdrTests
                 minimumAudioRms=MinimumRms(File.ReadAllBytes(pcm));
                 Require(minimumAudioRms>.04,"AAC recording contains an artificial audio hole.");
             }
-            results.Add(new{codec,audio,fps,Encoder=encoder.Name,ElementaryBt709=true,MaximumCodeDifferenceFromNdi=maximum,Frames=ids.Count,Repeated=repeated,producerSkipped,MinimumAudioRms=minimumAudioRms,File=saved.LocalPath});
+            results.Add(new{codec,audio,fps,width,height,Encoder=encoder.Name,ElementaryBt709=true,MaximumCodeDifferenceFromNdi=maximum,Frames=ids.Count,Repeated=repeated,producerSkipped,MinimumAudioRms=minimumAudioRms,File=saved.LocalPath});
         }
-        Program.Write("recording-sdr-tests.json",new{Pass=true,hardware,RealHdrGpuSource=true,SdrWhiteNits=240,SameColorPatchesAsNdi=true,ElementaryHeadersChecked=true,DecodedFrameOrderChecked=true,SyntheticAudioContinuityChecked=true,Results=results});
+        Program.Write("recording-sdr-tests.json",new{Pass=true,hardware,scaled,RealHdrGpuSource=true,SdrWhiteNits=240,SameColorPatchesAsNdi=true,ElementaryHeadersChecked=true,DecodedFrameOrderChecked=true,SyntheticAudioContinuityChecked=true,Results=results});
     }
     static double MinimumRms(byte[] pcm)
     {

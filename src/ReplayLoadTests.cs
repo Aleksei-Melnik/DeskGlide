@@ -13,27 +13,27 @@ namespace SdrCapture;
 // Hidden, isolated GPU workload. Never changes the desktop, keys, profiles or live recorder.
 static class ReplayLoadTests
 {
-    public static void Run(int fps,string codec,bool stress,int seconds=30,string? encoderName=null,bool hdr=false,bool sync=false,int window=12)
+    public static void Run(int fps,string codec,bool stress,int seconds=30,string? encoderName=null,bool hdr=false,bool sync=false,int window=12,int width=2560,int height=1440,string audio="Mixed",bool synthetic=false)
     {
         string root=Path.Combine(AppContext.BaseDirectory,$"load-{fps}-{codec}-{stress}-{DateTime.Now:yyyyMMddHHmmss}");
         Directory.CreateDirectory(root);Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",root);
-        var options=new ReplayOptions{Enabled=true,Fps=fps,Codec=codec,Quality="Ultra",Width=2560,Height=1440,
+        var options=new ReplayOptions{Enabled=true,Fps=fps,Codec=codec,Quality="Ultra",Width=width,Height=height,AudioMode=audio,
             Microphone="",GameAudio="default:render",ExtraAudio="",Folder=Path.Combine(root,"clips")};
         using var devices=new MMDeviceEnumerator();using var endpoint=devices.GetDefaultAudioEndpoint(DataFlow.Render,Role.Multimedia);
         using var playback=new WasapiOut(endpoint,AudioClientShareMode.Shared,true,200);
-        playback.Init(sync?new CodedTone():new AudioTimingTests.QuietTone());playback.Play();
+        playback.Init(sync?new CodedTone():new AudioTimingTests.QuietTone());if(!synthetic)playback.Play();
         using var stop=new CancellationTokenSource();
         var referencePackets=new List<float[]>();
         long referenceStart=long.MinValue;
-        var reference=Task.Factory.StartNew(()=>TimedAudioCapture.Run("default:render",stop.Token,(start,data,frames)=>{if(referenceStart==long.MinValue)referenceStart=start;referencePackets.Add(data.AsSpan(0,frames*2).ToArray());},_=>{},bufferMilliseconds:200),CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
+        var reference=synthetic?Task.CompletedTask:Task.Factory.StartNew(()=>TimedAudioCapture.Run("default:render",stop.Token,(start,data,frames)=>{if(referenceStart==long.MinValue)referenceStart=start;referencePackets.Add(data.AsSpan(0,frames*2).ToArray());},_=>{},bufferMilliseconds:200),CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
         var load=stress?Task.Factory.StartNew(()=>GpuLoad(stop.Token),CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default):Task.CompletedTask;
         var cpu=stress?Enumerable.Range(0,Math.Max(1,Environment.ProcessorCount-2)).Select(_=>Task.Factory.StartNew(()=>
         {
             double value=.1;while(!stop.IsCancellationRequested)for(int i=0;i<10000;i++)value=Math.Sin(value+.1);
             GC.KeepAlive(value);
         },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default)).ToArray():[];
-        var encoder=encoderName==null?null:RecordingEncoders.Candidates(options,2560,1440).Single(e=>e.Name==encoderName);
-        using var recorder=new ReplayRecorder(options,false,window,encoder);
+        var encoder=encoderName==null?null:RecordingEncoders.Candidates(options,width,height).Single(e=>e.Name==encoderName);
+        using var recorder=new ReplayRecorder(options,synthetic,window,encoder);
         var memorySamples=new List<object>();
         long producerSkipped=0,captured=0,producerOrigin=0;double maxConvertMs=0;
         var sourceMissingIds=new System.Collections.Concurrent.ConcurrentQueue<long>();
@@ -80,7 +80,7 @@ static class ReplayLoadTests
             var second=recorder.SaveAsync("Load").GetAwaiter().GetResult();
             Thread.Sleep(1000);
             var third=recorder.SaveAsync("Load").GetAwaiter().GetResult();
-            Program.Write($"load-{fps}-{codec}-{stress}{(encoderName==null?"":"-"+encoderName)}{(hdr?"-hdr":"")}{(sync?"-sync":"")}.json",new{fps,codec,stress,seconds,encoderName,hdr,sync,producerOrigin,referenceStart,QpcFrequency=Stopwatch.Frequency,captured,producerSkipped,SourceMissingIds=sourceMissingIds.ToArray(),GpuConvertMs=maxConvertMs,
+            Program.Write($"load-{fps}-{codec}-{stress}{(encoderName==null?"":"-"+encoderName)}{(hdr?"-hdr":"")}{(sync?"-sync":"")}.json",new{fps,codec,stress,seconds,encoderName,hdr,sync,width,height,audio,synthetic,producerOrigin,referenceStart,QpcFrequency=Stopwatch.Frequency,captured,producerSkipped,SourceMissingIds=sourceMissingIds.ToArray(),GpuConvertMs=maxConvertMs,
                 recorder.EncodedFrames,recorder.RepeatedInputFrames,recorder.HistoryMisses,recorder.MaxWriterLateMs,recorder.EncoderStarts,
                 recorder.MaxConvertMs,recorder.MaxPipeWriteMs,recorder.AudioStatus,recorder.AudioDiagnostics,recorder.Error,Memory=memorySamples,First=first,Second=second,Third=third,Root=root});
             if(recorder.Error!=null||recorder.EncoderStarts!=1)throw new Exception("Recording restarted under load; see report");

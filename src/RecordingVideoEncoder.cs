@@ -15,15 +15,16 @@ sealed class RecordingVideoEncoder:IDisposable
     readonly Queue<string> errors=[];
     int disposed;
     internal string PipeName {get;}="DeskGlide-encoded-"+Guid.NewGuid().ToString("N");
-    internal RecordingVideoEncoder(string rawPipe,int width,int height,int fps,RecordingEncoder encoder,CancellationToken token)
+    internal RecordingVideoEncoder(string rawPipe,int sourceWidth,int sourceHeight,int width,int height,int fps,RecordingEncoder encoder,CancellationToken token)
     {
         stop=CancellationTokenSource.CreateLinkedTokenSource(token);
         output=new(PipeName,PipeDirection.Out,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous,0,1024*1024);
         var args=new List<string>{"-hide_banner","-loglevel","warning","-nostdin","-y",
             "-thread_queue_size","8","-threads","1","-probesize","32","-analyzeduration","0"};
-        args.AddRange(RecordingSdr.RawInput(rawPipe,width,height,fps));
+        args.AddRange(RecordingSdr.RawInput(rawPipe,sourceWidth,sourceHeight,fps));
         args.AddRange(["-map","0:v","-an"]);
         args.AddRange(encoder.Arguments);
+        args.AddRange(RecordingScale.Arguments(encoder,sourceWidth,sourceHeight,width,height));
         args.AddRange(RecordingSdr.Tags);
         args.AddRange(["-f","nut","-flush_packets","1","pipe:1"]);
         try{process=Process.Start(ReplayTools.StartInfo(ReplayTools.Ffmpeg,args))??throw new IOException("Video encoder did not start.");}

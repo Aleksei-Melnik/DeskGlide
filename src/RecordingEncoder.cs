@@ -1,6 +1,6 @@
 namespace SdrCapture;
 
-sealed record RecordingEncoder(string Name,string Label,string[] Arguments);
+sealed record RecordingEncoder(string Name,string Label,string[] Arguments,bool GpuScale=true);
 
 static class RecordingEncoders
 {
@@ -27,16 +27,22 @@ static class RecordingEncoders
         var intel=new List<string>{"-c:v",codec+"_qsv","-preset","veryfast","-global_quality",cq.ToString()};intel.AddRange(common);
         return [new(codec+"_nvenc","NVIDIA NVENC",nvidia.ToArray()),new(codec+"_amf","AMD AMF",amd.ToArray()),new(codec+"_qsv","Intel Quick Sync",intel.ToArray())];
     }
-    internal static string[] ProbeArguments(RecordingEncoder encoder,int width,int height,int fps)
-        =>["-hide_banner","-loglevel","error","-nostdin","-f","lavfi","-i",$"color=c=black:s={width}x{height}:r={fps}","-frames:v","2","-an",..encoder.Arguments,"-f","null","-"];
+    internal static string[] ProbeArguments(RecordingEncoder encoder,int width,int height,int fps,int sourceWidth=0,int sourceHeight=0)
+    {
+        if(sourceWidth==0){sourceWidth=width;sourceHeight=height;}
+        string source=$"color=c=black:s={sourceWidth}x{sourceHeight}:r={fps}";
+        if(sourceWidth!=width||sourceHeight!=height)source+=",format=nv12";
+        return ["-hide_banner","-loglevel","error","-nostdin","-f","lavfi","-i",source,"-frames:v","2","-an",..encoder.Arguments,..RecordingScale.Arguments(encoder,sourceWidth,sourceHeight,width,height),"-f","null","-"];
+    }
     internal static async Task<RecordingEncoder?> FindAsync(IEnumerable<RecordingEncoder> candidates,Func<RecordingEncoder,CancellationToken,Task<bool>> probe,CancellationToken token)
     {
         foreach(var encoder in candidates){token.ThrowIfCancellationRequested();if(await probe(encoder,token))return encoder;}
         return null;
     }
-    public static async Task<RecordingEncoder> SelectAsync(ReplayOptions options,int width,int height,CancellationToken token)
+    public static async Task<RecordingEncoder> SelectAsync(ReplayOptions options,int width,int height,CancellationToken token,int sourceWidth=0,int sourceHeight=0)
     {
-        string key=$"{ReplayTools.Ffmpeg}|{File.GetLastWriteTimeUtc(ReplayTools.Ffmpeg).Ticks}|{options.Codec}|{options.Quality}|{width}x{height}|{options.Fps}";
+        if(sourceWidth==0){sourceWidth=width;sourceHeight=height;}
+        string key=$"{ReplayTools.Ffmpeg}|{File.GetLastWriteTimeUtc(ReplayTools.Ffmpeg).Ticks}|{options.Codec}|{options.Quality}|{sourceWidth}x{sourceHeight}>{width}x{height}|{options.Fps}";
         await gate.WaitAsync(token);
         try
         {
@@ -45,10 +51,14 @@ static class RecordingEncoders
                 if(saved.Encoder!=null)return saved.Encoder;
                 if(DateTimeOffset.UtcNow<saved.Retry)throw new IOException(saved.Error);
             }
-            var found=await FindAsync(Candidates(options,width,height),async(encoder,parent)=>
+            // An imported FFmpeg may lack CUDA filters even when NVENC works.
+            // Preflight the actual resize path, with optimized software scaling
+            // as a fallback before trying a different vendor's encoder.
+            var candidates=Candidates(options,width,height).SelectMany(e=>(sourceWidth!=width||sourceHeight!=height)&&e.Name.EndsWith("_nvenc",StringComparison.Ordinal)?new[]{e,e with{GpuScale=false}}:new[]{e});
+            var found=await FindAsync(candidates,async(encoder,parent)=>
             {
                 using var timeout=CancellationTokenSource.CreateLinkedTokenSource(parent);timeout.CancelAfter(TimeSpan.FromSeconds(10));
-                try{await ReplayTools.RunAsync(ReplayTools.Ffmpeg,ProbeArguments(encoder,width,height,options.Fps),timeout.Token);return true;}
+                try{await ReplayTools.RunAsync(ReplayTools.Ffmpeg,ProbeArguments(encoder,width,height,options.Fps,sourceWidth,sourceHeight),timeout.Token);return true;}
                 catch(OperationCanceledException)when(!parent.IsCancellationRequested){Log.Write("Recording encoder probe timed out: "+encoder.Name);return false;}
                 catch(IOException e){Log.Write("Recording encoder unavailable: "+encoder.Name+" · "+e.Message);return false;}
             },token);

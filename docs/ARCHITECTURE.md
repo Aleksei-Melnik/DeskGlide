@@ -92,8 +92,8 @@ Since 0.7.28, desktop conversion queues up to three UYVY staging buffers and
 maps only a completed copy (`DO_NOT_WAIT`). It keeps the original DXGI timestamp,
 drains on desktop timeouts and resets the queue on format/size changes. This
 avoids waiting immediately on GPU work but can add one capture interval of
-delivery latency. Do not claim a zero-copy NVENC path: replay still packs CPU
-UYVY into NV12 and transports raw frames to FFmpeg's hardware encoder.
+delivery latency. Do not claim a zero-copy desktop-to-NVENC path: replay still
+packs CPU UYVY into NV12 and transports native-sized raw frames to FFmpeg.
 
 `ReplayRecorder` packs offered frames into a bounded history and owns rolling
 compressed segments. `RecordingEncoder` selects/preflights GPU encoding;
@@ -110,6 +110,16 @@ This preserves source order through ordinary clock jitter; it cannot invent
 frames missing from the source. `RecordingSdr` tags raw input frames as limited
 BT.709 before encoding, in addition to output tags. Container metadata alone is
 insufficient for AV1 NVENC sequence-header primaries/transfer.
+
+`RecordingScale` scales native-sized NV12 in the video encoder instead of
+resizing every recording deadline on the C# writer thread. NVENC uses CUDA
+upload/scale/padding and keeps the resized surface on the GPU. Preflight includes
+the actual source and output dimensions; imported tools without CUDA filters
+can fall back to FFmpeg's software scaler before trying another GPU vendor.
+Other vendors use the optimized software scaler. A rare source-size transition
+within an existing session is normalized to that session's raw input canvas;
+ordinary capture already retains the selected monitor's preferred native canvas.
+Silent recordings also use the separate video-encoder transport when scaling.
 
 `ReplayAppContext` samples the foreground application into a bounded activity
 timeline. Saving resolves the dominant application over the exported interval;

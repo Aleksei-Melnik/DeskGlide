@@ -1,9 +1,9 @@
 # Recording changes awaiting gameplay validation
 
-Status: candidate 0.7.28, not published. Interactive and load testing on the
-gaming PC was stopped at the user's request while they play. Resume those
-checks after they say the PC is available. Do not change focus, stop the live
-recorder, restart DeskGlide or publish a claim of NVIDIA App parity meanwhile.
+Status: candidate 0.7.28, not published. The user finished playing and explicitly
+made this PC available for comprehensive testing. They also requested shutdown
+after fixes, validation and publication finish. The previous testing pause is
+revoked. Do not claim NVIDIA App parity without the measured comparison.
 
 ## Findings and implemented fixes
 
@@ -25,19 +25,33 @@ recorder, restart DeskGlide or publish a claim of NVIDIA App parity meanwhile.
   classified multiple ordinary apps as Desktop. A bounded activity timeline
   now selects the dominant app in the actual exported interval. Grouping-off
   behavior, File Explorer and older packaged-app frame hosts are addressed.
+- Scaling to a different recording resolution used a per-pixel C# resize on
+  the writer deadline. A 1440p-source to 4K/120 test fell seconds behind. Native
+  frames now reach FFmpeg unchanged; NVENC uses preflighted CUDA scaling, with
+  an optimized software fallback. An isolated 4K/120 HDR-source HEVC run then
+  passed decoded source-frame conservation, three save boundaries, SDR headers
+  and synthetic mixed audio with zero source skips/history misses/restarts.
 
 ## Completed checks
 
 - Release build: no warnings/errors. Deterministic 60/120 FPS jitter selection,
   folder attribution and audio-timeline tests passed locally.
 - Real D3D11 SDR/HDR readback fixtures matched synchronous NDI pixels, ordering,
-  timestamps and bounded allocation. The additional pending-resize assertion
-  has been added and still needs execution.
+  timestamps and bounded allocation. The pending-resize assertion also passed.
 - NVIDIA AV1/HEVC at 120 FPS and H.264 at 60 FPS, mixed audio and silent: six
   actual recordings passed elementary-stream BT.709 limited-range checks and
   flat color-patch comparison with the NDI-derived input (maximum measured
-  Y/U/V code difference: zero). New decoded frame-ID and synthetic AAC
-  continuity assertions were added afterward and still need execution.
+  Y/U/V code difference: zero). The decoded frame-ID and synthetic AAC
+  continuity assertions also passed on all six hardware cases, with no repeats.
+- Cloud regression checks passed on commit 48b452a for folder and portable
+  builds. Later native-input scaling changes need a fresh CI run.
+
+The installed copy's current replay was saved before pausing its replay and
+NDI through the existing private Stream Deck API. This prevents a second active
+encoder from confounding the tests. Restore the saved replay/streaming flags
+from the ignored local investigation state before normal operation/shutdown.
+NVIDIA Overlay was initially disabled and was enabled for comparison; restore
+that preference after testing. Do not change privacy/security settings.
 - Visible-window comparisons were affected by foreground-game/Steam coverage.
   Two later runs also accidentally used the CLI defaults of 60 FPS/20 seconds
   because `--fps120`/`--seconds12` lacked argument separators. Do not cite
