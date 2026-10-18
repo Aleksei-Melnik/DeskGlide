@@ -45,7 +45,16 @@ static class RecordingSdrTests
                 }
             },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
             ReplayResult saved;
-            try{Thread.Sleep(6500);Require(recorder.Error==null,"SDR recording failed: "+recorder.Error);saved=recorder.SaveAsync("SDR tests").GetAwaiter().GetResult();}
+            try
+            {
+                // Cold process/codec startup on hosted Windows can consume most
+                // of a fixed sleep. Wait for actual closed recording segments.
+                var startup=Stopwatch.StartNew();
+                while(recorder.BufferedSeconds<4&&recorder.Error==null&&startup.Elapsed.TotalSeconds<30)Thread.Sleep(50);
+                Require(recorder.Error==null,"SDR recording failed: "+recorder.Error);
+                Require(recorder.BufferedSeconds>=4,"SDR recorder did not produce four seconds within the startup deadline.");
+                saved=recorder.SaveAsync("SDR tests").GetAwaiter().GetResult();
+            }
             finally{stop.Cancel();producer.GetAwaiter().GetResult();recorder.Update(options with{Enabled=false});}
             using var deadline=new CancellationTokenSource(30000);
             string elementary=Path.Combine(root,codec+"-"+audio+(codec=="AV1"?".obu":codec=="HEVC"?".hevc":".h264"));
