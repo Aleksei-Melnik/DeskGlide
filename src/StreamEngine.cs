@@ -25,6 +25,7 @@ public sealed class StreamEngine:IDisposable
     public long AccumulatedDesktopFrames {get;private set;}
     public long SkippedDesktopFrames {get;private set;}
     public long GpuReadbackDrops {get;private set;}
+    public int CaptureRate {get;private set;}
     public long ReplacedFrames {get;private set;}
     public long MissedSlots {get;private set;}
     public long Recoveries {get;private set;}
@@ -68,7 +69,13 @@ public sealed class StreamEngine:IDisposable
         {
             while(!stop.IsCancellationRequested)
             {
-                pacing.SetRate(Math.Max(NdiEnabled?60:1,ReplayEnabled?ReplayFrameRate:1));
+                int requested=Math.Max(NdiEnabled?60:1,ReplayEnabled?ReplayFrameRate:1);
+                // Capture and CFR recording are independent clock domains. A
+                // small acquisition margin lets the recorder choose a fresh
+                // image after one late poll instead of permanently losing a
+                // recording slot. Encoding and NDI retain their requested rates.
+                CaptureRate=ReplayEnabled?Math.Min(240,(requested*6+4)/5):requested;
+                pacing.SetRate(CaptureRate);
                 pacing.Wait(stop.Token);
                 if(stop.IsCancellationRequested) break;
                 var config=Volatile.Read(ref options);
@@ -101,11 +108,10 @@ public sealed class StreamEngine:IDisposable
                     long begin=Stopwatch.GetTimestamp();
                     var fresh=capture.Next();
                     CaptureMs=Stopwatch.GetElapsedTime(begin).TotalMilliseconds;
-                    MaxCaptureMs=Math.Max(MaxCaptureMs,CaptureMs);TotalCaptureMs+=CaptureMs;
                     WhiteNits=capture.WhiteNits;
                     GpuReadbackDrops=capture.ReadbackDrops;
                     if(capture.DesktopUpdated){DesktopFrames++;AccumulatedDesktopFrames+=capture.AccumulatedFrames;SkippedDesktopFrames+=Math.Max(0,(long)capture.AccumulatedFrames-1);}
-                    if(fresh!=null)
+                    while(fresh!=null)
                     {
                         sizes.TryAdd((fresh.Width,fresh.Height),0);
                         LastFreshAt=fresh.CapturedAt;
@@ -115,7 +121,14 @@ public sealed class StreamEngine:IDisposable
                         var displaced=Interlocked.Exchange(ref pending,fresh);
                         if(displaced!=null){displaced.Dispose();ReplacedFrames++;}
                         CapturedFrames++;Error=null;CaptureStatus="Захват";
+                        // A GPU stall can finish several queued copies at once.
+                        // Preserve their timestamps in replay immediately; do
+                        // not carry that backlog into future capture slots.
+                        begin=Stopwatch.GetTimestamp();
+                        fresh=capture.ReadCompleted();
+                        CaptureMs+=Stopwatch.GetElapsedTime(begin).TotalMilliseconds;
                     }
+                    MaxCaptureMs=Math.Max(MaxCaptureMs,CaptureMs);TotalCaptureMs+=CaptureMs;
                 }
                 catch(Exception e)
                 {

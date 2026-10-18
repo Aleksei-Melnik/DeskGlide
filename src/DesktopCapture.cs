@@ -51,6 +51,7 @@ public sealed class DesktopCapture:IDisposable
         try{return NextCore(frame);}
         catch{frame?.Dispose();throw;}
     }
+    internal VideoBuffer? ReadCompleted()=>color.TryReadNdi();
     VideoBuffer? NextCore(VideoBuffer? frame)
     {
         DesktopUpdated=false;AccumulatedFrames=0;
