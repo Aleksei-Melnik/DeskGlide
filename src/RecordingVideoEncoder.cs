@@ -20,12 +20,12 @@ sealed class RecordingVideoEncoder:IDisposable
         stop=CancellationTokenSource.CreateLinkedTokenSource(token);
         output=new(PipeName,PipeDirection.Out,1,PipeTransmissionMode.Byte,PipeOptions.Asynchronous,0,1024*1024);
         var args=new List<string>{"-hide_banner","-loglevel","warning","-nostdin","-y",
-            "-thread_queue_size","8","-threads","1","-probesize","32","-analyzeduration","0",
-            "-f","rawvideo","-pixel_format","nv12","-video_size",$"{width}x{height}","-framerate",fps.ToString(),"-i",@"\\.\pipe\"+rawPipe,
-            "-map","0:v","-an"};
+            "-thread_queue_size","8","-threads","1","-probesize","32","-analyzeduration","0"};
+        args.AddRange(RecordingSdr.RawInput(rawPipe,width,height,fps));
+        args.AddRange(["-map","0:v","-an"]);
         args.AddRange(encoder.Arguments);
-        args.AddRange(["-color_range","tv","-colorspace","bt709","-color_primaries","bt709","-color_trc","bt709",
-            "-f","nut","-flush_packets","1","pipe:1"]);
+        args.AddRange(RecordingSdr.Tags);
+        args.AddRange(["-f","nut","-flush_packets","1","pipe:1"]);
         try{process=Process.Start(ReplayTools.StartInfo(ReplayTools.Ffmpeg,args))??throw new IOException("Video encoder did not start.");}
         catch{output.Dispose();stop.Dispose();throw;}
         try{process.PriorityClass=ProcessPriorityClass.AboveNormal;}catch(System.ComponentModel.Win32Exception){}

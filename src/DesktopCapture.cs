@@ -15,6 +15,8 @@ public sealed class DesktopCapture:IDisposable
     readonly ColorPipeline color;
     readonly DisplayInfo display;
     long whiteReadAt;
+    bool acquired;
+    internal long ReadbackDrops=>color.ReadbackDrops;
     public bool CompensateSdr {get;set;}
     public bool CaptureCursor {get;set;}=true;
     public double WhiteNits {get;private set;}
@@ -45,6 +47,13 @@ public sealed class DesktopCapture:IDisposable
     }
     public VideoBuffer? Next()
     {
+        VideoBuffer? frame=color.TryReadNdi();
+        try{return NextCore(frame);}
+        catch{frame?.Dispose();throw;}
+    }
+    VideoBuffer? NextCore(VideoBuffer? frame)
+    {
+        DesktopUpdated=false;AccumulatedFrames=0;
         var current=output.Description1;
         if(!current.AttachedToDesktop || (current.ColorSpace==ColorSpaceType.RgbFullG2084NoneP2020)!=display.Hdr ||
             current.DesktopCoordinates.Right-current.DesktopCoordinates.Left!=display.Width ||
@@ -55,29 +64,28 @@ public sealed class DesktopCapture:IDisposable
         long now=System.Diagnostics.Stopwatch.GetTimestamp();
         if(!display.Hdr)WhiteNits=80;
         else if(now>=whiteReadAt){WhiteNits=WhiteLevel.Read(display.Device);whiteReadAt=now+System.Diagnostics.Stopwatch.Frequency/4;}
+        ReleaseAcquired();
         var result=duplication.AcquireNextFrame(0,out var info,out var resource);
-        if(result.Code==unchecked((int)0x887A0027)) return null;
+        if(result.Code==unchecked((int)0x887A0027))return frame??color.TryReadNdi();
         result.CheckError();
+        acquired=true;
         AccumulatedFrames=info.AccumulatedFrames;DesktopUpdated=info.LastPresentTime>0;
-        VideoBuffer? frame=null;
         try
         {
             using(resource)
             using(var texture=resource.QueryInterface<ID3D11Texture2D>())
             {
                 color.Cursor.Enabled=CaptureCursor;color.Cursor.Update(duplication,info);
-                frame=color.ConvertNdi(texture,display.Hdr,display.Hdr&&CompensateSdr?(float)(80/WhiteNits):1);
-                frame.CapturedAt=Math.Max(info.LastPresentTime,info.LastMouseUpdateTime);
-                if(frame.CapturedAt<=0)frame.CapturedAt=System.Diagnostics.Stopwatch.GetTimestamp();
-                return frame;
+                long capturedAt=Math.Max(info.LastPresentTime,info.LastMouseUpdateTime);
+                if(capturedAt<=0)capturedAt=System.Diagnostics.Stopwatch.GetTimestamp();
+                color.QueueNdi(texture,display.Hdr,display.Hdr&&CompensateSdr?(float)(80/WhiteNits):1,capturedAt);
             }
         }
-        catch{frame?.Dispose();throw;}
-        finally
-        {
-            var released=duplication.ReleaseFrame();
-            if(released.Failure){frame?.Dispose();released.CheckError();}
-        }
+        // This path polls with a zero timeout. Holding ownership across the
+        // next pacing wait can prevent a fresh desktop copy and halve capture.
+        finally{ReleaseAcquired();}
+        return frame??color.TryReadNdi();
     }
-    public void Dispose(){color?.Dispose();duplication?.Dispose();context?.Dispose();device?.Dispose();output?.Dispose();adapter?.Dispose();factory?.Dispose();}
+    void ReleaseAcquired(){if(!acquired)return;acquired=false;duplication.ReleaseFrame().CheckError();}
+    public void Dispose(){if(acquired)try{ReleaseAcquired();}catch{}color?.Dispose();duplication?.Dispose();context?.Dispose();device?.Dispose();output?.Dispose();adapter?.Dispose();factory?.Dispose();}
 }

@@ -24,6 +24,7 @@ public sealed class StreamEngine:IDisposable
     public long DesktopFrames {get;private set;}
     public long AccumulatedDesktopFrames {get;private set;}
     public long SkippedDesktopFrames {get;private set;}
+    public long GpuReadbackDrops {get;private set;}
     public long ReplacedFrames {get;private set;}
     public long MissedSlots {get;private set;}
     public long Recoveries {get;private set;}
@@ -102,9 +103,10 @@ public sealed class StreamEngine:IDisposable
                     CaptureMs=Stopwatch.GetElapsedTime(begin).TotalMilliseconds;
                     MaxCaptureMs=Math.Max(MaxCaptureMs,CaptureMs);TotalCaptureMs+=CaptureMs;
                     WhiteNits=capture.WhiteNits;
+                    GpuReadbackDrops=capture.ReadbackDrops;
+                    if(capture.DesktopUpdated){DesktopFrames++;AccumulatedDesktopFrames+=capture.AccumulatedFrames;SkippedDesktopFrames+=Math.Max(0,(long)capture.AccumulatedFrames-1);}
                     if(fresh!=null)
                     {
-                        if(capture.DesktopUpdated){DesktopFrames++;AccumulatedDesktopFrames+=capture.AccumulatedFrames;SkippedDesktopFrames+=Math.Max(0,(long)capture.AccumulatedFrames-1);}
                         sizes.TryAdd((fresh.Width,fresh.Height),0);
                         LastFreshAt=fresh.CapturedAt;
                         long observer=Stopwatch.GetTimestamp();
@@ -219,7 +221,7 @@ sealed class Pacer:IDisposable
     public long Wait(CancellationToken token)
     {
         long now=Stopwatch.GetTimestamp(),missed=0;
-        if(now-next>=step){missed=(now-next)/step;next=now;}
+        if(now-next>=step){missed=(now-next)/step;next+=missed*step;}
         WaitUntil(next,token);
         next+=step;return missed;
     }

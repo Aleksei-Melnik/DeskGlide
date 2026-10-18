@@ -1,4 +1,15 @@
-DeskGlide 0.7.27
+DeskGlide 0.7.28
+
+- Replay recording now preserves chronological source frames across small capture-clock variations. This avoids artificial repeat/drop pairs when a source frame lands just after a recording deadline. Capture pacing also retains its clock phase after a missed slot.
+- Desktop capture reads completed GPU copies from a bounded staging queue instead of blocking immediately on the copy just submitted. SDR conversion is unchanged. Queued readback can add one capture interval of delivery latency; this is bounded to three staging surfaces and retains the original presentation timestamps.
+- Recordings explicitly carry limited-range SDR BT.709 on both raw input frames and encoded output. Previously AV1 sequence headers could report unspecified primaries/transfer even though the MP4 container said BT.709. Recordings use the same HDR-to-SDR conversion and color values as NDI, without writing an HDR stream.
+- Application folders describe the app used for most of the saved interval. Briefly switching to the desktop or opening Save no longer relabels a CS2 clip as Desktop. Browsers, OBS, Discord and other ordinary apps are recognized; File Explorer is distinguished from the desktop. Turning off app grouping now actually saves directly to the selected folder.
+
+The update signing key and existing settings/pairing are retained. Install through **Updates → Update all PCs**. If an older copy is stored directly in a protected location such as `C:\`, its existing updater may require that copy to be started as administrator for this update.
+
+Validation includes deterministic 60/120 FPS phase-jitter resampling, real D3D11 SDR/HDR readback equivalence, decoded recording frame IDs, elementary-stream color headers, AAC synthetic-audio continuity, application attribution and signed-update regressions. NVIDIA NVENC AV1/HEVC at 120 FPS and H.264 at 60 FPS were checked for SDR color headers and NDI color-patch agreement in both mixed-audio and silent recordings. These fixes do not establish identical performance or image quality to NVIDIA App in every game; a matched gameplay comparison remains necessary.
+
+Previous release: 0.7.27
 
 - Fixed KVM input ownership when an administrator app has focus. The Host now offers a Windows-approved local input helper so edge switching and input suppression can work with MSI Afterburner, RTSS, Rufus and similar elevated apps. Networking, clipboard, capture and recording remain in the ordinary process. No driver is installed and Windows security prompts/lock screens stay local.
 - Input failures now return control to this PC and tell the Host when the receiving PC cannot accept input. Keys and mouse buttons are tracked only after Windows accepts a press; failed releases are retained and retried. Cursor activation checks both the Windows result and the actual cursor position. Mouse hook loss and recovery from an inaccessible desktop re-establish input hooks.

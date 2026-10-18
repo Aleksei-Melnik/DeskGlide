@@ -88,6 +88,13 @@ preferred native canvas dimensions are independent of fullscreen resolution.
 Reference-counted `VideoBuffer`/recording pools keep ownership explicit.
 Capture can continue for replay while NDI is disabled.
 
+Since 0.7.28, desktop conversion queues up to three UYVY staging buffers and
+maps only a completed copy (`DO_NOT_WAIT`). It keeps the original DXGI timestamp,
+drains on desktop timeouts and resets the queue on format/size changes. This
+avoids waiting immediately on GPU work but can add one capture interval of
+delivery latency. Do not claim a zero-copy NVENC path: replay still packs CPU
+UYVY into NV12 and transports raw frames to FFmpeg's hardware encoder.
+
 `ReplayRecorder` packs offered frames into a bounded history and owns rolling
 compressed segments. `RecordingEncoder` selects/preflights GPU encoding;
 `RecordingVideoEncoder` and pipe writers separate video encoding from audio
@@ -95,6 +102,20 @@ muxing so audio arrival does not retain uncompressed video for the whole wait.
 Saving pins completed segments and `ReplayDelivery` copies finalized clips.
 `TimedAudioCapture` maps WASAPI sample/device timestamps to a 48 kHz timeline;
 `ReplayAudio` reads local/KVM sources without changing the NDI latency clock.
+
+The recorder selects an unconsumed source sample within 3/4 of a frame interval
+around its output deadline before falling back to the latest preceding image.
+The short look-ahead is covered by the existing 100 ms recording playout delay.
+This preserves source order through ordinary clock jitter; it cannot invent
+frames missing from the source. `RecordingSdr` tags raw input frames as limited
+BT.709 before encoding, in addition to output tags. Container metadata alone is
+insufficient for AV1 NVENC sequence-header primaries/transfer.
+
+`ReplayAppContext` samples the foreground application into a bounded activity
+timeline. Saving resolves the dominant application over the exported interval;
+DeskGlide/Stream Deck save controls are transparent. Ordinary apps are not
+blacklisted as Desktop. Local activity metadata is not embedded into media or
+sent to a server. `GroupByApp=false` bypasses the application subfolder.
 
 `KvmVideo`/GPU capture serve remote viewers separately from NDI.
 `DiscordReceiver` and native DirectShow camera components receive NDI into a

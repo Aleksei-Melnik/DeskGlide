@@ -18,6 +18,10 @@ public sealed class ColorPipeline : IDisposable
     readonly ID3D11ComputeShader ndiShader;
     ID3D11Buffer? ndiBuffer, ndiStaging;
     ID3D11UnorderedAccessView? ndiUav;
+    ID3D11Buffer[] ndiReadbacks=[];
+    readonly long[] ndiTimes=new long[3];
+    int ndiHead,ndiPending;
+    internal long ReadbackDrops {get;private set;}
     ID3D11Buffer? p010, p010Staging;
     ID3D11UnorderedAccessView? p010Uav;
     ID3D11ShaderResourceView? outputSrv;
@@ -31,7 +35,8 @@ public sealed class ColorPipeline : IDisposable
     public byte[] Pixels { get; private set; } = [];
     internal long ReadbackBytes => (staging == null ? 0 : (long)Width * Height * 8)
         + (p010Staging == null ? 0 : (long)Width * Height * 3)
-        + (ndiStaging == null ? 0 : (long)Width * Height * 2);
+        + (ndiStaging == null ? 0 : (long)Width * Height * 2)
+        + (long)ndiReadbacks.Length*Width*Height*2;
     Format inputFormat;
     readonly int canvasWidth,canvasHeight;
     int inputWidth,inputHeight;
@@ -194,7 +199,7 @@ public sealed class ColorPipeline : IDisposable
         finally { context.Unmap(p010Staging!, 0); }
         return packed;
     }
-    public unsafe VideoBuffer ConvertNdi(ID3D11Texture2D source,bool hdr,float exposure)
+    void PackNdi(ID3D11Texture2D source,bool hdr,float exposure)
     {
         Render(source,hdr,exposure);
         if((Width & 1) != 0) throw new NotSupportedException("NDI requires an even monitor width.");
@@ -203,11 +208,15 @@ public sealed class ColorPipeline : IDisposable
             uint count=checked((uint)(Width*Height*2));
             ndiBuffer=device.CreateBuffer(count,BindFlags.UnorderedAccess,ResourceUsage.Default,CpuAccessFlags.None,ResourceOptionFlags.BufferAllowRawViews);
             ndiUav=device.CreateUnorderedAccessView(ndiBuffer,new UnorderedAccessViewDescription(ndiBuffer,Format.R32_Typeless,0,count/4,BufferUnorderedAccessViewFlags.Raw));
-            ndiStaging=device.CreateBuffer(count,BindFlags.None,ResourceUsage.Staging,CpuAccessFlags.Read);
         }
         context.CSSetShader(ndiShader);context.CSSetShaderResource(0,outputSrv);context.CSSetUnorderedAccessView(0,ndiUav);
         context.Dispatch(((uint)Width+15)/16,((uint)Height+7)/8,1);
         context.CSSetShaderResource(0,null);context.CSSetUnorderedAccessView(0,null);
+    }
+    public unsafe VideoBuffer ConvertNdi(ID3D11Texture2D source,bool hdr,float exposure)
+    {
+        PackNdi(source,hdr,exposure);
+        ndiStaging??=device.CreateBuffer(checked((uint)(Width*Height*2)),BindFlags.None,ResourceUsage.Staging,CpuAccessFlags.Read);
         context.CopyResource(ndiStaging!,ndiBuffer);
         var frame=new VideoBuffer(Width,Height);
         try
@@ -218,6 +227,34 @@ public sealed class ColorPipeline : IDisposable
             return frame;
         }
         catch{frame.Dispose();throw;}
+    }
+    internal bool QueueNdi(ID3D11Texture2D source,bool hdr,float exposure,long capturedAt)
+    {
+        if(ndiPending==3){ReadbackDrops++;return false;}
+        PackNdi(source,hdr,exposure);
+        if(ndiReadbacks.Length==0)ndiReadbacks=Enumerable.Range(0,3).Select(_=>device.CreateBuffer(checked((uint)(Width*Height*2)),BindFlags.None,ResourceUsage.Staging,CpuAccessFlags.Read)).ToArray();
+        int index=(ndiHead+ndiPending)%3;
+        context.CopyResource(ndiReadbacks[index],ndiBuffer);ndiTimes[index]=capturedAt;ndiPending++;
+        // Submit without mapping the surface just written by the GPU. Reading
+        // that surface immediately serializes capture behind the game's GPU work.
+        context.Flush();return true;
+    }
+    internal unsafe VideoBuffer? TryReadNdi()
+    {
+        if(ndiPending==0)return null;
+        var staging=ndiReadbacks[ndiHead];
+        var result=context.Map(staging,0,MapMode.Read,Vortice.Direct3D11.MapFlags.DoNotWait,out var map);
+        if(result.Code==unchecked((int)0x887A000A))return null; // DXGI_ERROR_WAS_STILL_DRAWING
+        result.CheckError();
+        VideoBuffer? frame=null;
+        try
+        {
+            frame=new(Width,Height){CapturedAt=ndiTimes[ndiHead]};
+            fixed(byte* dst=frame.Data)System.Buffer.MemoryCopy((void*)map.DataPointer,dst,frame.Length,frame.Length);
+            ndiHead=(ndiHead+1)%3;ndiPending--;return frame;
+        }
+        catch{frame?.Dispose();throw;}
+        finally{context.Unmap(staging,0);}
     }
     void Render(ID3D11Texture2D source, bool hdr, float exposure)
     {
@@ -236,6 +273,6 @@ public sealed class ColorPipeline : IDisposable
         context.Dispatch(((uint)Width + 7) / 8, ((uint)Height + 7) / 8, 1);
         context.CSSetShaderResource(0, null); context.CSSetShaderResource(1, null); context.CSSetUnorderedAccessView(0, null);
     }
-    void FreeTextures() { srv?.Dispose(); uav?.Dispose(); outputSrv?.Dispose(); input?.Dispose(); output?.Dispose(); staging?.Dispose(); p010Uav?.Dispose(); p010?.Dispose(); p010Staging?.Dispose(); ndiUav?.Dispose();ndiBuffer?.Dispose();ndiStaging?.Dispose();ndiBuffer=null;ndiStaging=null;p010=null;p010Staging=null;staging=null; input = null; }
+    void FreeTextures() { srv?.Dispose(); uav?.Dispose(); outputSrv?.Dispose(); input?.Dispose(); output?.Dispose(); staging?.Dispose(); p010Uav?.Dispose(); p010?.Dispose(); p010Staging?.Dispose(); ndiUav?.Dispose();ndiBuffer?.Dispose();ndiStaging?.Dispose();foreach(var buffer in ndiReadbacks)buffer.Dispose();ndiReadbacks=[];ndiHead=ndiPending=0;ndiBuffer=null;ndiStaging=null;p010=null;p010Staging=null;staging=null; input = null; }
     public void Dispose() { FreeTextures(); Cursor.Dispose(); ndiShader.Dispose();packShader.Dispose(); constants.Dispose(); shader.Dispose(); }
 }

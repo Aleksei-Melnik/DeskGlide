@@ -107,7 +107,7 @@ sealed partial class TrayApp:ApplicationContext
             if(replay.Error!=null&&replay.Error!=lastReplayError){notifications.Enqueue("Проблема записи повтора: "+replay.Error);lastReplayError=replay.Error;}
             if(notifications.TryDequeue(out string? message))tray.ShowBalloonTip(5000,"DeskGlide",message[..Math.Min(255,message.Length)],ToolTipIcon.Info);
         };
-        timer.Start();engine.Start(settings.Options);StartKvm();StartDiscord();
+        ReplayAppContext.Capture();timer.Start();engine.Start(settings.Options);StartKvm();StartDiscord();
         StartDeckBridge();
         _=Task.Run(async()=>{try{await RecordingTools.MigrateLegacyAsync();}catch(Exception e){Log.Write("Recording tools migration: "+e.Message);}});
         if(settings.Kvm.Role!="Host")_=Task.Run(async()=>{for(int i=0;i<30&&!closing;i++){try{DiscordDevices.RecoverDefaults(settings.Kvm.Role);}catch(Exception e){Log.Write("Audio default recovery: "+e.Message);}await Task.Delay(1000);}});

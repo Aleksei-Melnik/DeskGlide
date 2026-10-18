@@ -53,6 +53,12 @@ internal static class Program
             if(args.Contains("--ndi-audio-test")){NdiAudioTests.Run();return 0;}
             if(args.Contains("--audio-timing-test")){AudioTimingTests.Run();return 0;}
             if(args.Contains("--recording-pixels-test")){RecordingPixelTests.Run();return 0;}
+            if(args.Contains("--replay-app-tests")){ReplayAppTests.Run();return 0;}
+            if(args.Contains("--recording-cadence-tests")){RecordingCadenceTests.Run();return 0;}
+            if(args.Contains("--gpu-readback-tests")){GpuReadbackTests.Run();return 0;}
+            if(args.Contains("--recording-sdr-tests")){RecordingSdrTests.Run(args.Contains("--hardware"));return 0;}
+            if(args.Contains("--capture-game-test")){int f=Array.IndexOf(args,"--fps"),s=Array.IndexOf(args,"--seconds");CaptureCadenceTests.Observe(f<0?60:int.Parse(args[f+1]),s<0?12:int.Parse(args[s+1]));return 0;}
+            if(args.Contains("--capture-cadence-test")){int f=Array.IndexOf(args,"--fps"),s=Array.IndexOf(args,"--seconds");CaptureCadenceTests.Run(f<0?60:int.Parse(args[f+1]),s<0?20:int.Parse(args[s+1]));return 0;}
             if(args.Contains("--recording-pipe-test")){RecordingPipeTests.Run();return 0;}
             if(args.Contains("--audio-live-test")){int d=Array.IndexOf(args,"--audio-device");AudioTimingTests.Live(args.Contains("--play-tone"),d<0?null:args[d+1]);return 0;}
             if(args.Contains("--kvm-test")){KvmTests.Run();return 0;}

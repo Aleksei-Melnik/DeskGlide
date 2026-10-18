@@ -94,8 +94,8 @@ sealed partial class TrayApp
         savingReplay=true;deckSaveState="saving";PublishDeckState();
         try
         {
-            string app=ReplayAppContext.Capture();notifications.Enqueue(UiStrings.F("Saving the last {0}…",ReplayTime.Format(settings.Replay.BufferSeconds)));
-            var result=await replay.SaveAsync(app);
+            ReplayAppContext.Capture();notifications.Enqueue(UiStrings.F("Saving the last {0}…",ReplayTime.Format(settings.Replay.BufferSeconds)));
+            var result=await replay.SaveAsync();
             // Delivery may finish before the export continuation returns to the UI.
             if(deliveredDeckSaves.Remove(result.LocalPath)){deckSaveState="saved";deckSaveRevision++;}
             else{pendingDeckSaves.Add(result.LocalPath);deckSaveState="queued";}

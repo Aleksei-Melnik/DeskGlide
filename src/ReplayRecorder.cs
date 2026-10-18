@@ -120,11 +120,15 @@ public sealed class ReplayRecorder:IDisposable
             while(frames.Count>limit){frames[0].Dispose();frames.RemoveAt(0);}
         }
     }
-    RecordingFrame? GetFrame(long timestamp=long.MaxValue)
+    RecordingFrame? GetFrame(long timestamp=long.MaxValue,long previous=-1,long tolerance=0)
     {
         lock(framesGate)
         {
-            for(int i=frames.Count-1;i>=0;i--)if(frames[i].CapturedAt<=timestamp)
+            if(frames.Count==0)return null;
+            Span<long> times=stackalloc long[frames.Count];for(int n=0;n<frames.Count;n++)times[n]=frames[n].CapturedAt;
+            if(timestamp<long.MaxValue-tolerance&&times[0]>timestamp+tolerance)HistoryMisses++;
+            int i=RecordingFrameSelection.Index(times,timestamp,previous,tolerance);
+            if(i>=0)
             {
                 var selected=frames[i].Retain();
                 // Once a recording timestamp is consumed, older frames cannot
@@ -133,7 +137,7 @@ public sealed class ReplayRecorder:IDisposable
                 {for(int old=0;old<i;old++)frames[old].Dispose();frames.RemoveRange(0,i);}
                 return selected;
             }
-            if(frames.Count>0){HistoryMisses++;return frames[0].Retain();}return null;
+            return null;
         }
     }
     public void Update(ReplayOptions value)
@@ -203,7 +207,10 @@ public sealed class ReplayRecorder:IDisposable
             // without filling another queue with multi-megabyte raw frames.
             args.AddRange(["-thread_queue_size","128","-probesize","32","-analyzeduration","0","-f","nut","-i",@"\\.\pipe\"+videoEncoder.PipeName]);
         else
-            args.AddRange(["-thread_queue_size","8","-threads","1","-probesize","32","-analyzeduration","0","-f","rawvideo","-pixel_format","nv12","-video_size",$"{Width}x{Height}","-framerate",config.Fps.ToString(),"-i",@"\\.\pipe\"+videoName]);
+        {
+            args.AddRange(["-thread_queue_size","8","-threads","1","-probesize","32","-analyzeduration","0"]);
+            args.AddRange(RecordingSdr.RawInput(videoName,Width,Height,config.Fps));
+        }
         args.AddRange(["-thread_queue_size","16","-probesize","32","-analyzeduration","0","-f","f32le","-ar","48000","-ac","6","-i",@"\\.\pipe\"+audioName]);
         if(!config.IsSilent)
         {
@@ -274,7 +281,7 @@ public sealed class ReplayRecorder:IDisposable
                     token.ThrowIfCancellationRequested();
                     MaxWriterLateMs=Math.Max(MaxWriterLateMs,(Now-due)*1000);
                     if(frameIndex>config.Fps*5&&Now-due>1)throw new IOException(UiStrings.F("{0} cannot keep up with {1} FPS. Lower recording resolution or frame rate.",encoder.Label,config.Fps));
-                    using var frame=GetFrame((long)(due*Stopwatch.Frequency));if(frame==null){Thread.Sleep(1);continue;}
+                    using var frame=GetFrame((long)(due*Stopwatch.Frequency),previousCapture,Stopwatch.Frequency*3/(config.Fps*4));if(frame==null){Thread.Sleep(1);continue;}
                     if(frame.CapturedAt==previousCapture)RepeatedInputFrames++;previousCapture=frame.CapturedAt;
                     var data=frame.Data;
                     if(frame.Width!=Width||frame.Height!=Height)
@@ -352,7 +359,7 @@ public sealed class ReplayRecorder:IDisposable
         var drive=new DriveInfo(Path.GetPathRoot(runFolder)!);
         if(drive.AvailableFreeSpace<512L*1024*1024)throw new IOException("Для буфера повтора осталось менее 512 МБ. Освободите место на локальном диске.");
     }
-    public async Task<ReplayResult> SaveAsync(string appFolder="Desktop")
+    public async Task<ReplayResult> SaveAsync(string? appFolder=null)
     {
         if(!await saveGate.WaitAsync(0))throw new InvalidOperationException("Предыдущий повтор ещё сохраняется.");
         ReplayChunk[] selected=[];
@@ -403,7 +410,8 @@ public sealed class ReplayRecorder:IDisposable
             await ReplayTools.RunAsync(ReplayTools.Ffmpeg,exportArgs,timeout.Token);
             if(new FileInfo(partial).Length<1024)throw new IOException("Пустой файл повтора.");
             File.Move(partial,output);
-            string destination=Path.Combine(config.Folder,ReplayAppContext.SafeName(appFolder),name);
+            appFolder??=ReplayAppContext.ForInterval(selected[0].Start+offset,selected[0].Start+end);
+            string destination=ReplayAppContext.Destination(config,appFolder,name);
             File.WriteAllText(output+".delivery.tmp",JsonSerializer.Serialize(new DeliveryJob(output,destination,duration)));
             File.Move(output+".delivery.tmp",output+".delivery.json");
             lock(chunksGate)savedUntil=selected[^1].End-(selected.Sum(c=>c.End-c.Start)-end);
