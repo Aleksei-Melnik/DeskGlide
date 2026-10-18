@@ -31,6 +31,7 @@ static class RecordingSdrTests
             var encoder=hardware?RecordingEncoders.Candidates(options,width,height)[0]:new RecordingEncoder("libx264","Software regression",["-c:v","libx264","-preset","ultrafast","-crf","12","-g",(fps*2).ToString(),"-bf","0","-pix_fmt","yuv420p"]);
             using var recorder=new ReplayRecorder(options,true,4,encoder);using var stop=new CancellationTokenSource();
             long producerSkipped=0;
+            var sourceIds=new System.Collections.Concurrent.ConcurrentQueue<int>();
             var producer=Task.Factory.StartNew(()=>
             {
                 using var pacing=new Pacer();long origin=Stopwatch.GetTimestamp(),index=0;
@@ -40,7 +41,7 @@ static class RecordingSdrTests
                     long next=Math.Max(index,(Stopwatch.GetTimestamp()-origin)*fps/Stopwatch.Frequency);producerSkipped+=next-index;index=next;
                     for(int y=0;y<16;y++)for(int bit=0;bit<16;bit++)for(int x=bit*16;x<(bit+1)*16;x++)ndi.Data[(y*640+x)*2+1]=(byte)(((index>>bit)&1)==0?16:235);
                     ndi.CapturedAt=origin+index*Stopwatch.Frequency/fps+(index%2==0?-1:1)*Stopwatch.Frequency/1000;
-                    recorder.Offer(ndi);index++;
+                    recorder.Offer(ndi);sourceIds.Enqueue((int)index);index++;
                 }
             },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
             ReplayResult saved;
@@ -76,7 +77,13 @@ static class RecordingSdrTests
             byte[] strip=File.ReadAllBytes(idsFile);var ids=new List<int>();
             for(int at=0;at+16<=strip.Length;at+=16){int id=0;for(int bit=0;bit<16;bit++)if(strip[at+bit]>128)id|=1<<bit;ids.Add(id);}
             var steps=ids.Skip(1).Zip(ids,(a,b)=>(a-b+65536)%65536).Skip(4).ToArray();int repeated=steps.Count(s=>s==0);
-            Require(ids.Count>fps*2&&steps.All(s=>s<fps),"Recorded frame IDs were missing or reordered.");
+            // A hosted runner can suspend the producer for over a second. A
+            // gap in that source is not a recorder drop. Check chronological
+            // order and conservation of the images actually offered instead.
+            var decodedIds=ids.ToHashSet();
+            var lost=sourceIds.Where(id=>ids.Count>0&&id>=ids[0]&&id<=ids[^1]&&!decodedIds.Contains(id)).Distinct().ToArray();
+            Require(ids.Count>fps*2&&steps.All(s=>s<32768),$"Recorded frame IDs were missing or reordered: frames={ids.Count}, maxStep={steps.DefaultIfEmpty().Max()}, sourceSkipped={producerSkipped}.");
+            Require(lost.Length<=Math.Max(4,steps.Length*.02),$"Recording lost {lost.Length} available source images: "+string.Join(",",lost.Take(16)));
             Require(repeated<=producerSkipped+Math.Max(4,steps.Length*.02),"Recording added repeat/drop pairs to available jittered source frames.");
             double? minimumAudioRms=null;
             if(audio!="Silent")
@@ -86,7 +93,7 @@ static class RecordingSdrTests
                 minimumAudioRms=MinimumRms(File.ReadAllBytes(pcm));
                 Require(minimumAudioRms>.04,"AAC recording contains an artificial audio hole.");
             }
-            results.Add(new{codec,audio,fps,width,height,Encoder=encoder.Name,ElementaryBt709=true,MaximumCodeDifferenceFromNdi=maximum,Frames=ids.Count,Repeated=repeated,producerSkipped,MinimumAudioRms=minimumAudioRms,File=saved.LocalPath});
+            results.Add(new{codec,audio,fps,width,height,Encoder=encoder.Name,ElementaryBt709=true,MaximumCodeDifferenceFromNdi=maximum,Frames=ids.Count,Repeated=repeated,producerSkipped,AvailableSourceLost=lost.Length,MaximumStep=steps.DefaultIfEmpty().Max(),MinimumAudioRms=minimumAudioRms,File=saved.LocalPath});
         }
         Program.Write("recording-sdr-tests.json",new{Pass=true,hardware,scaled,RealHdrGpuSource=true,SdrWhiteNits=240,SameColorPatchesAsNdi=true,ElementaryHeadersChecked=true,DecodedFrameOrderChecked=true,SyntheticAudioContinuityChecked=true,Results=results});
     }

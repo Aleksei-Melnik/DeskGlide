@@ -109,7 +109,7 @@ static class CaptureCadenceTests
         engine.FrameAvailable=frame=>
         {
             int x=surface.Origin.X-screen.X,y=surface.Origin.Y-screen.Y+8;
-            if(x<0||y<0||x+512>frame.Width||y>=frame.Height)return;
+            if(x<0||y<0||x+512>frame.Width||y+524>=frame.Height)return;
             int bottom=y+524,id=0,inverse=0,bottomId=0,bottomInverse=0;
             for(int bit=0;bit<16;bit++)
             {
@@ -122,11 +122,45 @@ static class CaptureCadenceTests
             recorder.Offer(frame);
         };
         ReplayResult? saved=null;int captureRate=0;
+        using var receiveStop=new CancellationTokenSource();
+        Task receive=Task.CompletedTask;Exception? receiveError=null;
+        var ndiAges=new List<double>();long ndiFrames=0;
         surface.Shown+=async(_,_)=>
         {
-            try{surface.Begin();WindowActivation.Show(surface);await Task.Delay(10000);engine.Start(new(display.Device));await Task.Delay(seconds*1000);captureRate=engine.CaptureRate;saved=await recorder.SaveAsync("Capture cadence");}
+            try
+            {
+                surface.Begin();WindowActivation.Show(surface);await Task.Delay(10000);engine.Start(new(display.Device));
+                if(ndi)receive=Task.Run(()=>
+                {
+                    try
+                    {
+                        var startup=Stopwatch.StartNew();
+                        while(engine.SourceName=="SdrCapture SDR"&&startup.Elapsed.TotalSeconds<10&&!receiveStop.IsCancellationRequested)Thread.Sleep(20);
+                        using var receiver=new TestReceiver(engine.SourceName);
+                        while(!receiveStop.IsCancellationRequested)receiver.Read(video=>
+                        {
+                            int x=surface.Origin.X-screen.X,y=surface.Origin.Y-screen.Y+8,id=0,inverse=0;
+                            if(video.FourCC!=0x59565955||x<0||y<0||x+512>video.Width||y>=video.Height)return;
+                            for(int bit=0;bit<16;bit++)
+                            {
+                                if(Marshal.ReadByte(video.Data,y*video.Stride+(x+bit*16+8)*2+1)>128)id|=1<<bit;
+                                if(Marshal.ReadByte(video.Data,y*video.Stride+(x+256+bit*16+8)*2+1)>128)inverse|=1<<bit;
+                            }
+                            if((id^inverse)!=65535)return;
+                            lock(observations)
+                            {
+                                var source=observations.LastOrDefault(s=>s.Id==id&&s.Valid);
+                                if(source.Time>0)ndiAges.Add((ReplayRecorder.Now-source.Time/(double)Stopwatch.Frequency)*1000);
+                            }
+                            ndiFrames++;
+                        },100);
+                    }
+                    catch(Exception e){receiveError=e;}
+                });
+                await Task.Delay(seconds*1000);captureRate=engine.CaptureRate;saved=await recorder.SaveAsync("Capture cadence");
+            }
             catch(Exception e){surface.Failure=e;}
-            finally{surface.Close();}
+            finally{receiveStop.Cancel();await receive;surface.Close();}
         };
         Application.Run(surface);engine.ReplayEnabled=false;
         if(surface.Failure!=null)throw surface.Failure;
@@ -147,11 +181,13 @@ static class CaptureCadenceTests
         var steps=ids.Skip(1).Zip(ids,(a,b)=>(a-b+65536)%65536).ToArray();
         // A partially covered marker can otherwise make a long freeze look like
         // an encoder defect. Require coverage throughout the exported interval.
-        bool valid=ids.Count>fps*3&&invalid==0;
+        bool valid=ids.Count>fps*3&&invalid==0&&(!ndi||(ndiFrames>=seconds*30&&ndiAges.Count>0&&receiveError==null));
+        var orderedAges=ndiAges.Order().ToArray();
         Program.Write("capture-cadence-test.json",new{Pass=valid,MarkerValid=valid,InvalidMarkers=invalid,codec,options.Width,options.Height,ndi,CaptureRate=captureRate,QpcFrequency=Stopwatch.Frequency,fps,seconds,surface.Presented,Captured=samples.Length,SourceRepeated=samples.Zip(samples.Skip(1),(a,b)=>a.Id==b.Id).Count(v=>v),
             SourceIntervalMedian=deltas.Order().ElementAt(deltas.Length/2),SourceIntervalP95=deltas.Order().ElementAt((int)(deltas.Length*.95)),SourceIntervalMaximum=deltas.Max(),
             engine.MaxCaptureMs,engine.MaxObserverMs,recorder.MaxConvertMs,recorder.MaxPipeWriteMs,recorder.RepeatedInputFrames,recorder.HistoryMisses,
+            NdiFrames=ndiFrames,NdiMatchedFrames=ndiAges.Count,NdiAgeMedianMs=orderedAges.Length==0?0:orderedAges[orderedAges.Length/2],NdiAgeP95Ms=orderedAges.Length==0?0:orderedAges[(int)(orderedAges.Length*.95)],NdiReceiveError=receiveError?.Message,
             OutputFrames=ids.Count,OutputRepeated=steps.Count(s=>s==0),OutputMaxStep=steps.Max(),recorder.Error,clip.LocalPath,Root=root,Samples=samples.Select(s=>new{s.Time,s.Id,s.Arrival,s.Valid}).ToArray(),OutputIds=ids});
-        if(!valid)throw new Exception("The presentation test surface was obscured; its frame-ID comparison is invalid.");
+        if(!valid)throw new Exception("Presentation marker or local NDI receive validation failed; see report.");
     }
 }
