@@ -201,15 +201,16 @@ static class CaptureCadenceTests
             if((id^inverse)!=65535||(bottomId^bottomInverse)!=65535||id!=bottomId)invalid++;ids.Add(id);
         }
         var steps=ids.Skip(1).Zip(ids,(a,b)=>(a-b+65536)%65536).ToArray();
+        double meanStep=steps.Average();double stepDeviation=Math.Sqrt(steps.Average(s=>Math.Pow(s-meanStep,2)));
         // A partially covered marker can otherwise make a long freeze look like
         // an encoder defect. Require coverage throughout the exported interval.
         bool valid=ids.Count>fps*3&&invalid==0&&(!ndi||(ndiFrames>=seconds*30&&ndiAges.Count>0&&receiveError==null));
         var orderedAges=ndiAges.Order().ToArray();
         Program.Write("capture-cadence-test.json",new{Pass=valid,MarkerValid=valid,InvalidMarkers=invalid,codec,options.Width,options.Height,ndi,CaptureRate=captureRate,QpcFrequency=Stopwatch.Frequency,fps,seconds,surface.Presented,Captured=samples.Length,SourceRepeated=samples.Zip(samples.Skip(1),(a,b)=>a.Id==b.Id).Count(v=>v),
             SourceIntervalMedian=deltas.Order().ElementAt(deltas.Length/2),SourceIntervalP95=deltas.Order().ElementAt((int)(deltas.Length*.95)),SourceIntervalMaximum=deltas.Max(),
-            engine.MaxCaptureMs,engine.MaxObserverMs,recorder.MaxConvertMs,recorder.MaxFramePreparationAgeMs,recorder.ConversionQueueDrops,recorder.ConversionQueueBytes,recorder.MaxPipeWriteMs,recorder.RepeatedInputFrames,recorder.HistoryMisses,
+            engine.MaxCaptureMs,MeanCaptureMs=engine.TotalCaptureMs/Math.Max(1,engine.CapturedFrames),engine.MaxObserverMs,engine.GpuReadbackDrops,engine.Recoveries,recorder.MaxConvertMs,recorder.MaxFramePreparationAgeMs,recorder.ConversionQueueDrops,recorder.ConversionQueueBytes,recorder.MaxPipeWriteMs,recorder.RepeatedInputFrames,recorder.HistoryMisses,
             NdiFrames=ndiFrames,NdiRepeated=ndiRepeated,NdiMatchedFrames=ndiAges.Count,NdiAgeMedianMs=orderedAges.Length==0?0:orderedAges[orderedAges.Length/2],NdiAgeP95Ms=orderedAges.Length==0?0:orderedAges[(int)(orderedAges.Length*.95)],NdiReceiveError=receiveError?.Message,
-            OutputFrames=ids.Count,OutputRepeated=steps.Count(s=>s==0),OutputMaxStep=steps.Max(),recorder.Error,clip.LocalPath,Root=root,Samples=samples,OutputIds=ids,
+            OutputFrames=ids.Count,OutputRepeated=steps.Count(s=>s==0),OutputMaxStep=steps.Max(),OutputMeanStep=meanStep,OutputStepDeviation=stepDeviation,recorder.Error,clip.LocalPath,Root=root,Samples=samples,OutputIds=ids,
             BlockingReadback=blocking,FullScreenSource=fullScreen,DirectConversion=directConversion,Presentations=surface.Presentations.ToArray(),Acquisitions=acquisition.ToArray()});
         if(!valid)throw new Exception("Presentation marker or local NDI receive validation failed; see report.");
     }

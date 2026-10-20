@@ -58,6 +58,7 @@ public sealed class StreamEngine:IDisposable
     }
     public void Update(CaptureOptions value)=>Volatile.Write(ref options,value);
     public void RequestCaptureRestart()=>Interlocked.Increment(ref restartVersion);
+    internal static int RecordingCaptureRate(int requested)=>Math.Min(240,requested*2);
     void CaptureLoop()
     {
         Thread.CurrentThread.Priority=ThreadPriority.AboveNormal;
@@ -72,11 +73,11 @@ public sealed class StreamEngine:IDisposable
             while(!stop.IsCancellationRequested)
             {
                 int requested=Math.Max(NdiEnabled?60:1,ReplayEnabled?ReplayFrameRate:1);
-                // Capture and CFR recording are independent clock domains. A
-                // small acquisition margin lets the recorder choose a fresh
-                // image after one late poll instead of permanently losing a
-                // recording slot. Encoding and NDI retain their requested rates.
-                CaptureRate=ReplayEnabled?Math.Min(240,(requested*6+4)/5):requested;
+                // An integer acquisition/output ratio avoids the recurring
+                // short/long motion steps caused by resampling 72/144 Hz to
+                // 60/120 FPS. Two polls per recording interval also provide
+                // recovery headroom without changing recording or NDI rates.
+                CaptureRate=ReplayEnabled?RecordingCaptureRate(requested):requested;
                 pacing.SetRate(CaptureRate);
                 pacing.Wait(stop.Token);
                 if(stop.IsCancellationRequested) break;
@@ -226,10 +227,13 @@ public sealed class StreamEngine:IDisposable
 sealed class Pacer:IDisposable
 {
     readonly IntPtr timer;
-    long next=Stopwatch.GetTimestamp();
+    long origin=Stopwatch.GetTimestamp(),index;
     long step=Stopwatch.Frequency/60;
     int rate=60;
-    public void SetRate(int value){if(value==rate)return;rate=value;step=Stopwatch.Frequency/Math.Clamp(value,1,240);next=Stopwatch.GetTimestamp();}
+    public void SetRate(int value){value=Math.Clamp(value,1,240);if(value==rate)return;rate=value;step=Stopwatch.Frequency/rate;origin=Stopwatch.GetTimestamp();index=0;}
+    // Derive each deadline from its index rather than accumulating a truncated
+    // tick interval (240 Hz otherwise drifts 57.6 ms/hour with a 10 MHz QPC).
+    internal static long Deadline(long origin,long index,int rate)=>origin+index/rate*Stopwatch.Frequency+index%rate*Stopwatch.Frequency/rate;
     public Pacer()
     {
         timer=CreateWaitableTimerExW(IntPtr.Zero,null,2,0x1F0003);
@@ -238,9 +242,15 @@ sealed class Pacer:IDisposable
     public long Wait(CancellationToken token)
     {
         long now=Stopwatch.GetTimestamp(),missed=0;
-        if(now-next>=step){missed=(now-next)/step;next+=missed*step;}
+        long next=Deadline(origin,index,rate);
+        if(now-next>=step)
+        {
+            long elapsed=now-origin;
+            long current=elapsed/Stopwatch.Frequency*rate+elapsed%Stopwatch.Frequency*rate/Stopwatch.Frequency;
+            missed=Math.Max(0,current-index);index+=missed;next=Deadline(origin,index,rate);
+        }
         WaitUntil(next,token);
-        next+=step;return missed;
+        index++;return missed;
     }
     public void WaitUntil(long deadline,CancellationToken token)
     {

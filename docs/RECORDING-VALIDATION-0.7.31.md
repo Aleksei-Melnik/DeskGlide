@@ -24,6 +24,17 @@ remain required.
 
 ## Capture and conversion
 
+Counting repeated IDs is insufficient to establish uniform motion. The
+144-to-120 acquisition/output ratio also produced alternating short/long
+steps in a uniformly moving 240 Hz source. A deterministic clock-domain test
+reproduces this beat at both 60 and 120 FPS. Integer acquisition rates
+(120/240 Hz respectively) eliminate the beat in that test. Physical capture
+and GPU overhead measurements for this candidate are pending below.
+
+Pacing now derives deadlines from the frame index, retaining fractional QPC
+ticks instead of accumulating a truncated interval. Tests cover exact
+one-hour endpoints at 60/120/240 Hz and intervals differing by at most one tick.
+
 NV12 preparation now retains an immutable source reference and runs outside
 the capture worker. A blocked-conversion test verifies that capture can offer
 new images without waiting. Queue depth and bytes are bounded independently

@@ -37,8 +37,34 @@ static class RecordingCadenceTests
             prior=selected;legacyPrior=legacy;
         }
         Require(repeats==0&&legacyWindowRepeats==1,"Real 120 FPS trace did not reproduce and eliminate the narrow-window repeat.");
+        int legacyUneven=0,integerUneven=0;
+        foreach(int fps in new[]{60,120})foreach(long phase in new long[]{1000,11000,27000})
+        {
+            const long frequency=12000000;long period=frequency/fps;
+            foreach(bool integer in new[]{false,true})
+            {
+                int rate=integer?StreamEngine.RecordingCaptureRate(fps):fps*6/5;
+                long[] times=Enumerable.Range(0,rate*10).Select(n=>(long)n*240/rate*(frequency/240)).ToArray();
+                long previous=-1;int last=-1;
+                for(int frame=0;frame<fps*9;frame++)
+                {
+                    int at=RecordingFrameSelection.Index(times,frame*period+phase,previous,period);
+                    int id=(int)(times[at]/(frequency/240));
+                    if(frame>20&&id-last!=240/fps){if(integer)integerUneven++;else legacyUneven++;}
+                    previous=times[at];last=id;
+                }
+            }
+        }
+        Require(legacyUneven>100&&integerUneven==0,"Acquisition/output beat still adds irregular motion to a uniformly moving source.");
+        foreach(int rate in new[]{60,120,240})
+        {
+            const long origin=73;
+            Require(Pacer.Deadline(origin,rate*3600L,rate)==origin+System.Diagnostics.Stopwatch.Frequency*3600L,"Pacing clock accumulated tick-rounding drift over an hour.");
+            long[] intervals=Enumerable.Range(0,rate*2).Select(i=>Pacer.Deadline(origin,i+1,rate)-Pacer.Deadline(origin,i,rate)).ToArray();
+            Require(intervals.Max()-intervals.Min()<=1,"Rational pacing introduced a discontinuous deadline.");
+        }
         Require(RecordingFrameSelection.Index([],100,-1,20)==-1,"Empty source history accepted.");
         Require(RecordingFrameSelection.Index([10,20,100],50,20,10)==1,"Missing source footage was replaced with a distant future frame.");
-        Program.Write("recording-cadence-tests.json",new{Pass=true,Fps=new[]{60,120},LegacyArtificialRepeats=legacyRepeats,NewArtificialRepeats=actualRepeats,NarrowWindowRepeats=legacyWindowRepeats,RealTraceRepeats=repeats,SourceOrderPreserved=true,RealSourceGapsNotInvented=true});
+        Program.Write("recording-cadence-tests.json",new{Pass=true,Fps=new[]{60,120},LegacyArtificialRepeats=legacyRepeats,NewArtificialRepeats=actualRepeats,NarrowWindowRepeats=legacyWindowRepeats,RealTraceRepeats=repeats,LegacyUnevenMotionSteps=legacyUneven,NewUnevenMotionSteps=integerUneven,NoAccumulatedPacingDrift=true,SourceOrderPreserved=true,RealSourceGapsNotInvented=true});
     }
 }
