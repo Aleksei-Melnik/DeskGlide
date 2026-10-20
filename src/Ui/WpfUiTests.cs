@@ -161,6 +161,10 @@ static class WpfUiTests
         form.AudioChoice("game").SelectedIndex=0;form.Reveal();Require(calls==1,"WPF repeated activation restarted discovery");
         pending.SetResult([new("mic",NAudio.CoreAudioApi.DataFlow.Capture,"Microphone","Microphone")]);watch.Restart();while(form.AudioStatus!="Audio devices are up to date."&&watch.ElapsedMilliseconds<3000){Pump();Thread.Sleep(5);}
         Require(form.AudioStatus=="Audio devices are up to date.","WPF devices did not populate");var after=form.Collect();Require(after.Replay.GameAudio==""&&after.Replay.Microphone=="mic"&&after.NdiAudioDevice=="saved"&&after.Discord.CaptureDevice=="input","WPF discovery replaced edits or missing devices");
+        form.SelectPage(11,false);Pump();
+        var screenshotText=Children((W.DependencyObject)form.Content).OfType<C.TextBlock>().Select(t=>t.Text).ToArray();
+        Require(screenshotText.Any(t=>t=="Use PrintScreen for screenshots")&&!screenshotText.Any(t=>t=="HDR colors"||t=="Editor shortcuts"||t.Contains("Ctrl+")),"Screenshot settings still expose removed technical/shortcut cards.");
+        Require(form.Collect().Screenshots==settings.Screenshots,"Simple screenshot settings changed preferences unexpectedly.");
         form.SelectPage(3,false);Pump();
         form.AudioChoice("role").SelectedItem=form.AudioChoice("role").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="Host");Pump();
         var pairingCode=Children((W.DependencyObject)form.Content).OfType<C.TextBox>().Single(t=>t.IsReadOnly);
@@ -211,8 +215,8 @@ static class WpfUiTests
         {
             var preview=new SettingsWindow(new(){Device=Screen.PrimaryScreen?.DeviceName??"DISPLAY1",Kvm=new(){Role=role,Host="GAMING-PC"}},discoverAudio:()=>Task.FromResult<DiscordDevices.Endpoint[]>([new("game",NAudio.CoreAudioApi.DataFlow.Render,"Game speakers","Speakers"),new("mic",NAudio.CoreAudioApi.DataFlow.Capture,"Microphone","Microphone")]),overview:()=>[new("Screen streaming",("State","On"),("Output","2560 × 1440"),("Delivery rate","60.0 FPS")),new("Instant replay",("State","On"),("Buffered","5 / 5 min")),new("KVM & pairing",("Connected computers","STREAM-PC, SERVER"))],deckClients:()=>role=="Host"?1:0){Opacity=0,ShowInTaskbar=false};preview.Reveal();Pump();
             Require(preview.ResizeMode==W.ResizeMode.CanMinimize,"WPF settings resizable");preview.SelectPage(8,false);Require(role!="Host"||preview.SelectedPage==0,"Receiver page shown on host");
-            for(int i=0;i<11;i++){preview.SelectPage(i,false);Render(preview,Path.Combine(folder,$"{role}-{i}.png"));}
-            UiStrings.Shared.Language="ru";Pump();preview.SelectPage(0,false);Render(preview,Path.Combine(folder,$"{role}-ru.png"));foreach(int id in new[]{3,10}){preview.SelectPage(id,false);Render(preview,Path.Combine(folder,$"{role}-ru-{id}.png"));}preview.Close();UiStrings.Shared.Language="en";
+            for(int i=0;i<12;i++){preview.SelectPage(i,false);Render(preview,Path.Combine(folder,$"{role}-{i}.png"));}
+            UiStrings.Shared.Language="ru";Pump();preview.SelectPage(0,false);Render(preview,Path.Combine(folder,$"{role}-ru.png"));foreach(int id in new[]{3,10,11}){preview.SelectPage(id,false);Render(preview,Path.Combine(folder,$"{role}-ru-{id}.png"));}preview.Close();UiStrings.Shared.Language="en";
         }
         var options=new KvmOptions();var peer=new KvmPeerInfo(Guid.NewGuid().ToString("N"),"STREAM-PC",[new("LEFT",0,0,1920,1080,true),new("RIGHT",1920,0,1080,1920,false)],"0.8.0",1);var server=new KvmPeerInfo(Guid.NewGuid().ToString("N"),"SERVER",[new("DISPLAY",0,0,1920,1080,true)],"0.8.0",1,true);
         var layout=new List<MonitorPlacement>{new(){Peer=options.Id,Name="GAMING-PC",Device="LOCAL",X=0,Y=0,Width=2560,Height=1440,Hotkey=1},new(){Peer=peer.Id,Name="STREAM-PC",Device="LEFT",X=-1920,Y=180,Width=1920,Height=1080,Hotkey=2},new(){Peer=peer.Id,Name="STREAM-PC",Device="RIGHT",X=2560,Y=-240,Width=1080,Height=1920,Hotkey=3}};

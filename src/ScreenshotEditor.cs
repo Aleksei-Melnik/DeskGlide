@@ -72,12 +72,12 @@ sealed class ScreenshotEditor:Form
     readonly ScreenshotDocument document;
     readonly ScreenshotOptions options;
     readonly Action<string> saved;
-    readonly FlowLayoutPanel tools=new(){AutoSize=true,WrapContents=false};
-    readonly FlowLayoutPanel actions=new(){AutoSize=true,WrapContents=false};
-    readonly Panel toolbar=new(){BackColor=Color.FromArgb(24,22,34)};
+    readonly FlowLayoutPanel tools=new(){BackColor=Color.FromArgb(24,22,34),Padding=new(4),WrapContents=true};
+    readonly FlowLayoutPanel actions=new(){BackColor=Color.FromArgb(24,22,34),Padding=new(4),FlowDirection=FlowDirection.TopDown,WrapContents=false};
+    readonly Color barColor=Color.FromArgb(24,22,34);
     readonly ToolTip tips=new();
-    readonly Dictionary<ScreenshotTool,Button> toolButtons=[];
-    readonly Label status=new(){AutoSize=true,ForeColor=Color.FromArgb(205,200,220)};
+    readonly Dictionary<ScreenshotTool,ScreenshotButton> toolButtons=[];
+    string errorMessage="";
     readonly List<Point> points=[];
     readonly float scale;
     ScreenshotTool tool;
@@ -87,11 +87,11 @@ sealed class ScreenshotEditor:Form
     Rectangle priorSelection;
     int hit;
     bool dragging;
-    bool copyOnSelect;
+
     bool dialogActive;
     ScreenshotMark? pending;
     TextBox? textInput;
-    Button? undoButton,redoButton,colorButton;
+    ScreenshotButton? undoButton,redoButton,colorButton;
     internal ScreenshotDocument Document=>document;
     internal ScreenshotEditor(ScreenshotFrame frame,ScreenshotOptions options,Action<string> saved)
     {
@@ -101,72 +101,60 @@ sealed class ScreenshotEditor:Form
         Text="DeskGlide · "+UiStrings.T("Screenshot");Cursor=Cursors.Cross;
         scale=Math.Clamp(DeviceDpi/96f,1,2);
         Font=new("Segoe UI",12*scale,FontStyle.Regular,GraphicsUnit.Pixel);
-        toolbar.Font=Font;
+        tools.Font=actions.Font=Font;
         BuildToolbar();
         Deactivate+=(_,_)=>{if(!dialogActive)Close();};
     }
     int S(int value)=>(int)Math.Round(value*scale);
-    Button Action(FlowLayoutPanel row,string label,System.Action action,string hint)
+    ScreenshotButton Action(FlowLayoutPanel row,string glyph,string label,System.Action action)
     {
-        var button=new Button{Text=UiStrings.T(label),AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,Height=S(30),FlatStyle=FlatStyle.Flat,ForeColor=Color.White,BackColor=toolbar.BackColor,Padding=new(S(7),S(3),S(7),S(3)),Margin=new(S(2)),TabStop=false};
-        button.FlatAppearance.BorderColor=Color.FromArgb(65,57,80);button.Click+=(_,_)=>Run(action);tips.SetToolTip(button,UiStrings.T(hint));row.Controls.Add(button);return button;
+        var button=new ScreenshotButton(glyph){Size=new(S(32),S(32)),Margin=new(S(1)),TabStop=true,ForeColor=Color.FromArgb(237,233,245),BackColor=barColor,AccessibleName=UiStrings.T(label),Tag=glyph};
+        button.Click+=(_,_)=>Run(action);tips.SetToolTip(button,UiStrings.T(label));row.Controls.Add(button);return button;
     }
     void BuildToolbar()
     {
-        toolbar.Visible=false;toolbar.Padding=new(S(10));Controls.Add(toolbar);toolbar.Controls.Add(tools);toolbar.Controls.Add(actions);toolbar.Controls.Add(status);
+        tools.Visible=actions.Visible=false;tools.Padding=actions.Padding=new(S(4));Controls.Add(tools);Controls.Add(actions);
         foreach(var pair in new[]{(ScreenshotTool.Select,"Select"),(ScreenshotTool.Pen,"Pen"),(ScreenshotTool.Line,"Line"),(ScreenshotTool.Arrow,"Arrow"),(ScreenshotTool.Rectangle,"Rectangle"),(ScreenshotTool.Highlight,"Highlight"),(ScreenshotTool.Text,"Text"),(ScreenshotTool.Redact,"Redact")})
         {
-            var selected=pair.Item1;toolButtons[selected]=Action(tools,pair.Item2,()=>SetTool(selected),pair.Item2);
+            var selected=pair.Item1;toolButtons[selected]=Action(tools,pair.Item2,pair.Item2,()=>SetTool(selected));
         }
-        colorButton=Action(actions,"Color",()=>{CommitText();using var dialog=new ColorDialog{Color=ink,FullOpen=true};if(ShowDialog(dialog)==DialogResult.OK){ink=dialog.Color;colorButton!.ForeColor=ink;}},"Choose annotation color");colorButton.ForeColor=ink;
-        Action(actions,"−",()=>stroke=Math.Max(1,stroke-1),"Thinner stroke");Action(actions,"+",()=>stroke=Math.Min(16,stroke+1),"Thicker stroke");
-        undoButton=Action(actions,"Undo",()=>{CommitText();document.Undo();RefreshActions();},"Undo · Ctrl+Z");
-        redoButton=Action(actions,"Redo",()=>{document.Redo();RefreshActions();},"Redo · Ctrl+Y");
-        Action(actions,"Copy",Copy,"Copy · Ctrl+C / Enter");Action(actions,"Save PNG",()=>Save(false),"Save · Ctrl+S");
-        Action(actions,"Save as…",()=>Save(true),"Save as · Ctrl+Shift+S");Action(actions,"Print",Print,"Print · Ctrl+P");
-        Action(actions,"Close",Close,"Cancel · Escape");
-        tools.Location=new(S(10),S(10));tools.PerformLayout();tools.Size=tools.PreferredSize;
-        actions.Location=new(S(10),tools.Bottom+S(5));actions.PerformLayout();actions.Size=actions.PreferredSize;
-        status.Location=new(S(13),actions.Bottom+S(7));
-        toolbar.Size=new(Math.Max(tools.Width,actions.Width)+S(20),status.Bottom+S(12));
+        colorButton=Action(tools,"Color","Choose annotation color",()=>{CommitText();using var dialog=new ColorDialog{Color=ink,FullOpen=true};if(ShowDialog(dialog)==DialogResult.OK){ink=dialog.Color;colorButton!.Ink=ink;colorButton.Invalidate();}});colorButton.Ink=ink;
+        var width=Action(tools,"Stroke","Stroke width",()=>{float[] values=[1,2,3,5,8,12];int index=Array.IndexOf(values,stroke);stroke=values[(index+1)%values.Length];});
+        width.MouseEnter+=(_,_)=>tips.SetToolTip(width,UiStrings.F("Stroke width: {0} px",stroke));
+        undoButton=Action(tools,"Undo","Undo",()=>{CommitText();document.Undo();RefreshActions();});
+        redoButton=Action(tools,"Redo","Redo",()=>{document.Redo();RefreshActions();});
+        Action(actions,"Copy","Copy",Copy);Action(actions,"Save","Save PNG",()=>Save(false));
+        Action(actions,"SaveAs","Save as…",()=>Save(true));Action(actions,"Print","Print",Print);Action(actions,"Close","Close",Close);
         SetTool(ScreenshotTool.Select);
     }
     void Run(System.Action action)
-    {try{action();Invalidate();}catch(Exception e){status.Text=UiStrings.T("Screenshot failed: ")+e.Message;status.ForeColor=Color.LightPink;Invalidate();}}
+    {try{action();Invalidate();}catch(Exception e){errorMessage=UiStrings.T("Screenshot failed: ")+e.Message;Invalidate();}}
     DialogResult ShowDialog(CommonDialog dialog)
     {dialogActive=true;try{return dialog.ShowDialog(this);}finally{dialogActive=false;}}
     void SetTool(ScreenshotTool value)
     {
         CommitText();tool=value;Cursor=tool==ScreenshotTool.Select&&document.Selection.Width>0?Cursors.SizeAll:Cursors.Cross;
-        foreach(var pair in toolButtons)pair.Value.BackColor=pair.Key==tool?Color.FromArgb(99,49,118):toolbar.BackColor;
+        foreach(var pair in toolButtons){pair.Value.Selected=pair.Key==tool;pair.Value.Invalidate();}
         RefreshActions();
     }
     void RefreshActions()
     {
-        if(undoButton!=null)undoButton.Enabled=document.CanUndo;
-        if(redoButton!=null)redoButton.Enabled=document.CanRedo;
-        var r=document.Selection;
-        status.ForeColor=Color.FromArgb(205,200,220);status.Text=$"{r.Width} × {r.Height} px · PNG · "+UiStrings.T(frame.HasHdr?"HDR → SDR":"SDR")+" · "+UiStrings.T("Enter: copy · Esc: cancel");
-        Invalidate();
+        if(undoButton!=null){undoButton.Enabled=document.CanUndo;undoButton.Invalidate();}
+        if(redoButton!=null){redoButton.Enabled=document.CanRedo;redoButton.Invalidate();}
+        errorMessage="";Invalidate();
     }
     void PositionToolbar()
     {
-        var r=document.Selection;bool selected=r.Width>0&&r.Height>0;toolbar.Visible=selected;if(!selected)return;
+        var r=document.Selection;bool selected=r.Width>0&&r.Height>0;tools.Visible=actions.Visible=selected;if(!selected)return;
         var center=new Point(frame.Bounds.X+r.Left+r.Width/2,frame.Bounds.Y+r.Top+r.Height/2);
         var screen=Screen.FromPoint(center).Bounds;screen.Offset(-frame.Bounds.X,-frame.Bounds.Y);
         screen=Rectangle.Intersect(screen,new(Point.Empty,frame.Bounds.Size));
-        int width=Math.Max(S(200),screen.Width-S(24));
-        tools.WrapContents=actions.WrapContents=true;
-        tools.MaximumSize=actions.MaximumSize=new(width-S(20),0);
-        tools.Size=tools.GetPreferredSize(new(width-S(20),0));
-        actions.Location=new(S(10),tools.Bottom+S(5));actions.Size=actions.GetPreferredSize(new(width-S(20),0));
-        status.Location=new(S(13),actions.Bottom+S(7));
-        toolbar.Size=new(Math.Max(tools.Width,actions.Width)+S(20),status.Bottom+S(12));
-        int x=Math.Clamp(r.Right-toolbar.Width,screen.Left,Math.Max(screen.Left,screen.Right-toolbar.Width));
-        int y=r.Bottom+S(12);
-        if(y+toolbar.Height>screen.Bottom)y=r.Top-toolbar.Height-S(12);
-        y=Math.Clamp(y,screen.Top,Math.Max(screen.Top,screen.Bottom-toolbar.Height));
-        toolbar.Location=new(x,y);toolbar.BringToFront();RefreshActions();
+        int cell=S(32)+2*S(1),padding=2*S(4),gap=S(7);
+        actions.Size=new(cell+padding,actions.Controls.Count*cell+padding);
+        int columns=Math.Min(tools.Controls.Count,Math.Max(1,(screen.Width-actions.Width-3*gap-padding)/cell));
+        int rows=(tools.Controls.Count+columns-1)/columns;tools.Size=new(columns*cell+padding,rows*cell+padding);
+        var place=ScreenshotBarLayout.Place(r,screen,tools.Size,actions.Size,gap);
+        tools.Location=place.Tools;actions.Location=place.Actions;tools.BringToFront();actions.BringToFront();RefreshActions();
     }
     protected override void OnShown(EventArgs e){base.OnShown(e);Bounds=frame.Bounds;Activate();Focus();}
     protected override void OnDpiChanged(DpiChangedEventArgs e)
@@ -183,19 +171,21 @@ sealed class ScreenshotEditor:Form
         {
             var state=g.Save();g.SetClip(r);document.Paint(g,pending);g.Restore(state);
             using var border=new Pen(Color.FromArgb(49,209,219),1);g.DrawRectangle(border,r.X,r.Y,r.Width-1,r.Height-1);
-            if(tool==ScreenshotTool.Select)foreach(var point in Handles(r))g.FillRectangle(Brushes.White,point.X-S(3),point.Y-S(3),S(6),S(6));
+            foreach(var point in Handles(r))g.FillRectangle(Brushes.White,point.X-S(3),point.Y-S(3),S(6),S(6));
             string size=$"{r.Width} × {r.Height}";var measured=g.MeasureString(size,Font);
             var label=new RectangleF(r.Left,Math.Max(0,r.Top-measured.Height-S(9)),measured.Width+S(14),measured.Height+S(6));
-            using var fill=new SolidBrush(toolbar.BackColor);g.FillRectangle(fill,label);g.DrawString(size,Font,Brushes.White,label.Left+S(7),label.Top+S(3));
+            if(label.IntersectsWith(tools.Bounds))label.Y=Math.Min(frame.Bounds.Height-label.Height,r.Bottom+S(7));
+            using var fill=new SolidBrush(barColor);g.FillRectangle(fill,label);g.DrawString(size,Font,Brushes.White,label.Left+S(7),label.Top+S(3));
         }
         else
         {
-            var screen=Screen.FromPoint(Cursor.Position).Bounds;screen.Offset(-frame.Bounds.X,-frame.Bounds.Y);
-            var box=new Rectangle(screen.Left+S(28),screen.Top+S(28),S(560),S(90));using var fill=new SolidBrush(toolbar.BackColor);g.FillRectangle(fill,box);
-            using var heading=new Font("Segoe UI",S(18),FontStyle.Bold,GraphicsUnit.Pixel);
-            g.DrawString("DeskGlide · "+UiStrings.T("Screenshot"),heading,Brushes.White,box.Left+S(18),box.Top+S(13));
-            g.DrawString(UiStrings.T("Drag to select · Ctrl+A: full screen · Esc: cancel"),Font,Brushes.LightGray,box.Left+S(18),box.Top+S(51));
+            string hint=UiStrings.T("Drag to select an area");var size=g.MeasureString(hint,Font);
+            var screen=Screen.FromPoint(Cursor.Position).Bounds;screen.Offset(-frame.Bounds.X,-frame.Bounds.Y);screen.Intersect(new(Point.Empty,frame.Bounds.Size));
+            var point=PointToClient(Cursor.Position);int width=(int)size.Width+S(20),height=(int)size.Height+S(12);
+            var box=new Rectangle(Math.Clamp(point.X+S(18),screen.Left,Math.Max(screen.Left,screen.Right-width)),Math.Clamp(point.Y+S(22),screen.Top,Math.Max(screen.Top,screen.Bottom-height)),width,height);
+            using var fill=new SolidBrush(barColor);g.FillRectangle(fill,box);g.DrawString(hint,Font,Brushes.White,box.Left+S(10),box.Top+S(6));
         }
+        if(errorMessage.Length>0){using var fill=new SolidBrush(barColor);var size=g.MeasureString(errorMessage,Font);g.FillRectangle(fill,8,frame.Bounds.Height-size.Height-20,size.Width+20,size.Height+12);g.DrawString(errorMessage,Font,Brushes.LightPink,18,frame.Bounds.Height-size.Height-14);}
         base.OnPaint(e);
     }
     static Point[] Handles(Rectangle r)=>[new(r.Left,r.Top),new(r.Right,r.Top),new(r.Right,r.Bottom),new(r.Left,r.Bottom),new(r.Left+r.Width/2,r.Top),new(r.Right,r.Top+r.Height/2),new(r.Left+r.Width/2,r.Bottom),new(r.Left,r.Top+r.Height/2)];
@@ -210,16 +200,16 @@ sealed class ScreenshotEditor:Form
     {
         base.OnMouseDown(e);if(e.Button==MouseButtons.Right){SetTool(ScreenshotTool.Select);return;}if(e.Button!=MouseButtons.Left)return;
         CommitText();Focus();anchor=Limit(e.Location);priorSelection=document.Selection;hit=Hit(anchor);
-        copyOnSelect=(tool==ScreenshotTool.Select||hit==0)&&(ModifierKeys&Keys.Control)!=0;
+        if(hit is >=1 and <=8){tools.Visible=actions.Visible=false;dragging=true;Capture=true;Invalidate();return;}
         if(tool==ScreenshotTool.Text&&document.Selection.Contains(anchor)){BeginText(anchor);return;}
         if(tool!=ScreenshotTool.Select&&document.Selection.Contains(anchor))
         {points.Clear();points.Add(anchor);pending=new(tool,ink,stroke,points.ToArray());}
-        else {SetTool(ScreenshotTool.Select);toolbar.Visible=false;}
+        else {SetTool(ScreenshotTool.Select);tools.Visible=actions.Visible=false;}
         dragging=true;Capture=true;Invalidate();
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        base.OnMouseMove(e);if(!dragging){if(tool==ScreenshotTool.Select)Cursor=Hit(e.Location) switch{1 or 3=>Cursors.SizeNWSE,2 or 4=>Cursors.SizeNESW,5 or 7=>Cursors.SizeNS,6 or 8=>Cursors.SizeWE,9=>Cursors.SizeAll,_=>Cursors.Cross};return;}
+        base.OnMouseMove(e);if(!dragging){Cursor=Hit(e.Location) switch{1 or 3=>Cursors.SizeNWSE,2 or 4=>Cursors.SizeNESW,5 or 7=>Cursors.SizeNS,6 or 8=>Cursors.SizeWE,9 when tool==ScreenshotTool.Select=>Cursors.SizeAll,_=>Cursors.Cross};return;}
         var p=Limit(e.Location);
         if(pending!=null)
         {
@@ -241,7 +231,7 @@ sealed class ScreenshotEditor:Form
         base.OnMouseUp(e);if(!dragging||e.Button!=MouseButtons.Left)return;
         OnMouseMove(e);dragging=false;Capture=false;
         if(pending!=null){document.Add(pending);pending=null;}
-        PositionToolbar();if(document.Selection.Width>0&&document.Selection.Height>0&&copyOnSelect)Run(Copy);
+        PositionToolbar();
     }
     protected override void OnMouseCaptureChanged(EventArgs e)
     {
@@ -251,7 +241,7 @@ sealed class ScreenshotEditor:Form
     }
     void BeginText(Point p)
     {
-        textInput=new(){Multiline=true,AcceptsReturn=true,ForeColor=ink,BackColor=Color.FromArgb(24,22,34),BorderStyle=BorderStyle.FixedSingle,Font=new Font("Segoe UI",Math.Max(14,stroke*6),FontStyle.Bold,GraphicsUnit.Pixel),Location=p,Size=new(Math.Min(S(340),document.Selection.Right-p.X),Math.Min(S(110),document.Selection.Bottom-p.Y))};
+        textInput=new(){Multiline=false,ForeColor=ink,BackColor=Color.FromArgb(24,22,34),BorderStyle=BorderStyle.FixedSingle,Font=new Font("Segoe UI",Math.Max(14,stroke*6),FontStyle.Bold,GraphicsUnit.Pixel),Location=p,Size=new(Math.Min(S(340),document.Selection.Right-p.X),Math.Min(S(110),document.Selection.Bottom-p.Y))};
         Controls.Add(textInput);textInput.BringToFront();textInput.Focus();
     }
     void CommitText()
@@ -263,23 +253,7 @@ sealed class ScreenshotEditor:Form
     protected override bool ProcessCmdKey(ref Message msg,Keys keyData)
     {
         if(keyData==Keys.Escape){if(textInput!=null){var box=textInput;textInput=null;Controls.Remove(box);box.Font.Dispose();box.Dispose();Focus();}else Close();return true;}
-        if(textInput!=null){if(keyData==(Keys.Control|Keys.Enter)){CommitText();Focus();return true;}return base.ProcessCmdKey(ref msg,keyData);}
-        if(keyData==(Keys.Control|Keys.A))
-        {
-            var r=Screen.FromPoint(Cursor.Position).Bounds;r.Offset(-frame.Bounds.X,-frame.Bounds.Y);document.Selection=Rectangle.Intersect(r,new(Point.Empty,frame.Bounds.Size));PositionToolbar();return true;
-        }
-        if(keyData==(Keys.Control|Keys.Z)){document.Undo();RefreshActions();return true;}
-        if(keyData==(Keys.Control|Keys.Y)||keyData==(Keys.Control|Keys.Shift|Keys.Z)){document.Redo();RefreshActions();return true;}
-        if(document.Selection.Width>0&&document.Selection.Height>0)
-        {
-            if(keyData==(Keys.Control|Keys.C)||keyData==Keys.Enter){Run(Copy);return true;}
-            if(keyData==(Keys.Control|Keys.S)){Run(()=>Save(false));return true;}
-            if(keyData==(Keys.Control|Keys.Shift|Keys.S)){Run(()=>Save(true));return true;}
-            if(keyData==(Keys.Control|Keys.P)){Run(Print);return true;}
-            var key=keyData&Keys.KeyCode;int step=(keyData&Keys.Shift)!=0?10:1;
-            if(key is Keys.Left or Keys.Right or Keys.Up or Keys.Down)
-            {var r=document.Selection;r.Offset(key==Keys.Left?-step:key==Keys.Right?step:0,key==Keys.Up?-step:key==Keys.Down?step:0);document.Selection=ScreenshotDocument.Clamp(r,frame.Bounds.Size);PositionToolbar();return true;}
-        }
+        if(textInput!=null&&keyData==Keys.Enter){CommitText();Focus();return true;}
         return base.ProcessCmdKey(ref msg,keyData);
     }
     void Copy()
@@ -317,12 +291,13 @@ sealed class ScreenshotEditor:Form
     {OnMouseDown(new(MouseButtons.Left,1,from.X,from.Y,0));OnMouseMove(new(MouseButtons.Left,0,to.X,to.Y,0));OnMouseUp(new(MouseButtons.Left,1,to.X,to.Y,0));}
     internal void TestTool(ScreenshotTool value)=>SetTool(value);
     internal bool TestKey(Keys key){var message=new Message();return ProcessCmdKey(ref message,key);}
+    internal void TestAction(string glyph)=>actions.Controls.Cast<Control>().Concat(tools.Controls.Cast<Control>()).OfType<ScreenshotButton>().Single(b=>(string?)b.Tag==glyph).PerformClick();
     internal void CheckToolbar()
     {
         var area=new Rectangle(Point.Empty,frame.Bounds.Size);
-        if(!area.Contains(toolbar.Bounds))throw new Exception("Screenshot toolbar escaped the frozen desktop.");
-        foreach(var row in new[]{tools,actions})foreach(Control child in row.Controls)
-            if(!row.ClientRectangle.Contains(child.Bounds))throw new Exception("Screenshot action clipped by toolbar: "+child.Text);
+        if(!area.Contains(tools.Bounds)||!area.Contains(actions.Bounds)||tools.Bounds.IntersectsWith(actions.Bounds))throw new Exception("Screenshot bars are outside the desktop or overlap.");
+        foreach(var bar in new[]{tools,actions})foreach(Control child in bar.Controls)
+            if(!bar.ClientRectangle.Contains(child.Bounds))throw new Exception("Screenshot action clipped by toolbar: "+child.AccessibleName);
     }
     protected override void WndProc(ref Message m)
     {
@@ -338,16 +313,19 @@ sealed class ScreenshotEditor:Form
     internal Bitmap RenderDiagnostic(Rectangle selection)
     {
         document.Selection=selection;PositionToolbar();var bitmap=new Bitmap(frame.Bounds.Width,frame.Bounds.Height);
-        DrawToBitmap(bitmap,new(Point.Empty,bitmap.Size));
+        using(var g=Graphics.FromImage(bitmap))OnPaint(new PaintEventArgs(g,new(Point.Empty,bitmap.Size)));
         // DrawToBitmap skips children of an invisible top-level window. Render
         // the detached child control separately; never Show/activate a test form.
-        var location=toolbar.Location;Controls.Remove(toolbar);
-        try
+        foreach(var bar in new[]{tools,actions})
         {
-            toolbar.Visible=true;using var bar=new Bitmap(toolbar.Width,toolbar.Height);toolbar.DrawToBitmap(bar,new(Point.Empty,bar.Size));
-            using var g=Graphics.FromImage(bitmap);g.DrawImageUnscaled(bar,location);
+            var location=bar.Location;Controls.Remove(bar);
+            try
+            {
+                bar.Visible=true;using var image=new Bitmap(bar.Width,bar.Height);bar.DrawToBitmap(image,new(Point.Empty,image.Size));
+                using var g=Graphics.FromImage(bitmap);g.DrawImageUnscaled(image,location);
+            }
+            finally{Controls.Add(bar);bar.Location=location;}
         }
-        finally{Controls.Add(toolbar);toolbar.Location=location;}
         return bitmap;
     }
 }

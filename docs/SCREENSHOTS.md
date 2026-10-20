@@ -1,4 +1,4 @@
-# Local screenshots (0.7.33)
+# Local screenshots (0.7.34)
 
 Press **PrintScreen**, drag an area, then annotate or export it. Screenshots are
 also available from the DeskGlide tray menu. Configure the shortcut and folder in
@@ -7,27 +7,28 @@ under `DeskGlide/Screenshots`. PNG is the only exported file format. There is no
 upload service, public link, online image search or HDR-file export.
 
 The editor provides freehand pen, line, arrow, rectangle, translucent marker,
-multiline text and opaque redaction. Its implementation, layout and graphics
+text and opaque redaction. Compact vector-icon tools sit above the selection,
+with a narrow copy/save/action bar beside its border. Both follow the region,
+flip sides at display edges and remain usable for a full-monitor selection.
+Crop handles remain available while a drawing tool is selected.
+Its implementation, layout and graphics
 are original DeskGlide work; it does not contain Lightshot code, assets or branding.
 It offers common screenshot workflows rather than a claim of complete Lightshot
 service compatibility or legal clearance.
 
 ## Controls
 
-| Action | Shortcut |
+| Action | Control |
 | --- | --- |
 | Capture | PrintScreen |
-| Copy bitmap and PNG | Ctrl+C or Enter |
-| Save a unique PNG to the configured folder | Ctrl+S |
-| Choose a destination | Ctrl+Shift+S |
-| Print through the Windows dialog | Ctrl+P |
-| Undo / redo annotations | Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z |
-| Select the monitor under the pointer | Ctrl+A |
-| Move selected area | Drag inside it with Select, or arrow keys |
-| Move by ten pixels | Shift+arrow |
+| Copy bitmap and PNG | Copy button beside the area |
+| Save a unique PNG to the configured folder | Save button beside the area |
+| Choose a destination | Save as button |
+| Print through the Windows dialog | Print button |
+| Undo / redo annotations | Undo / Redo buttons above the area |
+| Move selected area | Drag inside it with Select |
 | Resize selected area | Drag an edge/corner handle |
-| Copy immediately after selecting | Hold Ctrl while selecting |
-| Commit multiline text | Ctrl+Enter or choose another tool |
+| Commit text | Enter or choose another tool |
 | Cancel text / cancel capture | Escape |
 
 Right-click returns to Select. Canceling leaves the clipboard and filesystem
@@ -35,6 +36,11 @@ unchanged. A successful copy or save closes the editor. Alt-tabbing out cancels
 the overlay; owned save/color/print dialogs are exempt. Display geometry changes
 cancel the frozen canvas. Redaction overwrites pixels in the flattened PNG and
 clipboard image; it is not a reversible blur or a saved editable layer.
+
+The previous editor-specific Ctrl combinations and Shift+arrow nudging were
+removed in 0.7.34. PrintScreen opens capture directly; the editor uses its visible
+buttons. Ordinary text-box editing retains Windows behavior. Settings shows only
+the PrintScreen preference and storage location; HDR processing is automatic.
 
 ## HDR and physical pixels
 
@@ -89,8 +95,10 @@ English/Russian editor previews without showing a window.
 
 `--screenshot-ui-tests` operates a real synthetic editor window and is guarded
 against a running DeskGlide session. It checks reverse selection, move/resize,
-arrow annotation, undo/redo, pixel nudge, text cancellation and toolbar bounds.
-CI runs both tests in folder, standalone portable and signed release packages.
+arrow annotation, undo/redo, text cancellation and toolbar bounds.
+It also verifies visible Undo/Redo buttons, absence of the retired keyboard
+combinations, resize handles while drawing and compact bar bounds. CI runs both
+tests in folder, standalone portable and signed release packages.
 
 `--screenshot-capture-test` performs a real DXGI capture and PNG round trip,
 reports only dimensions/HDR/white level/encoded size and retains no desktop

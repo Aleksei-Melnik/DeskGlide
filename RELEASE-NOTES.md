@@ -1,3 +1,15 @@
+DeskGlide 0.7.34
+
+- Reworked the PrintScreen editor into compact controls directly beside the selected region. Drawing tools sit above the border; copy, save and other actions sit in a narrow bar at its side. The bars follow crop movement/resizing and flip inward or to another side near monitor edges. Icons are original DeskGlide vector drawings.
+- Crop handles remain available with drawing tools selected. The exported PNG includes only the selected frozen pixels and annotations, including when the controls must sit inside a full-screen selection.
+- Removed the HDR explanation and editor-shortcuts cards from Screenshot settings. HDR conversion continues automatically. Removed screenshot-editor Ctrl combinations and Shift+arrow movement; PrintScreen opens capture directly and editing actions use the visible buttons. Enter finishes text, Escape cancels. Windows text-box editing and other DeskGlide feature shortcuts are unchanged.
+
+Validation: SDR/HDR capture/export, crop/redaction and signed-update regressions retained. Compact toolbar placement is checked at corners, full-screen/tiny selections, portrait screens and negative monitor origins. English/Russian previews inspected. Hosted native-window tests check buttons, crop resizing with pen selected, removed key combinations and simplified settings.
+
+Update through **Updates → Update all PCs**. Close another screenshot app if it owns PrintScreen. The signing key, settings and pairing are retained.
+
+Previous release: 0.7.33
+
 DeskGlide 0.7.33
 
 - Added local screenshots on PrintScreen and through the tray menu. Freeze all attached monitors, select/move/resize an area at native resolution, annotate with pen, line, arrow, rectangle, marker or multiline text, and copy or save a PNG. Undo/redo, color/stroke controls, opaque redaction, Save as and Windows printing are included. The editor is an original DeskGlide implementation and uses no Lightshot code or assets.

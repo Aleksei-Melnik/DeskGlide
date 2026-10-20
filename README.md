@@ -7,9 +7,10 @@ The interface supports English and Russian.
 ## Screenshots
 
 Press **PrintScreen**, select an area and annotate it with pen, lines, arrows,
-rectangles, marker or text. Copy with **Ctrl+C** / **Enter**, save PNG with
-**Ctrl+S**, or choose a destination with **Ctrl+Shift+S**. Undo/redo and opaque
-redaction are included. HDR desktops are tone-mapped to ordinary sRGB PNGs
+rectangles, marker or text. Compact drawing tools follow the selection; copy
+and save buttons sit beside its border. Undo/redo and opaque redaction are
+included. PrintScreen opens the editor; editing uses the onscreen buttons.
+HDR desktops are tone-mapped to ordinary sRGB PNGs
 using each monitor's Windows SDR brightness; HDR remains enabled. Screenshots
 stay local. **Settings → Screenshots** chooses the folder and PrintScreen
 preference. Another app using that key must release it; capture is also available

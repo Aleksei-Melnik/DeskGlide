@@ -1,4 +1,9 @@
 {
+  "Selection and drawing": "Выделение и разметка",
+  "Press PrintScreen, select an area and edit it right on your screen.": "Нажмите PrintScreen, выделите область и отредактируйте её прямо на экране.",
+  "Stroke width": "Толщина линии",
+  "Stroke width: {0} px": "Толщина линии: {0} пикс.",
+  "Drag to select an area": "Выделите область мышью",
   "Screenshots": "Скриншоты",
   "Screenshot": "Скриншот",
   "PrintScreen and HDR colors": "PrintScreen и цвета HDR",

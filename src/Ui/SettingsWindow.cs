@@ -60,7 +60,7 @@ sealed class SettingsWindow:ShellWindow
             var label=Kit.Text(title,13);label.FontWeight=W.FontWeights.SemiBold;var sub=Kit.Text(subtitle,11,"#B0A9BC");sub.Margin=new(0,4,0,0);
             var button=Kit.Button(title,()=>SelectPage(page));button.Content=Kit.Stack(label,sub);button.Style=(W.Style)FindResource("Nav");links[page]=button;nav.Children.Add(button);
         }
-        Group("CAPTURE & REPLAY");Link(0,"Screen streaming","Video and audio output");Link(8,"Virtual devices","Receive a screen on this PC");Link(1,"Instant replay","Save your recent gameplay");Link(2,"Recording audio","Choose sources and tracks");Link(11,"Screenshots","PrintScreen and HDR colors");
+        Group("CAPTURE & REPLAY");Link(0,"Screen streaming","Video and audio output");Link(8,"Virtual devices","Receive a screen on this PC");Link(1,"Instant replay","Save your recent gameplay");Link(2,"Recording audio","Choose sources and tracks");Link(11,"Screenshots","Selection and drawing");
         Group("YOUR COMPUTERS");Link(3,"KVM & pairing","Connect and control");Link(4,"Monitor layout","Arrange it like your desk");
         Group("APPLICATION");Link(10,"Stream Deck","Plugin and connection");Link(9,"General","Language, startup and power");Link(5,"Updates","Every PC, one place");Link(7,"Backup & restore","Keep your setup safe");Link(6,"Status","Capture and connections");
         var sidebar=new C.Border{Background=Kit.Brush("#AA0E0D16"),BorderBrush=Kit.Brush("#302B3E"),BorderThickness=new(0,0,1,0),Child=new C.ScrollViewer{Content=nav,VerticalScrollBarVisibility=C.ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=C.ScrollBarVisibility.Disabled}};middle.Children.Add(sidebar);
@@ -161,18 +161,13 @@ sealed class SettingsWindow:ShellWindow
     }
     void BuildScreenshots(Settings v)
     {
-        var page=Page(11,"Capture","Screenshots","Select an area, add annotations and save a PNG with correct HDR-to-SDR colors.");
+        var page=Page(11,"Capture","Screenshots","Press PrintScreen, select an area and edit it right on your screen.");
         var capture=Section(page,"Capture shortcut");
         Row(capture,"PrintScreen",Toggle("screenshots","Use PrintScreen for screenshots",v.Screenshots.Enabled));
         capture.Children.Add(Kit.Text("If another screenshot app uses PrintScreen, close it first. Capture is also available in the DeskGlide tray menu.",12,"#B0A9BC"));
         var storage=Section(page,"Local storage","Screenshots stay on this PC. Nothing is uploaded to the internet.");
         var path=Input("screenshotFolder",v.Screenshots.Folder);var row=new C.Grid();row.ColumnDefinitions.Add(new());row.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});row.Children.Add(path);
         var browse=Kit.Button("Browse…",()=>{var picker=new Microsoft.Win32.OpenFolderDialog{Title=UiStrings.T("Choose a screenshots folder"),InitialDirectory=path.Text};if(picker.ShowDialog(this)==true)path.Text=picker.FolderName;});browse.Margin=new(8,0,0,0);C.Grid.SetColumn(browse,1);row.Children.Add(browse);Row(storage,"Folder",row);
-        var colors=Section(page,"HDR colors");
-        colors.Children.Add(Kit.Text("HDR is captured before clipping, then converted to SDR using each monitor's Windows SDR brightness. PNG files and clipboard images work in ordinary apps. HDR on your monitor stays enabled.",12,"#B0A9BC"));
-        var editor=Section(page,"Editor shortcuts");
-        editor.Children.Add(Kit.Text("Ctrl+C or Enter: copy · Ctrl+S: save PNG · Ctrl+Shift+S: save as · Ctrl+Z / Ctrl+Y: undo / redo · Ctrl+P: print · Ctrl+A: current monitor · Esc: cancel",12,"#B0A9BC"));
-        editor.Children.Add(Kit.Text("Drag the selection or its handles to adjust it. Arrow keys move it by one pixel; hold Shift for ten. Finish text with Ctrl+Enter. Redact permanently covers sensitive pixels in the saved image.",12,"#B0A9BC"));
     }
     void BuildStreamDeck()
     {

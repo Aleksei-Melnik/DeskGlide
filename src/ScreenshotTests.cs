@@ -100,6 +100,14 @@ static class ScreenshotTests
                 Require(ScreenshotDocument.Clamp(new(-5,500,300,200),frame.Bounds.Size)==new Rectangle(0,40,300,200),"Selection move escaped the physical desktop.");
             }
             string previews=Path.Combine(PortableResources.Bundled?Path.Combine(Log.Folder,"Diagnostics"):AppContext.BaseDirectory,"screenshot-preview");Directory.CreateDirectory(previews);
+            foreach(var screen in new[]{new Rectangle(0,0,1280,720),new(0,0,1080,1920),new(0,0,640,480),new(-1000,-500,1280,720),new(0,0,320,240)})
+            foreach(var selection in new[]{screen,new(screen.Left,screen.Top,30,30),new(screen.Right-30,screen.Bottom-30,30,30),new(screen.Left+60,screen.Top+60,200,100)})
+            {
+                var toolSize=screen.Width<400?new Size(246,76):new Size(416,42);var actionSize=new Size(42,178);
+                var place=ScreenshotBarLayout.Place(selection,screen,toolSize,actionSize,7);
+                var toolsRect=new Rectangle(place.Tools,toolSize);var actionsRect=new Rectangle(place.Actions,actionSize);
+                Require(screen.Contains(toolsRect)&&screen.Contains(actionsRect)&&!toolsRect.IntersectsWith(actionsRect),"Compact screenshot bars overlap or escape a monitor edge.");
+            }
             using(var frame=new ScreenshotFrame([Sdr(new(0,0,1600,900),(x,y)=>Color.FromArgb(15+x/40,20+y/30,42+(x+y)/60))]))
             {
                 using(var g=Graphics.FromImage(frame.Preview))
@@ -112,6 +120,9 @@ static class ScreenshotTests
                     editor.Document.Add(new(ScreenshotTool.Arrow,Color.FromArgb(49,209,219),4,[new(260,420),new(640,290)]));
                     editor.Document.Add(new(ScreenshotTool.Rectangle,Color.FromArgb(244,67,116),3,[new(165,155),new(500,285)]));
                     using var image=editor.RenderDiagnostic(new(120,120,1100,450));image.Save(Path.Combine(previews,language+".png"),ImageFormat.Png);editor.CheckToolbar();
+                    foreach(var selection in new[]{new Rectangle(0,0,1600,900),new(0,0,60,40),new(1530,850,70,50)})
+                    {using var edge=editor.RenderDiagnostic(selection);editor.CheckToolbar();edge.Save(Path.Combine(previews,language+"-"+selection.X+"-"+selection.Width+".png"),ImageFormat.Png);}
+                    editor.Document.Selection=new(0,0,1600,900);using var exported=editor.Document.Render();Require(exported.GetPixel(1200,20).ToArgb()==frame.Preview.GetPixel(1200,20).ToArgb()&&exported.GetPixel(0,0).ToArgb()==frame.Preview.GetPixel(0,0).ToArgb(),"Editor bars or crop border leaked into the exported PNG.");
                     Require(!editor.Visible,"Diagnostic editor stole focus.");
                 }
             }
@@ -143,9 +154,11 @@ static class ScreenshotTests
                     editor.TestDrag(new(450,300),new(460,310));Require(editor.Document.Selection==new Rectangle(110,110,700,400),"Selection drag failed.");
                     editor.TestDrag(new(110,110),new(80,90));Require(editor.Document.Selection==new Rectangle(80,90,730,420),"Corner resize failed.");
                     editor.TestTool(ScreenshotTool.Arrow);editor.TestDrag(new(150,150),new(400,300));Require(editor.Document.CanUndo,"Drawing through the editor lost the mark.");
-                    editor.TestKey(Keys.Control|Keys.Z);Require(!editor.Document.CanUndo&&editor.Document.CanRedo,"Editor Undo shortcut failed.");
-                    editor.TestKey(Keys.Control|Keys.Y);Require(editor.Document.CanUndo,"Editor Redo shortcut failed.");
-                    editor.TestTool(ScreenshotTool.Select);var before=editor.Document.Selection;editor.TestKey(Keys.Shift|Keys.Right);Require(editor.Document.Selection.X==before.X+10,"Pixel nudge failed.");
+                    editor.TestAction("Undo");Require(!editor.Document.CanUndo&&editor.Document.CanRedo,"Editor Undo button failed.");
+                    editor.TestAction("Redo");Require(editor.Document.CanUndo,"Editor Redo button failed.");
+                    Require(!editor.TestKey(Keys.Control|Keys.Z)&&editor.Document.CanUndo,"Removed editor key combination still executes an action.");
+                    Require(!editor.TestKey(Keys.Control|Keys.S)&&!editor.TestKey(Keys.Control|Keys.C),"Removed copy/save key combination still executes an action.");
+                    editor.TestTool(ScreenshotTool.Pen);editor.TestDrag(new(80,90),new(70,80));Require(editor.Document.Selection==new Rectangle(70,80,740,430),"Crop handles stopped resizing when a drawing tool was selected.");
                     editor.CheckToolbar();
                     editor.TestTool(ScreenshotTool.Text);editor.TestDrag(new(200,200),new(200,200));editor.TestKey(Keys.Escape);Require(!editor.IsDisposed,"Escape during text editing closed the capture.");
                 }
@@ -154,6 +167,6 @@ static class ScreenshotTests
             });
             Application.Run(editor);if(failure!=null)throw failure;
         }
-        Program.Write("screenshot-ui-tests.json",new{Pass=true,Languages=new[]{"en","ru"},NativeWindowShown=true,SelectionAndResize=true,AnnotationAndUndo=true,TextCancel=true,ToolbarBounds=true,DesktopCaptured=false,OsInputInjected=false,ClipboardWritten=false,PrintScreenPressed=false});
+        Program.Write("screenshot-ui-tests.json",new{Pass=true,Languages=new[]{"en","ru"},NativeWindowShown=true,SelectionAndResize=true,AnnotationAndUndoButtons=true,RemovedEditorChords=true,ResizeWhileDrawing=true,TextCancel=true,ToolbarBounds=true,DesktopCaptured=false,OsInputInjected=false,ClipboardWritten=false,PrintScreenPressed=false});
     }
 }
