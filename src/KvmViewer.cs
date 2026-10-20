@@ -77,6 +77,9 @@ sealed class KvmViewer:Form
     }
     readonly KvmService service;
     readonly KvmPeerInfo peer;
+    readonly KvmInputManager? input;
+    bool windowActive;
+    long keyboardWindow;
     readonly Viewport picture=new(){Dock=DockStyle.Fill,SizeMode=PictureBoxSizeMode.Zoom,BackColor=Color.Black};
     readonly Label status=new(){Dock=DockStyle.Bottom,Height=30,TextAlign=ContentAlignment.MiddleLeft};
     readonly ComboBox monitors=new(){DropDownStyle=ComboBoxStyle.DropDownList,Dock=DockStyle.Top};
@@ -92,9 +95,9 @@ sealed class KvmViewer:Form
     readonly object frameGate=new();KvmMessage? pendingEncoded; (Bitmap Image,KvmMessage Message)? pendingDecoded;bool presenting;
     readonly Task decoder;
     KvmScreen? screen;
-    public KvmViewer(KvmService service,KvmPeerInfo peer)
+    public KvmViewer(KvmService service,KvmPeerInfo peer,KvmInputManager? input=null)
     {
-        this.service=service;this.peer=peer;
+        this.service=service;this.peer=peer;this.input=input;
         Text="DeskGlide · "+peer.Name;Icon=Icon.ExtractAssociatedIcon(Environment.ProcessPath!);ClientSize=new(1100,740);MinimumSize=new(860,450);KeyPreview=true;Font=new("Segoe UI",10);StartPosition=FormStartPosition.CenterScreen;
         UiStyle.FixedWindow(this);
         var toolbar=new FlowLayoutPanel{Dock=DockStyle.Top,Height=50,Padding=new(8,5,8,5),WrapContents=false,BackColor=Color.FromArgb(242,246,251)};
@@ -102,7 +105,7 @@ sealed class KvmViewer:Form
         quality.Items.AddRange(["Чёткий текст · 95","Высокое · 88","Экономный · 1080p"]);quality.SelectedIndex=0;
         frameRate.Items.AddRange(["30 FPS","60 FPS"]);frameRate.SelectedIndex=1;
         toolbar.Controls.AddRange([monitors,quality,frameRate,control,UiStyle.Button("Полный экран · F11",ToggleFullscreen),UiStyle.Button("Отключиться",Close)]);
-        Controls.Add(picture);Controls.Add(status);Controls.Add(toolbar);control.CheckedChanged+=(_,_)=>Release();
+        Controls.Add(picture);Controls.Add(status);Controls.Add(toolbar);control.CheckedChanged+=(_,_)=>{Release();RefreshKeyboardCapture();};
         foreach(var item in peer.Screens)monitors.Items.Add(item.Device);
         if(monitors.Items.Count>0)monitors.SelectedIndex=0;
         monitors.SelectedIndexChanged+=(_,_)=>{screen=CurrentScreens.FirstOrDefault(s=>s.Device==(string?)monitors.SelectedItem);Release();var old=picture.Image;picture.Image=null;old?.Dispose();RestartStream();};
@@ -126,14 +129,17 @@ sealed class KvmViewer:Form
         };
         Shown+=(_,_)=>{picture.Focus();RestartStream();timer.Start();};
         picture.MouseMove+=(_,e)=>Mouse(e,0);
-        picture.MouseDown+=(_,e)=>{picture.Focus();Mouse(e,e.Button switch{MouseButtons.Left=>2,MouseButtons.Right=>8,MouseButtons.Middle=>32,MouseButtons.XButton1 or MouseButtons.XButton2=>128,_=>0});};
+        picture.MouseDown+=(_,e)=>{picture.Focus();RefreshKeyboardCapture();Mouse(e,e.Button switch{MouseButtons.Left=>2,MouseButtons.Right=>8,MouseButtons.Middle=>32,MouseButtons.XButton1 or MouseButtons.XButton2=>128,_=>0});};
         picture.MouseUp+=(_,e)=>Mouse(e,e.Button switch{MouseButtons.Left=>4,MouseButtons.Right=>16,MouseButtons.Middle=>64,MouseButtons.XButton1 or MouseButtons.XButton2=>256,_=>0});
         picture.MouseWheel+=(_,e)=>Mouse(e,2048);
         KeyDown+=(_,e)=>Key(e,false);KeyUp+=(_,e)=>Key(e,true);
         // Forward physical down/up independently; text must not activate local controls.
         KeyPress+=(_,e)=>{if(picture.Focused)e.Handled=true;};
-        picture.LostFocus+=(_,_)=>Release();
-        Deactivate+=(_,_)=>{f11Down=false;Release();};
+        picture.GotFocus+=(_,_)=>RefreshKeyboardCapture();
+        picture.HandleCreated+=(_,_)=>RefreshKeyboardCapture();
+        picture.LostFocus+=(_,_)=>{Release();RefreshKeyboardCapture();};
+        Activated+=(_,_)=>{if(TopLevel)SetWindowActive(true);};
+        Deactivate+=(_,_)=>{f11Down=false;if(TopLevel)SetWindowActive(false);else{Release();RefreshKeyboardCapture();}};
         FormClosed+=(_,_)=>{closing=true;service.SendVideo(peer.Id,new(){Type="view-stop",Id=generation});timer.Stop();timer.Dispose();service.Received-=Receive;decodeStop.Cancel();Release();picture.Image?.Dispose();lock(frameGate){pendingDecoded?.Image.Dispose();pendingDecoded=null;pendingEncoded=null;}_=decoder.ContinueWith(_=>{decodeStop.Dispose();decodeReady.Dispose();});};
         status.Text="Просмотр рабочего стола · для выхода из управления переключитесь на другое окно.";
     }
@@ -211,10 +217,22 @@ sealed class KvmViewer:Form
         if(e.KeyCode==Keys.F11){if(!up&&!f11Down)ToggleFullscreen();f11Down=!up;e.Handled=true;return;}
         if(e.Control&&e.Alt&&e.KeyCode==Keys.Escape){ReturnControl();e.Handled=true;return;}
         if(!control.Checked||!picture.Focused)return;
+        // The low-level input controller owns down/up and shell suppression.
+        // Sending the same message again here would duplicate ordinary keys;
+        // these form events cannot suppress Alt+Tab or Windows shell shortcuts.
+        if(input!=null){e.SuppressKeyPress=true;e.Handled=true;return;}
         uint scan=MapVirtualKey((uint)e.KeyValue,4);int extended=(scan&0xFF00)!=0?1:0;
         service.Send(peer.Id,new(){Type="key",Code=e.KeyValue,X=(int)(scan&255),Flags=(up?2:0)|extended});e.Handled=true;
     }
-    void Release()=>service.Send(peer.Id,new(){Type="release"});
+    internal void SetWindowActive(bool active){windowActive=active;if(active)RefreshKeyboardCapture();else Release();}
+    internal void RefreshKeyboardCapture()
+    {
+        if(input==null)return;
+        if(!closing&&windowActive&&control.Checked&&picture.IsHandleCreated)
+        {keyboardWindow=KvmKeyboardFocus.Root(picture.Handle);input.CaptureViewerKeyboard(peer.Id,keyboardWindow,picture.Handle.ToInt64());}
+        else input.ReleaseViewerKeyboard(peer.Id,keyboardWindow);
+    }
+    void Release(){input?.ReleaseViewerKeyboard(peer.Id,keyboardWindow);service.Send(peer.Id,new(){Type="release"});}
     void ToggleFullscreen()
     {
         if(!TopLevel){FullscreenRequested?.Invoke();return;}
@@ -222,6 +240,7 @@ sealed class KvmViewer:Form
         if(!fullscreen){previousBounds=Bounds;previousBorder=FormBorderStyle;WindowState=FormWindowState.Normal;FormBorderStyle=FormBorderStyle.None;Bounds=Screen.FromControl(this).Bounds;}
         else{FormBorderStyle=previousBorder;Bounds=previousBounds;}
         fullscreen=!fullscreen;
+        RefreshKeyboardCapture();
     }
     public void ReturnControl(){Release();if(!TopLevel){ReturnRequested?.Invoke();return;}WindowState=FormWindowState.Minimized;}
     [DllImport("user32.dll")] static extern uint MapVirtualKey(uint code,uint type);

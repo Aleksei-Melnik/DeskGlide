@@ -80,6 +80,29 @@ An ordinary process cannot control/suppress higher-integrity apps through
 normal Windows input APIs. A desktop click changes the foreground integrity
 and explains why the pre-0.7.27 issue appeared to depend on window focus.
 
+## Viewer keyboard ownership (0.7.32)
+
+The WPF viewer passes its input manager to the embedded WinForms viewport.
+It registers the peer, root HWND and viewport HWND through the ordinary or
+elevated controller. `KvmKeyboardFocus` checks that both handles belong to the
+ordinary parent process and share a root; at every key, foreground/root and
+actual GUI-thread focus must still match the viewport. The helper adds only a
+Host-side `viewer-keyboard` command on its existing private, process-bound pipe.
+It cannot register another application's window. No new network command or
+keyboard logging is introduced.
+
+Viewer system keys now use the same low-level suppression/transport path as
+seamless control, preserving scan codes and extended flags. Form key events
+must not forward another copy. Viewport metadata can remain registered while
+toolbar focus is local, so returning focus does not require the first modifier
+to wait for an IPC/UI round trip. Focus loss, disabled control, disconnect and
+emergency return release remote presses. Per-key route generations consume
+remaining repeats/UPs after a released session, preventing a stray local Win/Alt
+release or transfer of a held key to a different peer. Keys whose DOWN was local
+retain their local lifetime. Ctrl+Alt+Esc and the configured KVM commands remain
+local; viewer F11 retains its fullscreen behavior. An inactive viewer closing
+must not disable keyboard capture in another active viewer.
+
 ## Capture, replay and audio
 
 `StreamEngine` owns separate capture and NDI send workers. `DesktopCapture`

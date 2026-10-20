@@ -16,6 +16,8 @@ sealed record KvmHelperMessage
     public string Key {get;set;}="";
     public bool Flag {get;set;}
     public Point? Point {get;set;}
+    public long Window {get;set;}
+    public long Viewport {get;set;}
     public KvmMessage? Input {get;set;}
     public KvmOptions? Options {get;set;}
     public KvmPeerInfo[]? Peers {get;set;}
@@ -163,7 +165,7 @@ static class KvmInputHelper
                         transport.Peers=message.Peers!;
                         if(controller==null)
                         {
-                            id=options.Id;role=options.Role;controller=new(transport,options,installHooks);
+                            id=options.Id;role=options.Role;controller=new(transport,options,installHooks,viewerProcess:parent.Id);
                             controller.OpenRequested+=()=>link.Post(new(){Type="open"});
                             controller.EmergencyReturn+=()=>link.Post(new(){Type="emergency"});
                             controller.SeamlessChanged+=value=>link.Post(new(){Type="toggle",Flag=value});
@@ -180,6 +182,16 @@ static class KvmInputHelper
                     case "local":controller?.ReturnLocal();break;
                     case "seamless":if(controller!=null)controller.Seamless=message.Flag;break;
                     case "viewer":if(controller!=null)controller.ViewerActive=message.Flag;break;
+                    case "viewer-keyboard":
+                        if(role!="Host"||controller==null)throw new IOException("Invalid viewer keyboard role.");
+                        if(message.Peer=="")
+                        {if(message.Window!=0||message.Viewport!=0)throw new IOException("Invalid empty viewer keyboard target.");controller.SetViewerKeyboard(null);}
+                        else
+                        {
+                            if(!transport.Peers.Any(p=>p.Id==message.Peer)||message.Window<=0||message.Viewport<=0)throw new IOException("Invalid viewer keyboard target.");
+                            controller.SetViewerKeyboard(new(message.Peer,message.Window,message.Viewport));
+                        }
+                        break;
                     case "input":
                         if(role!="Client"||message.Input==null||!KvmInput.Valid(message.Input))throw new IOException("Invalid input helper command.");
                         if(!KvmInput.Inject(message.Input))link.Post(new(){Type="blocked"});break;

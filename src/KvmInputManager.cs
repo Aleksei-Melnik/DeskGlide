@@ -15,6 +15,7 @@ sealed class KvmInputManager:IDisposable
     Process? child;
     volatile bool disposed,viewer,seamless,ready;
     volatile string active="";
+    volatile KvmViewerKeyboard? viewerKeyboard;
     long lastReply;
     public event Action<bool>? SeamlessChanged;
     public event Action? EmergencyReturn;
@@ -39,6 +40,7 @@ sealed class KvmInputManager:IDisposable
             native.OpenRequested+=()=>OpenRequested?.Invoke();native.EmergencyReturn+=()=>EmergencyReturn?.Invoke();
             native.SeamlessChanged+=value=>{seamless=value;SeamlessChanged?.Invoke(value);};
             native.Notification+=text=>{Status=text;Notification?.Invoke(text);};
+            native.SetViewerKeyboard(viewerKeyboard);
         }
     }
     async Task StartHelper()
@@ -93,8 +95,36 @@ sealed class KvmInputManager:IDisposable
     KvmPeerInfo[] Peers()=>new[]{new KvmPeerInfo(options.Id,Environment.MachineName,KvmScreen.Local())}.Concat(service.Peers).ToArray();
     void Configure()
     {
+        lock(gate)
+        {
         helper?.Post(new(){Type="configure",Options=KvmInputHelper.SafeOptions(options with{Seamless=seamless}),Peers=service.Peers.Select(p=>new KvmPeerInfo(p.Id,p.Name,p.Screens,RemoteViewOnly:p.RemoteViewOnly)).ToArray()});
         helper?.Post(new(){Type="viewer",Flag=viewer});
+        PostViewerKeyboard();
+        }
+    }
+    void PostViewerKeyboard()
+    {
+        if(options.Role!="Host")return;
+        var target=viewerKeyboard;
+        helper?.Post(new(){Type="viewer-keyboard",Peer=target?.Peer??"",Window=target?.Window??0,Viewport=target?.Viewport??0});
+    }
+    internal void CaptureViewerKeyboard(string peer,long window,long viewport)
+    {
+        lock(gate)
+        {
+        var target=new KvmViewerKeyboard(peer,window,viewport);
+        if(disposed||target==viewerKeyboard)return;
+        viewerKeyboard=target;
+        native?.SetViewerKeyboard(target);PostViewerKeyboard();
+        }
+    }
+    internal void ReleaseViewerKeyboard(string peer,long window)
+    {
+        lock(gate)
+        {
+        if(viewerKeyboard is not {} target||target.Peer!=peer||target.Window!=window)return;
+        viewerKeyboard=null;native?.SetViewerKeyboard(null);PostViewerKeyboard();
+        }
     }
     public List<MonitorPlacement> Monitors
     {
@@ -109,16 +139,16 @@ sealed class KvmInputManager:IDisposable
     public bool ViewerActive
     {
         get=>viewer;
-        set{viewer=value;if(native!=null)native.ViewerActive=value;helper?.Post(new(){Type="viewer",Flag=value});}
+        set{viewer=value;if(!value&&viewerKeyboard is {} target)ReleaseViewerKeyboard(target.Peer,target.Window);if(native!=null)native.ViewerActive=value;helper?.Post(new(){Type="viewer",Flag=value});}
     }
     public void Refresh(){if(native!=null)native.Refresh();else Configure();}
-    public void UpdateLayout(KvmOptions value){options=value.Copy();seamless=value.Seamless;if(native!=null)native.UpdateLayout(value);else Configure();}
+    public void UpdateLayout(KvmOptions value){options=value.Copy();seamless=value.Seamless;if(native!=null){native.UpdateLayout(value);native.SetViewerKeyboard(viewerKeyboard);}else Configure();}
     public void Activate(MonitorPlacement monitor,Point? point=null)
     {
         if(native!=null){native.Activate(monitor,point);return;}
         if(!ready||helper?.Post(new(){Type="activate",Key=monitor.Key,Point=point})!=true)throw new IOException("Waiting for Windows approval for administrator app control…");
     }
-    public void ReturnLocal(){active="";if(native!=null)native.ReturnLocal();helper?.Post(new(){Type="local"});}
+    public void ReturnLocal(){active="";viewerKeyboard=null;if(native!=null)native.ReturnLocal();helper?.Post(new(){Type="local"});}
     bool Inject(KvmMessage message)
     {
         if(disposed)return false;

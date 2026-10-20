@@ -15,10 +15,10 @@ sealed class ViewerWindow:ShellWindow
     readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromMilliseconds(500)};
     readonly C.DockPanel root=new(){Margin=new(6)};
     bool changing,fullscreen;W.Rect previous;
-    public ViewerWindow(KvmService service,KvmPeerInfo peer):base(peer.Name,1160,780)
+    public ViewerWindow(KvmService service,KvmPeerInfo peer,KvmInputManager? input=null):base(peer.Name,1160,780)
     {
         EnableResizing(640,400);
-        surface=new(service,peer);surface.Embed();host.Child=surface;
+        surface=new(service,peer,input);surface.Embed();host.Child=surface;
         var header=Header(peer.Name,"",true);C.DockPanel.SetDock(header,C.Dock.Top);root.Children.Add(header);
         var toolbar=new C.WrapPanel{Margin=new(12,6,8,6)};
         foreach(var item in new W.FrameworkElement[]{monitors,quality,fps,control,Kit.Button("Full screen · F11",ToggleFullscreen),Kit.Button("Disconnect",Close)}){item.Margin=new(4);toolbar.Children.Add(item);}
@@ -29,13 +29,14 @@ sealed class ViewerWindow:ShellWindow
         monitors.SelectionChanged+=(_,_)=>Apply();quality.SelectionChanged+=(_,_)=>Apply();fps.SelectionChanged+=(_,_)=>Apply();control.Checked+=(_,_)=>Apply();control.Unchecked+=(_,_)=>Apply();
         surface.FullscreenRequested+=ToggleFullscreen;surface.ReturnRequested+=ReturnControl;
         timer.Tick+=(_,_)=>{status.Text=surface.StatusText;var devices=surface.Devices;if(!monitors.Items.Cast<string>().SequenceEqual(devices)){changing=true;monitors.ItemsSource=devices;monitors.SelectedItem=surface.SelectedDevice;changing=false;}};
-        Loaded+=(_,_)=>{surface.Show();surface.Focus();timer.Start();};Deactivated+=(_,_)=>surface.ReleaseControl();Closed+=(_,_)=>{timer.Stop();surface.Close();host.Dispose();};
+        Loaded+=(_,_)=>{surface.Show();surface.Focus();timer.Start();};Activated+=(_,_)=>surface.SetWindowActive(true);Deactivated+=(_,_)=>surface.SetWindowActive(false);Closed+=(_,_)=>{timer.Stop();surface.Close();host.Dispose();};
     }
     void ToggleFullscreen()
     {
         surface.ReleaseControl();
         if(!fullscreen){previous=new(Left,Top,Width,Height);root.Margin=new(0);FullscreenChrome(true);WindowState=W.WindowState.Maximized;}
         else{WindowState=W.WindowState.Normal;FullscreenChrome(false);root.Margin=new(6);Left=previous.Left;Top=previous.Top;Width=previous.Width;Height=previous.Height;}fullscreen=!fullscreen;
+        Dispatcher.BeginInvoke(()=>surface.SetWindowActive(IsActive));
     }
     public void ReturnControl(){surface.ReleaseControl();WindowState=W.WindowState.Minimized;}
 }

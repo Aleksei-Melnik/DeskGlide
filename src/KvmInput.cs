@@ -109,6 +109,11 @@ sealed class KvmController:IDisposable
     Point? pendingWarp;
     readonly HashSet<int> swallowed=[];
     readonly HashSet<int> physicalKeys=[];
+    readonly Dictionary<int,(string Peer,long Generation)> routedKeys=[];
+    KvmViewerKeyboard? viewerKeyboard;
+    bool viewerKeyboardFocused;
+    readonly int viewerProcess;
+    long keyboardGeneration;
     List<MonitorPlacement> currentMonitors=[];
     Dictionary<string,KvmScreen> physicalScreens=[];
     KvmScreen[] localScreens=[];
@@ -125,8 +130,9 @@ sealed class KvmController:IDisposable
     long lastMouseHook=Environment.TickCount64,missingHookSince;
     internal static Func<Point,bool>? TestWarp;
     readonly bool testMode;
-    public KvmController(IKvmInputTransport service,KvmOptions options,bool installHooks=true)
+    public KvmController(IKvmInputTransport service,KvmOptions options,bool installHooks=true,int viewerProcess=0)
     {
+        this.viewerProcess=viewerProcess==0?Environment.ProcessId:viewerProcess;
         this.service=service;this.options=options.Copy();Seamless=options.Seamless;testMode=!installHooks;
         Refresh();
         mouseProc=MouseHook;keyProc=KeyHook;
@@ -142,7 +148,7 @@ sealed class KvmController:IDisposable
                     if(options.Role=="Host")mouseHook=SetWindowsHookEx(14,mouseProc,GetModuleHandle(null),0);
                     keyHook=SetWindowsHookEx(13,keyProc,GetModuleHandle(null),0);
                     if((options.Role=="Host"&&mouseHook==IntPtr.Zero)||keyHook==IntPtr.Zero)throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-                    inputWatch=new(){Interval=100};inputWatch.Tick+=(_,_)=>{CheckAccess();KvmInput.RetryRelease();};inputWatch.Start();
+                    inputWatch=new(){Interval=100};inputWatch.Tick+=(_,_)=>{CheckAccess();KeyboardPeer();KvmInput.RetryRelease();};inputWatch.Start();
                     started=true;ready.Set();Application.Run();
                 }
                 catch(Exception e){failure=e;if(!started)ready.Set();else Log.Write("KVM input thread: "+e);}
@@ -182,6 +188,7 @@ sealed class KvmController:IDisposable
     public void Activate(MonitorPlacement target,Point? point=null)
     {
         if(Dispatch(()=>Activate(target,point)))return;
+        ClearViewerKeyboard();keyboardGeneration++;
         var position=point??new Point(target.X+target.Width/2,target.Y+target.Height/2);
         if(!TryPhysical(target,position,out var physical))return;
         if(remote!=null)service.Send(remote.Peer,new(){Type="release"});
@@ -195,10 +202,39 @@ sealed class KvmController:IDisposable
     public void ReturnLocal()
     {
         if(Dispatch(ReturnLocal))return;
+        ClearViewerKeyboard();
         ReturnLocalCore();
+    }
+    internal void SetViewerKeyboard(KvmViewerKeyboard? target)
+    {
+        if(Dispatch(()=>SetViewerKeyboard(target)))return;
+        if(target==viewerKeyboard)return;
+        ClearViewerKeyboard();
+        if(target==null)return;
+        if(options.Role!="Host"||!service.Peers.Any(p=>p.Id==target.Peer)||!KvmKeyboardFocus.Owned(target.Window,target.Viewport,viewerProcess))return;
+        if(remote!=null)ReturnLocalCore();
+        viewerKeyboard=target;keyboardGeneration++;
+    }
+    void ClearViewerKeyboard()
+    {
+        if(viewerKeyboard is {} old){viewerKeyboard=null;viewerKeyboardFocused=false;keyboardGeneration++;service.Send(old.Peer,new(){Type="release"});}
+    }
+    string? KeyboardPeer()
+    {
+        if(viewerKeyboard is {} target)
+        {
+            if(!service.Peers.Any(p=>p.Id==target.Peer)){ClearViewerKeyboard();return null;}
+            if(KvmKeyboardFocus.Focused(target.Window,target.Viewport,viewerProcess)){viewerKeyboardFocused=true;return target.Peer;}
+            // Keep the registered viewport so a subsequent click can capture
+            // immediately, without a UI/IPC round trip for its first modifier.
+            if(viewerKeyboardFocused){viewerKeyboardFocused=false;keyboardGeneration++;service.Send(target.Peer,new(){Type="release"});}
+            return null;
+        }
+        return remote?.Peer;
     }
     void ReturnLocalCore(Point? destination=null)
     {
+        keyboardGeneration++;
         if(remote!=null){service.Send(remote.Peer,new(){Type="release"});remote=null;if(!testMode)Cursor.Show();Warp(destination??returnPoint);}
         else if(destination.HasValue)Warp(destination.Value);
         StateChanged?.Invoke();
@@ -214,14 +250,14 @@ sealed class KvmController:IDisposable
         var block=KvmInputAccess.Check();
         if(block==KvmInputBlock.None){if(lastBlock!=KvmInputBlock.None)RepairHooks();lastBlock=block;return true;}
         KvmInput.ReleaseAll();
-        if(remote!=null)LoseControl(block);else{physicalKeys.Clear();swallowed.Clear();lastBlock=block;}
+        if(remote!=null||viewerKeyboard!=null)LoseControl(block);else{physicalKeys.Clear();swallowed.Clear();lastBlock=block;}
         return false;
     }
     internal void TestWatch()=>CheckAccess();
     internal void TestMove(int dx,int dy)=>MoveRemote(dx,dy);
     void LoseControl(KvmInputBlock reason)
     {
-        ReturnLocalCore();physicalKeys.Clear();swallowed.Clear();pendingWarp=null;
+        ClearViewerKeyboard();ReturnLocalCore();physicalKeys.Clear();swallowed.Clear();pendingWarp=null;
         if(lastBlock!=reason){lastBlock=reason;Notification?.Invoke(KvmInputAccess.Describe(reason));}
     }
     void MoveRemote(int dx,int dy)
@@ -243,11 +279,11 @@ sealed class KvmController:IDisposable
         if(!TryPhysical(remote,logical,out var physical)||!service.Send(remote.Peer,new(){Type="mouse",X=physical.X,Y=physical.Y}))ReturnLocal();
     }
     // Feed the same path as WH_KEYBOARD_LL without sending any OS input in regression tests.
-    internal IntPtr TestKey(int key,bool up,bool injected)
+    internal IntPtr TestKey(int key,bool up,bool injected,int scan=0,bool extended=false,bool own=false)
     {
-        if(inputDispatcher?.InvokeRequired==true)return (IntPtr)inputDispatcher.Invoke(()=>TestKey(key,up,injected));
+        if(inputDispatcher?.InvokeRequired==true)return (IntPtr)inputDispatcher.Invoke(()=>TestKey(key,up,injected,scan,extended,own));
         var ptr=Marshal.AllocHGlobal(Marshal.SizeOf<KeyData>());
-        try{Marshal.StructureToPtr(new KeyData{Vk=(uint)key,Flags=(up?128u:0)|(injected?16u:0)},ptr,false);return KeyHook(0,IntPtr.Zero,ptr);}
+        try{Marshal.StructureToPtr(new KeyData{Vk=(uint)key,Scan=(uint)scan,Flags=(up?128u:0)|(injected?16u:0)|(extended?1u:0),Extra=own?KvmInput.Marker:UIntPtr.Zero},ptr,false);return KeyHook(0,IntPtr.Zero,ptr);}
         finally{Marshal.FreeHGlobal(ptr);}
     }
     internal IntPtr TestMouse(int message,Point point)
@@ -304,8 +340,8 @@ sealed class KvmController:IDisposable
         var data=Marshal.PtrToStructure<KeyData>(l);
         // Ignore only our own remote input. Stream Deck and accessibility tools set LLKHF_INJECTED too.
         if(data.Extra==KvmInput.Marker)return CallNextHookEx(IntPtr.Zero,code,w,l);
-        if(!CheckAccess())return CallNextHookEx(IntPtr.Zero,code,w,l);
         int key=(int)data.Vk;bool up=(data.Flags&128)!=0;
+        if(!CheckAccess()){if(up)routedKeys.Remove(key);return CallNextHookEx(IntPtr.Zero,code,w,l);}
         bool repeat=!up&&!physicalKeys.Add(key);if(up)physicalKeys.Remove(key);
         if(up&&swallowed.Remove(key))return (IntPtr)1;
         if(repeat&&swallowed.Contains(key))return (IntPtr)1;
@@ -314,12 +350,27 @@ sealed class KvmController:IDisposable
         {
             if(KvmShortcut.Matches(options.OpenHotkeyModifiers,options.OpenHotkeyKey,modifiers,key)){ReturnLocal();OpenRequested?.Invoke();swallowed.Add(key);return (IntPtr)1;}
             if(modifiers==3&&key==27){ReturnLocal();EmergencyReturn?.Invoke();swallowed.Add(key);return (IntPtr)1;}
-            if(options.Role=="Host"&&KvmShortcut.Matches(options.ToggleHotkeyModifiers,options.ToggleHotkeyKey,modifiers,key)){Seamless=!Seamless;if(!Seamless)ReturnLocal();SeamlessChanged?.Invoke(Seamless);swallowed.Add(key);return (IntPtr)1;}
+            if(options.Role=="Host"&&KvmShortcut.Matches(options.ToggleHotkeyModifiers,options.ToggleHotkeyKey,modifiers,key)){Seamless=!Seamless;if(!Seamless&&remote!=null)ReturnLocalCore();SeamlessChanged?.Invoke(Seamless);swallowed.Add(key);return (IntPtr)1;}
             var target=options.Role!="Host"||ViewerActive||modifiers!=3?null:Monitors.FirstOrDefault(m=>m.Hotkey>0&&key==(int)Keys.F1+m.Hotkey-1);
             if(target!=null){Activate(target);swallowed.Add(key);return (IntPtr)1;}
         }
-        if(remote==null)return CallNextHookEx(IntPtr.Zero,code,w,l);
-        if(!service.Send(remote.Peer,new(){Type="key",Code=key,X=(int)data.Scan,Flags=(up?2:0)|((data.Flags&1)!=0?1:0)}))ReturnLocal();
+        string? peer=KeyboardPeer();
+        var message=new KvmMessage{Type="key",Code=key,X=(int)data.Scan,Flags=(up?2:0)|((data.Flags&1)!=0?1:0)};
+        // A key owns its entire down/repeat/up lifetime. After focus loss or an
+        // emergency return, consume its remaining events instead of leaking an
+        // orphan Win/Alt UP (or autorepeat) into the local shell.
+        if(routedKeys.TryGetValue(key,out var held))
+        {
+            if(up)routedKeys.Remove(key);
+            if(peer==held.Peer&&keyboardGeneration==held.Generation&&!service.Send(peer,message))ReturnLocal();
+            return (IntPtr)1;
+        }
+        // UP/repeat for a key pressed locally before the handover stays local.
+        if(peer==null||up||repeat)return CallNextHookEx(IntPtr.Zero,code,w,l);
+        // F11 remains the viewer's local fullscreen command.
+        if(viewerKeyboard!=null&&key==(int)Keys.F11)return CallNextHookEx(IntPtr.Zero,code,w,l);
+        routedKeys[key]=(peer,keyboardGeneration);
+        if(!service.Send(peer,message))ReturnLocal();
         return (IntPtr)1;
     }
     public void Dispose()

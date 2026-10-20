@@ -1,3 +1,16 @@
+DeskGlide 0.7.32
+
+- Fixed system shortcuts in the remote desktop viewer. Ordinary form key events could forward Windows keys while also letting the local shell act on them, and could miss Alt+Tab, Alt+F4 and Ctrl+Shift+Esc entirely. The active remote viewport now uses the dedicated low-level input controller, including the existing Windows-approved administrator input helper, to forward and suppress each key once.
+- Physical scan codes and left/right extended-key flags are preserved. Form handlers no longer send a second copy. Keyboard capture applies only to the focused remote viewport in DeskGlide's foreground window; the toolbar, other windows and disabled Control mode retain local keyboard handling.
+- Held keys are released remotely when focus/control is lost. Their remaining repeats/releases cannot leak into the local shell or a different server. Screen-edge locking keeps viewer keyboard control active. Switching/fullscreen/focus changes retain the registered viewport and validate actual foreground focus on the input thread.
+- The elevated helper accepts viewer capture only for its verified parent's own window and viewport. Existing pairing, signing, input security prompts and protected-desktop handling are retained. Ctrl+Alt+Esc remains the local emergency return; F11 remains viewer fullscreen.
+
+Validation: no-input regression tests cover Ctrl+Shift+Esc, Alt+Tab, Alt+F4, Ctrl+Esc, Shift+4, left Win+R, right Win+E, scan codes, repeats, marked/injected events, focus loss, server handover, emergency return, native hidden-window ownership and protected desktops. Existing private IPC, injection/release, update and recording regressions pass. Physical two-PC shortcut verification remains a user-side check; tests do not send shortcuts into live applications. See docs/KVM-KEYBOARD-VALIDATION-0.7.32.md.
+
+Install through **Updates → Update all PCs**. The existing update signing key, settings and pairing are retained.
+
+Previous release: 0.7.31
+
 DeskGlide 0.7.31
 
 - Fixed remaining 120 FPS repeat/drop pairs at the recording deadline. A narrow acceptance window could discard an available image and repeat its successor. Matching now conserves distinct chronological images through up to 20 ms of timing variation, within the existing 100 ms playout buffer. Real source stalls still hold the last available image; no motion interpolation is used.

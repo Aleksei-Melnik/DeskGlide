@@ -218,8 +218,9 @@ sealed partial class TrayApp:ApplicationContext
     {
         if(kvm==null||settings.Kvm.Role!="Host")return;
         controller?.ReturnLocal();
-        if(viewers.TryGetValue(peer.Id,out var existing)&&!existing.IsClosed){existing.Reveal();return;}
-        var viewer=new Ui.ViewerWindow(kvm,peer);viewers[peer.Id]=viewer;viewer.Activated+=(_,_)=>{controller?.ReturnLocal();if(controller!=null)controller.ViewerActive=true;};viewer.Deactivated+=(_,_)=>{if(controller!=null)controller.ViewerActive=false;};viewer.Closed+=(_,_)=>{viewers.Remove(peer.Id);if(controller!=null)controller.ViewerActive=false;};viewer.Reveal();
+        if(viewers.TryGetValue(peer.Id,out var existing)&&!existing.IsClosed){existing.Reveal();existing.NativeSurface.RefreshKeyboardCapture();return;}
+        void RefreshViewerMode(){if(controller!=null)controller.ViewerActive=viewers.Values.Any(v=>!v.IsClosed&&v.IsActive);}
+        var viewer=new Ui.ViewerWindow(kvm,peer,controller);viewers[peer.Id]=viewer;viewer.Activated+=(_,_)=>RefreshViewerMode();viewer.Deactivated+=(_,_)=>RefreshViewerMode();viewer.Closed+=(_,_)=>{viewers.Remove(peer.Id);RefreshViewerMode();};viewer.Reveal();
     }
     public void OpenKvm()=>Guard(()=>
     {

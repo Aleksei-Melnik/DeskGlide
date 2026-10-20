@@ -14,7 +14,8 @@ static class KvmInputTests
         public KvmPeerInfo[] Peers {get;set;}=[];
         public bool Online=true;
         public readonly List<KvmMessage> Sent=[];
-        public bool Send(string peer,KvmMessage message){Sent.Add(message);return Online;}
+        public readonly List<(string Peer,KvmMessage Message)> Routed=[];
+        public bool Send(string peer,KvmMessage message){Sent.Add(message);Routed.Add((peer,message));return Online;}
     }
     public static void Run()
     {
@@ -22,16 +23,90 @@ static class KvmInputTests
         KvmInputAccess.TestProbe=()=>block;KvmController.TestWarp=_=>true;
         try
         {
-            Controller(value=>block=value);Injection(value=>block=value);Plans();
+            Controller(value=>block=value);ViewerKeyboard(value=>block=value);NativeViewerOwnership();Injection(value=>block=value);Plans();
             Pipes().GetAwaiter().GetResult();
             HelperProtocol().GetAwaiter().GetResult();
             Program.Write("kvm-input-tests.json",new{Pass=true,AdministratorFocusReturnsLocal=true,ProtectedDesktopReturnsLocal=true,
                 SuccessfulInjectionTrackedOnly=true,FailedReleasesRetried=true,NoPhantomRightClick=true,FailedWarpStaysLocal=true,
                 HelperPlanExcludesSecrets=true,PrivatePipeRoundtrip=true,PipeProcessIdentityChecked=true,MalformedFramesRejected=true,
                 PipeCloseStopsChild=true,UnchangedHelperPlanKeepsRemote=true,HostHelperRejectsInjection=true,HelperHeartbeatDeadline=true,
+                ViewerSystemKeysSuppressedLocally=true,ViewerScancodesPreserved=true,KeyLifetimesSurviveFocusLoss=true,ViewerWindowOwnershipChecked=true,
                 InjectedOsInput=false,InstalledHooks=false,PhysicalTwoPcTest=false});
         }
-        finally{block=KvmInputBlock.None;KvmInput.ReleaseAll();KvmInput.TestSend=null;KvmInputAccess.TestProbe=null;KvmController.TestWarp=null;}
+        finally{block=KvmInputBlock.None;KvmInput.ReleaseAll();KvmInput.TestSend=null;KvmInputAccess.TestProbe=null;KvmController.TestWarp=null;KvmKeyboardFocus.TestOwned=null;KvmKeyboardFocus.TestFocused=null;}
+    }
+    static void ViewerKeyboard(Action<KvmInputBlock> access)
+    {
+        access(KvmInputBlock.None);bool focused=true,owned=true;int checkedProcess=0;
+        KvmKeyboardFocus.TestOwned=(window,viewport,process)=>{checkedProcess=process;return owned&&window==100&&viewport==101;};
+        KvmKeyboardFocus.TestFocused=(_,_)=>focused;
+        string peer=Guid.NewGuid().ToString("N"),second=Guid.NewGuid().ToString("N");
+        var transport=new Transport{Peers=[new(peer,"Fixture",[]),new(second,"Second",[])]};
+        using var controller=new KvmController(transport,new(){Role="Host"},installHooks:false,viewerProcess:12345);
+        var target=new KvmViewerKeyboard(peer,100,101);controller.SetViewerKeyboard(target);
+        Require(checkedProcess==12345,"Elevated viewer capture checked the helper process instead of its parent.");
+        foreach(var chord in new (int Key,int Scan,bool Extended)[][]{
+            [(162,29,false),(160,42,false),(27,1,false)], // Ctrl+Shift+Esc
+            [(164,56,false),(9,15,false)],             // Alt+Tab
+            [(164,56,false),(115,62,false)],           // Alt+F4
+            [(91,91,true),(82,19,false)],              // left Win+R
+            [(92,92,true),(69,18,false)],              // right Win+E
+            [(162,29,false),(27,1,false)],             // Ctrl+Esc
+            [(160,42,false),(52,5,false)]})            // Shift+4
+        {
+            int before=transport.Sent.Count;
+            foreach(var k in chord)Require(controller.TestKey(k.Key,false,false,k.Scan,k.Extended)==(IntPtr)1,"System key DOWN leaked into the local shell.");
+            foreach(var k in chord.Reverse())Require(controller.TestKey(k.Key,true,false,k.Scan,k.Extended)==(IntPtr)1,"System key UP leaked into the local shell.");
+            var messages=transport.Sent.Skip(before).ToArray();
+            Require(messages.Length==chord.Length*2&&messages.All(m=>m.Type=="key"),"A viewer chord duplicated or lost key messages.");
+            for(int i=0;i<chord.Length;i++)Require(messages[i].Code==chord[i].Key&&messages[i].X==chord[i].Scan&&messages[i].Flags==(chord[i].Extended?1:0),"Physical scan code or left/right extended flag changed.");
+        }
+        int count=transport.Sent.Count;controller.SetViewerKeyboard(target);
+        Require(transport.Sent.Count==count,"Refreshing an unchanged viewport released held keys.");
+        controller.TestKey(162,false,false,29);controller.TestKey(164,false,false,56);controller.TestKey((int)Keys.Pause,false,false,69);
+        controller.TestKey((int)Keys.Pause,true,false,69);controller.TestKey(164,true,false,56);controller.TestKey(162,true,false,29);
+        Require(!controller.Seamless&&transport.Sent.Count==count+4,"Locking physical screen edges disabled the viewer keyboard.");
+        count=transport.Sent.Count;
+        controller.TestKey(65,false,true,30);controller.TestKey(65,false,true,30);controller.TestKey(65,true,true,30);
+        Require(transport.Sent.Count==count+3,"Injected accessibility/Stream Deck input or autorepeat was duplicated/lost.");
+        count=transport.Sent.Count;controller.TestKey(65,false,true,30,own:true);
+        Require(transport.Sent.Count==count,"The KVM's own marked injection fed back into transport.");
+        controller.TestKey(91,false,false,91,true);focused=false;
+        controller.TestKey(91,false,false,91,true);controller.TestKey(91,true,false,91,true);
+        Require(transport.Sent[^1].Type=="release"&&transport.Sent.Count==count+2,"Focus loss retained input or leaked a held Win key into another target.");
+        Require(controller.TestKey(91,true,false,91,true)!=(IntPtr)1,"A completed key lifetime stayed trapped locally.");
+        focused=true;controller.TestKey(164,false,false,56);
+        controller.SetViewerKeyboard(new(second,100,101));count=transport.Sent.Count;
+        Require(controller.TestKey(164,false,false,56)==(IntPtr)1&&controller.TestKey(164,true,false,56)==(IntPtr)1,"A held Alt key leaked during viewer handover.");
+        Require(transport.Sent.Count==count,"A held key moved to a different server without a fresh DOWN.");
+        controller.TestKey(66,false,false,48);controller.TestKey(66,true,false,48);
+        Require(transport.Routed.TakeLast(2).All(x=>x.Peer==second&&x.Message.Code==66),"New keys went to the old server after handover.");
+        int emergencies=0;controller.EmergencyReturn+=()=>emergencies++;
+        controller.TestKey(162,false,false,29);controller.TestKey(164,false,false,56);controller.TestKey(27,false,false,1);
+        Require(emergencies==1&&transport.Sent[^1].Type=="release","Ctrl+Alt+Esc did not release viewer control.");
+        count=transport.Sent.Count;controller.TestKey(27,true,false,1);controller.TestKey(164,true,false,56);controller.TestKey(162,true,false,29);
+        Require(transport.Sent.Count==count,"Emergency return forwarded orphan modifier releases.");
+        owned=false;controller.SetViewerKeyboard(target);count=transport.Sent.Count;controller.TestKey(67,false,false,46);controller.TestKey(67,true,false,46);
+        Require(transport.Sent.Count==count,"A foreign viewport could capture keyboard input.");
+        owned=true;controller.SetViewerKeyboard(target);access(KvmInputBlock.Desktop);controller.TestWatch();
+        Require(transport.Sent[^1].Type=="release","Protected desktop did not release the viewer keyboard.");
+        access(KvmInputBlock.None);KvmKeyboardFocus.TestOwned=null;KvmKeyboardFocus.TestFocused=null;
+    }
+    static void NativeViewerOwnership()
+    {
+        // Create private hidden HWNDs only: no Show, activation, hooks or input.
+        var prior=SynchronizationContext.Current;
+        try
+        {
+            using var window=new Form();using var viewport=new PictureBox();window.Controls.Add(viewport);
+            long root=window.Handle.ToInt64(),child=viewport.Handle.ToInt64();
+            Require(KvmKeyboardFocus.Root(viewport.Handle)==root&&KvmKeyboardFocus.Owned(root,child,Environment.ProcessId),"Native viewer/viewport ownership was rejected.");
+            Require(!KvmKeyboardFocus.Owned(root,child,Environment.ProcessId+1)&&!KvmKeyboardFocus.Owned(long.MaxValue,child,Environment.ProcessId),"Foreign/invalid native window ownership was accepted.");
+            Require(!KvmKeyboardFocus.Focused(root,child,Environment.ProcessId),"A hidden background viewer could capture keyboard input.");
+        }
+        // Creating HWNDs auto-installs a WinForms context. This CLI has no UI
+        // message loop; subsequent async pipe tests must retain their old context.
+        finally{SynchronizationContext.SetSynchronizationContext(prior);}
     }
     static void Controller(Action<KvmInputBlock> access)
     {
