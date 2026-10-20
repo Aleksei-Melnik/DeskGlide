@@ -4,6 +4,17 @@ KVM, screen and audio sharing, and instant replay for Windows 11. Connect your
 PCs, arrange their monitors and move between them with one keyboard and mouse.
 The interface supports English and Russian.
 
+## Screenshots
+
+Press **PrintScreen**, select an area and annotate it with pen, lines, arrows,
+rectangles, marker or text. Copy with **Ctrl+C** / **Enter**, save PNG with
+**Ctrl+S**, or choose a destination with **Ctrl+Shift+S**. Undo/redo and opaque
+redaction are included. HDR desktops are tone-mapped to ordinary sRGB PNGs
+using each monitor's Windows SDR brightness; HDR remains enabled. Screenshots
+stay local. **Settings → Screenshots** chooses the folder and PrintScreen
+preference. Another app using that key must release it; capture is also available
+in the DeskGlide tray menu. [Controls and validation](docs/SCREENSHOTS.md).
+
 ## Stream Deck
 
 **Settings → Stream Deck** installs the bundled plugin and shows its connection.

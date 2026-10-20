@@ -60,7 +60,7 @@ sealed class SettingsWindow:ShellWindow
             var label=Kit.Text(title,13);label.FontWeight=W.FontWeights.SemiBold;var sub=Kit.Text(subtitle,11,"#B0A9BC");sub.Margin=new(0,4,0,0);
             var button=Kit.Button(title,()=>SelectPage(page));button.Content=Kit.Stack(label,sub);button.Style=(W.Style)FindResource("Nav");links[page]=button;nav.Children.Add(button);
         }
-        Group("CAPTURE & REPLAY");Link(0,"Screen streaming","Video and audio output");Link(8,"Virtual devices","Receive a screen on this PC");Link(1,"Instant replay","Save your recent gameplay");Link(2,"Recording audio","Choose sources and tracks");
+        Group("CAPTURE & REPLAY");Link(0,"Screen streaming","Video and audio output");Link(8,"Virtual devices","Receive a screen on this PC");Link(1,"Instant replay","Save your recent gameplay");Link(2,"Recording audio","Choose sources and tracks");Link(11,"Screenshots","PrintScreen and HDR colors");
         Group("YOUR COMPUTERS");Link(3,"KVM & pairing","Connect and control");Link(4,"Monitor layout","Arrange it like your desk");
         Group("APPLICATION");Link(10,"Stream Deck","Plugin and connection");Link(9,"General","Language, startup and power");Link(5,"Updates","Every PC, one place");Link(7,"Backup & restore","Keep your setup safe");Link(6,"Status","Capture and connections");
         var sidebar=new C.Border{Background=Kit.Brush("#AA0E0D16"),BorderBrush=Kit.Brush("#302B3E"),BorderThickness=new(0,0,1,0),Child=new C.ScrollViewer{Content=nav,VerticalScrollBarVisibility=C.ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=C.ScrollBarVisibility.Disabled}};middle.Children.Add(sidebar);
@@ -70,7 +70,7 @@ sealed class SettingsWindow:ShellWindow
         var save=Kit.Button("Save changes",Save,true);save.IsDefault=true;
         var actions=Kit.Actions(cancel,save);C.Grid.SetColumn(actions,1);footer.Children.Add(actions);
         var bar=new C.Border{BorderBrush=Kit.Brush("#302B3E"),BorderThickness=new(0,1,0,0),Child=footer};C.Grid.SetRow(bar,2);root.Children.Add(bar);Content=root;
-        BuildStream(value,autorun);BuildReplay(value);BuildAudio(value);BuildKvm(value);BuildMonitors();BuildUpdates(value);BuildProfile();BuildDiagnostics();BuildDiscord(value);BuildGeneral(value,autorun);BuildStreamDeck();
+        BuildStream(value,autorun);BuildReplay(value);BuildAudio(value);BuildKvm(value);BuildMonitors();BuildUpdates(value);BuildProfile();BuildDiagnostics();BuildDiscord(value);BuildGeneral(value,autorun);BuildStreamDeck();BuildScreenshots(value);
         choices["role"].SelectionChanged+=(_,_)=>ReceiverVisibility();ReceiverVisibility();
         SelectPage(startPage,false);
         Loaded+=async(_,_)=>{await RefreshAudio();};Closed+=(_,_)=>{soundPreview.Dispose();lifetime.Cancel();lifetime.Dispose();if(!Accepted)UiStrings.Shared.Language=initial.Language;};
@@ -158,6 +158,21 @@ sealed class SettingsWindow:ShellWindow
         Row(section,"Autostart",Toggle("startup","Start with Windows",autorun));
         var power=Section(page,"Power");Row(power,"Keep awake",Toggle("awake","Keep PC and screens awake",v.PreventIdleSleep));
         power.Children.Add(Kit.Text("Prevents automatic sleep while DeskGlide is running. Manual sleep is still available.",12,"#B0A9BC"));
+    }
+    void BuildScreenshots(Settings v)
+    {
+        var page=Page(11,"Capture","Screenshots","Select an area, add annotations and save a PNG with correct HDR-to-SDR colors.");
+        var capture=Section(page,"Capture shortcut");
+        Row(capture,"PrintScreen",Toggle("screenshots","Use PrintScreen for screenshots",v.Screenshots.Enabled));
+        capture.Children.Add(Kit.Text("If another screenshot app uses PrintScreen, close it first. Capture is also available in the DeskGlide tray menu.",12,"#B0A9BC"));
+        var storage=Section(page,"Local storage","Screenshots stay on this PC. Nothing is uploaded to the internet.");
+        var path=Input("screenshotFolder",v.Screenshots.Folder);var row=new C.Grid();row.ColumnDefinitions.Add(new());row.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});row.Children.Add(path);
+        var browse=Kit.Button("Browse…",()=>{var picker=new Microsoft.Win32.OpenFolderDialog{Title=UiStrings.T("Choose a screenshots folder"),InitialDirectory=path.Text};if(picker.ShowDialog(this)==true)path.Text=picker.FolderName;});browse.Margin=new(8,0,0,0);C.Grid.SetColumn(browse,1);row.Children.Add(browse);Row(storage,"Folder",row);
+        var colors=Section(page,"HDR colors");
+        colors.Children.Add(Kit.Text("HDR is captured before clipping, then converted to SDR using each monitor's Windows SDR brightness. PNG files and clipboard images work in ordinary apps. HDR on your monitor stays enabled.",12,"#B0A9BC"));
+        var editor=Section(page,"Editor shortcuts");
+        editor.Children.Add(Kit.Text("Ctrl+C or Enter: copy · Ctrl+S: save PNG · Ctrl+Shift+S: save as · Ctrl+Z / Ctrl+Y: undo / redo · Ctrl+P: print · Ctrl+A: current monitor · Esc: cancel",12,"#B0A9BC"));
+        editor.Children.Add(Kit.Text("Drag the selection or its handles to adjust it. Arrow keys move it by one pixel; hold Shift for ten. Finish text with Ctrl+Enter. Redact permanently covers sensitive pixels in the saved image.",12,"#B0A9BC"));
     }
     void BuildStreamDeck()
     {
@@ -353,6 +368,7 @@ sealed class SettingsWindow:ShellWindow
     {
         var result=initial.Copy();result.SendOnLaunch=On("ndi");result.Device=Id("display");result.CaptureCursor=On("cursor");result.PreventIdleSleep=On("awake");result.NdiAudioDevice=Id("ndiAudio");result.NdiAudioVolume=(int)sliders["ndiVolume"].Value;
         result.Language=Id("language");
+        result.Screenshots=result.Screenshots with{Enabled=On("screenshots"),Folder=texts["screenshotFolder"].Text.Trim()};
         int width=int.Parse(Id("resolution"),CultureInfo.InvariantCulture);int height=width switch{1280=>720,1920=>1080,2560=>1440,3840=>2160,_=>0};
         int duration=(int)sliders["replayDuration"].Value*60;
         result.Replay=result.Replay with{Enabled=On("replay"),Minutes=(duration+59)/60,DurationSeconds=duration,SaveSoundEnabled=On("saveSound"),SaveSoundVolume=(int)sliders["saveSoundVolume"].Value,Codec=Id("codec"),Quality=Id("quality"),Fps=int.Parse(Id("fps")),Width=width,Height=height,Folder=texts["folder"].Text.Trim(),GroupByApp=true,Silent=false,AudioMode=Id("audioMode"),GameAudio=Id("game"),Microphone=Id("mic"),ExtraAudio=Id("extra"),HotkeyModifiers=replayKey.Modifiers,HotkeyKey=replayKey.Key};
@@ -363,7 +379,7 @@ sealed class SettingsWindow:ShellWindow
     }
     static void Validate(Settings result)
     {
-        result.Replay.Validate();result.Kvm.Validate();result.Discord.Validate();
+        result.Replay.Validate();result.Kvm.Validate();result.Discord.Validate();result.Screenshots.Validate();
         if(result.Replay.HotkeyModifiers==0||result.Replay.HotkeyKey==0)throw new ArgumentException("Choose a key and Ctrl, Alt or Shift for saving replays.");
         if(new[]{(result.Kvm.OpenHotkeyModifiers,result.Kvm.OpenHotkeyKey),(result.Kvm.ToggleHotkeyModifiers,result.Kvm.ToggleHotkeyKey)}.Contains((result.Replay.HotkeyModifiers,result.Replay.HotkeyKey)))throw new ArgumentException("The replay and KVM shortcuts must be different.");
         if(result.Kvm.Layout.Any(m=>m.Hotkey>0&&(int)result.Replay.HotkeyKey==(int)Keys.F1+m.Hotkey-1)&&result.Replay.HotkeyModifiers==3)throw new ArgumentException("The replay shortcut is also assigned to a monitor.");

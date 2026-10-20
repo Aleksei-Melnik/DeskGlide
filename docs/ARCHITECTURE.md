@@ -105,6 +105,16 @@ must not disable keyboard capture in another active viewer.
 
 ## Capture, replay and audio
 
+`ScreenshotHotkey` registers PrintScreen after KVM low-level routing. `TrayScreenshots`
+owns a cancellable, one-at-a-time background capture and its editor lifetime.
+`ScreenshotFrame` acquires each local DXGI output, keeps FP16 HDR through
+tone mapping, compensates per-monitor Windows SDR white and rotates into a
+physical-pixel virtual canvas. It never consumes recording UYVY or changes HDR.
+`ScreenshotEditor` freezes before display, pauses KVM edge switching and offers
+original local annotation/crop tools. `ScreenshotFiles` writes sRGB-tagged PNG
+through an atomic sibling staging file; copy offers bitmap and tagged PNG.
+No upload, new network command or elevation is involved. See `SCREENSHOTS.md`.
+
 `StreamEngine` owns separate capture and NDI send workers. `DesktopCapture`
 uses DXGI duplication and `ColorPipeline` GPU conversion to bounded SDR;
 preferred native canvas dimensions are independent of fullscreen resolution.

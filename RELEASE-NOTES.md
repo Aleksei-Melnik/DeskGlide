@@ -1,3 +1,16 @@
+DeskGlide 0.7.33
+
+- Added local screenshots on PrintScreen and through the tray menu. Freeze all attached monitors, select/move/resize an area at native resolution, annotate with pen, line, arrow, rectangle, marker or multiline text, and copy or save a PNG. Undo/redo, color/stroke controls, opaque redaction, Save as and Windows printing are included. The editor is an original DeskGlide implementation and uses no Lightshot code or assets.
+- HDR desktops are acquired as FP16 scRGB before any clipping. Each monitor's Windows SDR white level is used for hue-preserving HDR-to-SDR conversion; exported PNG and clipboard PNG carry an explicit sRGB tag. Ordinary SDR pixels retain their values. HDR remains enabled on the display. Screenshots are SDR PNGs, with no online upload or separate HDR file.
+- Added a Screenshots settings page with a PrintScreen toggle and per-user Pictures/DeskGlide/Screenshots destination. Negative monitor coordinates and rotated displays are supported. Save failures preserve existing files and remove staging data. Settings/backup defaults remain compatible with previous profiles.
+- Screenshot hotkeys use the Windows registration after KVM routing, so suppressed remote keys do not also trigger a local capture. Edge switching pauses during editing. If PrintScreen is owned by another app, DeskGlide reports the conflict and the tray command remains available; no Windows keyboard preference or security setting is changed.
+
+Validation: synthetic SDR/HDR color and PNG decoding, 80/200/480-nit white invariance, highlight/nonfinite handling, mixed-origin crops, all monitor rotations, annotations/redaction, clipboard payloads, undo/redo, atomic save and legacy settings. A background capture/PNG round trip passed on a local HDR 2560×1440 display at 240-nit SDR white. English/Russian editor previews were inspected. CI includes synthetic native-window interaction tests for folder, portable and signed packages. Physical PrintScreen/KVM delivery, third-party paste, mixed-DPI hardware layouts and printing still need interactive verification. See [screenshots](https://github.com/Aleksei-Melnik/DeskGlide/blob/main/docs/SCREENSHOTS.md).
+
+Install through **Updates → Update all PCs**. The existing signing key, settings and pairing are retained.
+
+Previous release: 0.7.32
+
 DeskGlide 0.7.32
 
 - Fixed system shortcuts in the remote desktop viewer. Ordinary form key events could forward Windows keys while also letting the local shell act on them, and could miss Alt+Tab, Alt+F4 and Ctrl+Shift+Esc entirely. The active remote viewport now uses the dedicated low-level input controller, including the existing Windows-approved administrator input helper, to forward and suppress each key once.

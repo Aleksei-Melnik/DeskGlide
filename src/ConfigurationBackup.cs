@@ -44,8 +44,8 @@ static class ConfigurationBackup
     }
     public static void Validate(ConfigurationProfile profile)
     {
-        if(profile.Format!=1||profile.Settings==null||profile.Settings.Kvm==null||profile.Settings.Replay==null||profile.Settings.Updates==null||profile.Settings.Discord==null)throw new IOException("Неполный профиль.");
-        var s=profile.Settings;s.Replay.Validate();s.Kvm.Validate();s.Discord.Validate();
+        if(profile.Format!=1||profile.Settings==null||profile.Settings.Kvm==null||profile.Settings.Replay==null||profile.Settings.Updates==null||profile.Settings.Discord==null||profile.Settings.Screenshots==null)throw new IOException("Неполный профиль.");
+        var s=profile.Settings;s.Replay.Validate();s.Kvm.Validate();s.Discord.Validate();s.Screenshots.Validate();
         if(s.NdiAudioVolume is <0 or >100||s.Replay.HotkeyModifiers is 0 or >7||s.Replay.HotkeyKey<(uint)Keys.F1||s.Replay.HotkeyKey>(uint)Keys.F12)throw new IOException("Некорректные настройки профиля.");
         if(profile.HostIdentity!=null)
         {

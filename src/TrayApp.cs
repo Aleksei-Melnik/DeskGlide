@@ -15,12 +15,13 @@ sealed class Settings
     public string NdiAudioDevice {get;set;}="";
     public bool SendOnLaunch {get;set;}=false;
     public ReplayOptions Replay {get;set;}=new();
+    public ScreenshotOptions Screenshots {get;set;}=new();
     public KvmOptions Kvm {get;set;}=new();
     public DiscordOptions Discord {get;set;}=new();
     public static string PathName=>Path.Combine(Log.Folder,"settings.json");
     public static Settings Load(){try{return JsonSerializer.Deserialize<Settings>(File.ReadAllText(PathName))??new();}catch{return new();}}
     public void Save(){Directory.CreateDirectory(Log.Folder);File.WriteAllText(PathName+".tmp",JsonSerializer.Serialize(this));File.Move(PathName+".tmp",PathName,true);}
-    public Settings Copy()=>new(){Language=Language,Device=Device,Compensate=Compensate,CaptureCursor=CaptureCursor,PreventIdleSleep=PreventIdleSleep,SendOnLaunch=SendOnLaunch,NdiAudioDevice=NdiAudioDevice,NdiAudioVolume=NdiAudioVolume,Updates=Updates with{},Replay=Replay with{},Kvm=Kvm.Copy(),Discord=Discord with{}};
+    public Settings Copy()=>new(){Language=Language,Device=Device,Compensate=Compensate,CaptureCursor=CaptureCursor,PreventIdleSleep=PreventIdleSleep,SendOnLaunch=SendOnLaunch,NdiAudioDevice=NdiAudioDevice,NdiAudioVolume=NdiAudioVolume,Updates=Updates with{},Replay=Replay with{},Screenshots=Screenshots with{},Kvm=Kvm.Copy(),Discord=Discord with{}};
     [System.Text.Json.Serialization.JsonIgnore] public CaptureOptions Options=>new(Device,Compensate,CaptureCursor);
 }
 sealed partial class TrayApp:ApplicationContext
@@ -88,6 +89,8 @@ sealed partial class TrayApp:ApplicationContext
         saveWait=ThreadPool.RegisterWaitForSingleObject(saveEvent,(_,_)=>{if(!closing)try{dispatcher.BeginInvoke(SaveReplay);}catch(InvalidOperationException){}},null,Timeout.Infinite,false);
         hotkey.SaveRequested+=SaveReplay;
         if(!hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey))notifications.Enqueue("Горячая клавиша занята. Выберите другую в Replay Buffer → Settings.");
+        screenshotHotkey.Requested+=()=>dispatcher.BeginInvoke(TakeScreenshot);
+        if(!screenshotHotkey.Set(settings.Screenshots.Enabled))notifications.Enqueue(UiStrings.T("PrintScreen is used by another app. Close that app or use Screenshot in the DeskGlide tray menu."));
         delivery.Notification+=message=>notifications.Enqueue(message);
         delivery.Saved+=job=>
         {
@@ -103,6 +106,7 @@ sealed partial class TrayApp:ApplicationContext
             tray.Text=BuildTooltip(engine.NdiEnabled,settings.Replay.Enabled);
             ReplayAppContext.Capture();
             if(++ticks%5==0){kvm?.RefreshScreens();controller?.Refresh();}
+            if(ticks%5==0&&settings.Screenshots.Enabled&&!screenshotHotkey.Registered)screenshotHotkey.Set(true);
             if(ticks==8&&settings.Updates.CheckOnStartup&&!updater.Busy)_=CheckForUpdatesQuietly();
             if(replay.Error!=null&&replay.Error!=lastReplayError){notifications.Enqueue("Проблема записи повтора: "+replay.Error);lastReplayError=replay.Error;}
             if(notifications.TryDequeue(out string? message))tray.ShowBalloonTip(5000,"DeskGlide",message[..Math.Min(255,message.Length)],ToolTipIcon.Info);
@@ -142,6 +146,10 @@ sealed partial class TrayApp:ApplicationContext
         var save=new ToolStripMenuItem(UiStrings.T("Save replay")){Enabled=replay.BufferedSeconds>0,ShortcutKeyDisplayString=ReplayHotkey.Text(settings.Replay),ToolTipText=UiStrings.F("Save the last {0}",ReplayTime.Format(settings.Replay.BufferSeconds))};
         save.Click+=(_,_)=>SaveReplay();items.Add(save);
         items.Add(UiStrings.T("Open clips folder"),null,async(_,_)=>{try{await RecordingFolder.Open(settings.Replay.Folder);}catch(Exception e){notifications.Enqueue(UiStrings.T("Could not open the recordings folder: ")+e.Message);}});
+        items.Add(new ToolStripSeparator());
+        var screenshot=new ToolStripMenuItem(UiStrings.T("Take screenshot")){ShortcutKeyDisplayString="PrintScreen",Enabled=!screenshotBusy&&screenshotEditor==null};
+        screenshot.Click+=(_,_)=>dispatcher.BeginInvoke(TakeScreenshot);items.Add(screenshot);
+        items.Add(UiStrings.T("Open screenshots folder"),null,(_,_)=>Guard(()=>{Directory.CreateDirectory(settings.Screenshots.Folder);Process.Start(new ProcessStartInfo(settings.Screenshots.Folder){UseShellExecute=true});}));
         items.Add(new ToolStripSeparator());items.Add(UiStrings.T("Updates…"),null,(_,_)=>OpenUpdates());
         var restart=new ToolStripMenuItem(UiStrings.T("Restart DeskGlide")){Enabled=!closing&&!restartQueued&&!updater.Busy};
         restart.Click+=(_,_)=>Restart();items.Add(restart);
@@ -183,16 +191,18 @@ sealed partial class TrayApp:ApplicationContext
     {
         var result=form.ResultSettings;
         bool discordChanged=settings.Discord!=result.Discord||settings.Kvm.Role!=result.Kvm.Role;
+        if(result.Screenshots.Enabled!=settings.Screenshots.Enabled&&!screenshotHotkey.Set(result.Screenshots.Enabled))
+        {screenshotHotkey.Set(settings.Screenshots.Enabled);throw new InvalidOperationException(UiStrings.T("PrintScreen is used by another app. Close that app or use Screenshot in the DeskGlide tray menu."));}
         if(!hotkey.Set(result.Replay.HotkeyModifiers,result.Replay.HotkeyKey))
-        {hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey);throw new InvalidOperationException("Клавиша сохранения занята другой программой.");}
+        {screenshotHotkey.Set(settings.Screenshots.Enabled);hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey);throw new InvalidOperationException("Клавиша сохранения занята другой программой.");}
         string priorKvm=JsonSerializer.Serialize(settings.Kvm with{Layout=[],RemoteOnlyPeers=[],ExcludedMonitors=[],Seamless=true,BlockScreenCorners=false});
         if(form.ImportedProfile!=null)
         {
             try{ConfigurationBackup.Restore(form.ImportedProfile,Log.Folder);}
-            catch{hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey);throw;}
+            catch{screenshotHotkey.Set(settings.Screenshots.Enabled);hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey);throw;}
         }
         keepAwake.Set(result.PreventIdleSleep);settings.PreventIdleSleep=result.PreventIdleSleep;
-        settings.Language=result.Language;UiStrings.Shared.Language=settings.Language;settings.Device=result.Device;settings.Compensate=result.Compensate;settings.CaptureCursor=result.CaptureCursor;settings.SendOnLaunch=result.SendOnLaunch;settings.NdiAudioDevice=result.NdiAudioDevice;settings.NdiAudioVolume=result.NdiAudioVolume;settings.Updates=result.Updates;settings.Replay=result.Replay;settings.Kvm=result.Kvm;settings.Save();
+        settings.Language=result.Language;UiStrings.Shared.Language=settings.Language;settings.Device=result.Device;settings.Compensate=result.Compensate;settings.CaptureCursor=result.CaptureCursor;settings.SendOnLaunch=result.SendOnLaunch;settings.NdiAudioDevice=result.NdiAudioDevice;settings.NdiAudioVolume=result.NdiAudioVolume;settings.Updates=result.Updates;settings.Replay=result.Replay;settings.Screenshots=result.Screenshots;settings.Kvm=result.Kvm;settings.Save();
         engine.Update(settings.Options);engine.NdiEnabled=settings.SendOnLaunch;engine.NdiAudioDevice=settings.NdiAudioDevice;engine.NdiAudioVolume=settings.NdiAudioVolume;engine.ReplayEnabled=settings.Replay.Enabled;engine.ReplayFrameRate=settings.Replay.Fps;replay.Update(settings.Replay);
         if(IsAutorun()!=form.StartWithWindows)
         {
@@ -290,5 +300,5 @@ sealed partial class TrayApp:ApplicationContext
         try{await SaveDeckReplay();}
         catch(Exception e){notifications.Enqueue("Повтор не сохранён: "+e.Message);}
     }
-    protected override void ExitThreadCore(){closing=true;deckBridge?.Dispose();deckRemote?.Dispose();settingsWindow?.Close();keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();saveSound.Dispose();dispatcher.Dispose();tray.Visible=false;var menu=tray.ContextMenuStrip;tray.Dispose();menu?.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
+    protected override void ExitThreadCore(){closing=true;CloseScreenshots();deckBridge?.Dispose();deckRemote?.Dispose();settingsWindow?.Close();keepAwake.Dispose();timer.Stop();discord?.Dispose();kvmHub?.Close();foreach(var viewer in viewers.Values.ToArray())viewer.Close();kvmWait.Unregister(null);kvmEvent.Dispose();updatesForm?.Close();updateWait.Unregister(null);updateEvent.Dispose();dragDrop?.Dispose();clipboard?.Dispose();controller?.Dispose();kvm?.Dispose();saveWait.Unregister(null);saveEvent.Dispose();hotkey.Dispose();engine.FrameAvailable=null;engine.Dispose();replay.Dispose();delivery.Dispose();saveSound.Dispose();dispatcher.Dispose();tray.Visible=false;var menu=tray.ContextMenuStrip;tray.Dispose();menu?.Dispose();appIcon.Dispose();timer.Dispose();base.ExitThreadCore();}
 }

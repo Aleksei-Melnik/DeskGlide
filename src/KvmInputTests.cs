@@ -51,6 +51,7 @@ static class KvmInputTests
             [(164,56,false),(115,62,false)],           // Alt+F4
             [(91,91,true),(82,19,false)],              // left Win+R
             [(92,92,true),(69,18,false)],              // right Win+E
+            [(44,55,true)],                           // PrintScreen stays with the controlled PC
             [(162,29,false),(27,1,false)],             // Ctrl+Esc
             [(160,42,false),(52,5,false)]})            // Shift+4
         {
