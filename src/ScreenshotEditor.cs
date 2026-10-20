@@ -137,7 +137,7 @@ sealed class ScreenshotEditor:Form
     {dialogActive=true;try{return dialog.ShowDialog(this);}finally{dialogActive=false;}}
     void SetTool(ScreenshotTool value)
     {
-        CommitText();tool=value;Cursor=tool==ScreenshotTool.Select?Cursors.SizeAll:Cursors.Cross;
+        CommitText();tool=value;Cursor=tool==ScreenshotTool.Select&&document.Selection.Width>0?Cursors.SizeAll:Cursors.Cross;
         foreach(var pair in toolButtons)pair.Value.BackColor=pair.Key==tool?Color.FromArgb(99,49,118):toolbar.BackColor;
         RefreshActions();
     }
@@ -214,12 +214,12 @@ sealed class ScreenshotEditor:Form
         if(tool==ScreenshotTool.Text&&document.Selection.Contains(anchor)){BeginText(anchor);return;}
         if(tool!=ScreenshotTool.Select&&document.Selection.Contains(anchor))
         {points.Clear();points.Add(anchor);pending=new(tool,ink,stroke,points.ToArray());}
-        else {tool=ScreenshotTool.Select;toolbar.Visible=false;}
+        else {SetTool(ScreenshotTool.Select);toolbar.Visible=false;}
         dragging=true;Capture=true;Invalidate();
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        base.OnMouseMove(e);if(!dragging){if(tool==ScreenshotTool.Select)Cursor=Hit(e.Location) is >=1 and <=8?Cursors.SizeNWSE:Hit(e.Location)==9?Cursors.SizeAll:Cursors.Cross;return;}
+        base.OnMouseMove(e);if(!dragging){if(tool==ScreenshotTool.Select)Cursor=Hit(e.Location) switch{1 or 3=>Cursors.SizeNWSE,2 or 4=>Cursors.SizeNESW,5 or 7=>Cursors.SizeNS,6 or 8=>Cursors.SizeWE,9=>Cursors.SizeAll,_=>Cursors.Cross};return;}
         var p=Limit(e.Location);
         if(pending!=null)
         {
