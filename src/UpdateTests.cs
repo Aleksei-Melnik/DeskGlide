@@ -115,6 +115,12 @@ static class UpdateTests
             else Require(File.ReadAllText(Path.Combine(single,"DeskGlide.exe"))=="new exe"&&content.Keys.Where(n=>n!="DeskGlide.exe").All(n=>!File.Exists(Path.Combine(single,n))),"Migration left loose application dependencies");
             Require(File.ReadAllText(Path.Combine(single,"settings.json"))=="private profile"&&File.ReadAllText(Path.Combine(single,"notes.txt"))=="user file"&&File.ReadAllText(Path.Combine(single,"tools","ffmpeg.exe"))=="encoder","Migration changed a profile, user file or recording tools");
         }
+        string portableOnly=Path.Combine(root,"portable-owned-file");Directory.CreateDirectory(portableOnly);
+        foreach(string name in content.Keys)File.WriteAllText(Path.Combine(portableOnly,name),"neighbor "+name);
+        var portableJob=new UpdateJob(portableOnly,1,1,Guid.NewGuid().ToString("N"),"DeskGlide.exe",Portable:true);
+        using(var transaction=new UpdateFileTransaction(new(Path.Combine(root,"portable-owned-stage"),payload,portableJob,portableManifest),"Local\\DeskGlide.Update.Test."+Guid.NewGuid().ToString("N")))
+        {transaction.Install();transaction.Commit();}
+        Require(File.ReadAllText(Path.Combine(portableOnly,"DeskGlide.exe"))=="new exe"&&content.Keys.Where(n=>n!="DeskGlide.exe").All(n=>File.ReadAllText(Path.Combine(portableOnly,n))=="neighbor "+n),"Portable update removed neighboring files that only share legacy component names");
         File.AppendAllText(Path.Combine(payload,"ScreenCapture.exe"),"corrupt");
         Reject(()=>Updates.VerifyArtifact(Path.Combine(payload,"ScreenCapture.exe"),portableManifest.Portable),"Damaged portable EXE accepted");
         File.WriteAllText(Path.Combine(payload,"ScreenCapture.exe"),"new exe");

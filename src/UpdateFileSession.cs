@@ -99,7 +99,7 @@ sealed class UpdateFileTransaction(UpdateInstaller.Plan plan,string mutexName="L
         if(installed||finished)throw new IOException("Повторная установка не разрешена.");
         UpdateInstaller.WithInstallationLock(()=>
         {
-            if(plan.Manifest.Portable!=null)journal=UpdateInstaller.InstallPortable(Path.Combine(plan.Payload,"ScreenCapture.exe"),plan.Job.Destination,Backup,plan.Manifest,plan.Job.Executable);
+            if(plan.Manifest.Portable!=null)journal=UpdateInstaller.InstallPortable(Path.Combine(plan.Payload,"ScreenCapture.exe"),plan.Job.Destination,Backup,plan.Manifest,plan.Job.Executable,removeComponents:!plan.Job.Portable);
             else journal=UpdateInstaller.InstallFiles(plan.Payload,plan.Job.Destination,Backup,plan.Manifest);
         },mutexName);
         installed=true;
@@ -113,7 +113,7 @@ sealed class UpdateFileTransaction(UpdateInstaller.Plan plan,string mutexName="L
     public void Commit()
     {
         if(!installed||finished)throw new IOException("Обновление ещё не установлено.");
-        if(plan.Manifest.Portable!=null)UpdateInstaller.RemoveEmptyComponentFolders(plan.Job.Destination,plan.Manifest);
+        if(plan.Manifest.Portable!=null&&!plan.Job.Portable)UpdateInstaller.RemoveEmptyComponentFolders(plan.Job.Destination,plan.Manifest);
         finished=true;
     }
     public void Dispose()

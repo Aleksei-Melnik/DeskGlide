@@ -110,7 +110,7 @@ static class UpdateInstaller
         finally{if(acquired)applicationMutex.ReleaseMutex();}
     }
     internal sealed record Change(string Path,bool Existed,string Sha256);
-    internal static IReadOnlyList<Change> InstallPortable(string source,string destination,string backup,ReleaseManifest manifest,string executable,Action<int>? afterFile=null)
+    internal static IReadOnlyList<Change> InstallPortable(string source,string destination,string backup,ReleaseManifest manifest,string executable,Action<int>? afterFile=null,bool removeComponents=true)
     {
         if(!SupportedExecutable(executable))throw new IOException("Неверное имя приложения.");
         Updates.VerifyArtifact(source,manifest.Portable??throw new IOException("Отсутствует переносимый пакет."));
@@ -129,6 +129,9 @@ static class UpdateInstaller
             try{CopyVerified(source,temporary,manifest.Portable!.Sha256);File.Move(temporary,target,true);}
             finally{if(File.Exists(temporary))File.Delete(temporary);}
             afterFile?.Invoke(journal.Count);
+            // A portable EXE owns only itself, even beside files whose names
+            // happen to match a legacy folder package (especially in C:\).
+            if(!removeComponents)return journal;
             // The signed folder payload owns these paths. Unknown files, tools,
             // recordings, settings and keys are never removed during migration.
             foreach(string relative in manifest.Files.Keys.Where(p=>!p.Equals(executable,StringComparison.OrdinalIgnoreCase)))

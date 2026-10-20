@@ -161,6 +161,8 @@ Rollback retains the journal in memory and hashes the original backup bytes;
 neither an editable disk journal nor altered backup content is trusted.
 Versions through 0.7.28 can still stop in their old permission probe before
 launching this installer and need a one-time approved update or per-user copy.
+From 0.7.30, portable-to-portable transactions own only the running EXE;
+legacy component cleanup is reserved for folder-to-portable migrations.
 
 0.7.26 established the current signing key after the earlier key was lost.
 **Keep that key for every future release.** The private key is outside the repo

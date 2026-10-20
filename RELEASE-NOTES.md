@@ -1,4 +1,13 @@
-DeskGlide 0.7.29
+DeskGlide 0.7.30
+
+- Updates work from protected folders such as `C:\` and Program Files: packages, jobs and backups stay in AppData; the access check creates no `.update-write-test` file beside the application. Windows requests administrator approval only for a separate file-replacement worker when necessary. The running application retains its existing privilege level, and canceling approval leaves it open.
+- Portable updates replace only their running EXE. Neighboring files are preserved even when their names match components of an old folder package. Legacy folder-to-portable migrations retain their cleanup and rollback. Signatures, payload hashes, process-bound private IPC and hash-checked rollback backups remain required. The existing update signing key, settings and pairing are retained.
+
+**Older protected copies (0.7.26–0.7.28):** their old access check can stop before the new installer starts. They need one final update started as administrator, or a copy launched from a writable per-user folder. Subsequent updates request approval themselves when needed; no permanent administrator mode or Windows permission changes are required. Protected remote PCs require local Windows approval. Installations in writable AppData folders update without this prompt.
+
+Validation: restricted temporary-folder access, no probe-file creation, ordinary writable-folder updates, approval cancellation reporting, private bounded IPC, transaction commit/rollback/interruption, tampered-backup rejection and old update jobs. An additional portable transaction runs beside matching legacy filenames and verifies that only its EXE changes. Existing signed-package and portable-migration tests are retained. Interactive UAC approval is not part of unattended CI.
+
+Previous release: 0.7.29
 
 - Fixed updates from protected application folders such as `C:\` and Program Files. Packages, signatures, jobs and backups stay in the user's AppData. Checking directory access no longer creates an `.update-write-test` file beside the application. Writable folders on C: continue to update without administrator approval.
 - When file replacement requires administrator rights, Windows asks for approval for a separate, local file worker. The coordinator downloads/verifies the package and restarts DeskGlide at its existing privilege level. Approval happens before the app hands over; canceling leaves the running app and files intact. Existing RSA signatures, payload hashes, parent-process checks and rollback remain required. Private IPC is restricted to the same Windows account and expected processes. Rollback uses an in-memory journal and rejects altered backup files.
