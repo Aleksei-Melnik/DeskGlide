@@ -55,6 +55,8 @@ public sealed class ReplayRecorder:IDisposable
     public double MaxWriterLateMs {get;private set;}
     public double MaxConvertMs {get;private set;}
     public double MaxFramePreparationAgeMs {get;private set;}
+    public long SessionEpochTicks {get;private set;}
+    public long AudioReadyTicks {get;private set;}
     internal bool SynchronousFrameConversionForTest;
     public long ConversionQueueDrops=>incoming.Dropped;
     public long ConversionQueueBytes=>incoming.QueuedBytes;
@@ -285,7 +287,18 @@ public sealed class ReplayRecorder:IDisposable
                 // the arbitrary instant the encoder connected its pipe.
                 // This keeps nearest-image selection away from the midpoint
                 // between source presentations and gives audio the same epoch.
-                using(var anchor=GetFrame())epoch=anchor?.CapturedAt/(double)Stopwatch.Frequency??Now;
+                AudioReadyTicks=captureAudio.WaitForCaptureStart(token);
+                var anchorWait=Stopwatch.StartNew();
+                while(true)
+                {
+                    using var anchor=GetFrame();
+                    if(anchor!=null&&anchor.CapturedAt>=AudioReadyTicks){SessionEpochTicks=anchor.CapturedAt;break;}
+                    // A static/silent desktop need not publish another image.
+                    // Start its held image at the current (audio-ready) time.
+                    if(anchorWait.ElapsedMilliseconds>=500){SessionEpochTicks=Stopwatch.GetTimestamp();break;}
+                    token.ThrowIfCancellationRequested();token.WaitHandle.WaitOne(1);
+                }
+                epoch=SessionEpochTicks/(double)Stopwatch.Frequency;
                 lastVideo=Now;Volatile.Write(ref liveEnd,0);Volatile.Write(ref liveStart,epoch);started.TrySetResult(epoch);
                 // Both inputs still begin at epoch, with continuous frame/sample
                 // timestamps. Encode video promptly and let the muxer interleave

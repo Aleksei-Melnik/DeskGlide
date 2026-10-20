@@ -60,6 +60,21 @@ sealed class ReplayAudio:IDisposable
     readonly int captureBufferMilliseconds;
     readonly string[] remote=["","",""];
     readonly bool[] active;
+    readonly long[] startedAt=new long[3];
+    readonly long[] firstSampleAt=new long[3];
+    internal long WaitForCaptureStart(CancellationToken token)
+    {
+        if(synthetic)return 0;
+        var timeout=Stopwatch.StartNew();
+        while(Enumerable.Range(0,3).Any(i=>active[i]&&remote[i].Length==0&&Volatile.Read(ref firstSampleAt[i])==0)&&timeout.ElapsedMilliseconds<500)
+        {token.ThrowIfCancellationRequested();token.WaitHandle.WaitOne(5);}
+        return Enumerable.Range(0,3).Max(i=>
+        {
+            long sample=Volatile.Read(ref firstSampleAt[i]);
+            long first=sample/48000*Stopwatch.Frequency+(sample%48000*Stopwatch.Frequency+47999)/48000;
+            return Math.Max(Volatile.Read(ref startedAt[i]),first);
+        });
+    }
     public string Diagnostics=>string.Join("; ",Enumerable.Range(0,3).Where(i=>active[i]).Select(i=>$"track{i}: missing={tracks[i].MissingSamples}/{tracks[i].ReadSamples}"));
     public long MissingSamples=>Enumerable.Range(0,3).Where(i=>active[i]&&remote[i].Length==0).Sum(i=>tracks[i].MissingSamples);
     public long ReadSamples=>Enumerable.Range(0,3).Where(i=>active[i]&&remote[i].Length==0).Sum(i=>tracks[i].ReadSamples);
@@ -77,7 +92,7 @@ sealed class ReplayAudio:IDisposable
         Thread.CurrentThread.Priority=ThreadPriority.AboveNormal;
         while(!stop.IsCancellationRequested)
         {
-            try{TimedAudioCapture.Run(id,stop.Token,(start,data,frames)=>tracks[index].Put(start,data.AsSpan(0,frames*2)),text=>status[index]=text,bufferMilliseconds:captureBufferMilliseconds);}
+            try{TimedAudioCapture.Run(id,stop.Token,(start,data,frames)=>{tracks[index].Put(start,data.AsSpan(0,frames*2));Interlocked.CompareExchange(ref firstSampleAt[index],start,0);},text=>{status[index]=text;Volatile.Write(ref startedAt[index],Stopwatch.GetTimestamp());},bufferMilliseconds:captureBufferMilliseconds);}
             catch(OperationCanceledException){break;}
             catch(Exception e){status[index]="Недоступен: "+e.Message;Log.Write("Replay audio: "+e.Message);}
             if(stop.Token.WaitHandle.WaitOne(1500))break;
