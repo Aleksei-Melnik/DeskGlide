@@ -19,15 +19,18 @@ static class RecordingFrameSelection
             // A short burst is not sustained oversampling. Choosing its nearest
             // image may consume the only image for a following deadline. Only
             // skip chronological candidates when the buffered continuation can
-            // supply every one of the next eight output slots within the bound.
-            dense&=times[^1]>=due+period*8+tolerance;
+            // supply the buffered output slots within the bound. Use only
+            // fully buffered deadlines: requiring an unavailable fixed horizon
+            // would toggle nearest/chronological pacing as readback age varies.
+            int lookahead=(int)Math.Clamp((times[^1]-due-tolerance)/period,0,8);
+            dense&=lookahead>=2;
             int best=-1;long distance=long.MaxValue;
             for(int i=0;i<times.Length;i++)
                 if(times[i]>previous&&times[i]>=due-tolerance&&times[i]<=due+tolerance)
                 {
                     if(!dense)return i;
                     long error=Math.Abs(times[i]-due);
-                    if(error<distance&&ContinuationFits(times,i,due,tolerance,period)){distance=error;best=i;}
+                    if(error<distance&&ContinuationFits(times,i,due,tolerance,period,lookahead)){distance=error;best=i;}
                 }
             if(best>=0)return best;
             for(int i=0;i<times.Length;i++)
@@ -36,9 +39,9 @@ static class RecordingFrameSelection
         for(int i=times.Length-1;i>=0;i--)if(times[i]<=due)return i;
         return 0;
     }
-    static bool ContinuationFits(ReadOnlySpan<long> times,int at,long due,long tolerance,long period)
+    static bool ContinuationFits(ReadOnlySpan<long> times,int at,long due,long tolerance,long period,int slots)
     {
-        for(int slot=1;slot<=8;slot++)
+        for(int slot=1;slot<=slots;slot++)
         {
             long target=due+period*slot;
             do{at++;}while(at<times.Length&&times[at]<target-tolerance);

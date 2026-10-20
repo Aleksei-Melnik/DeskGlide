@@ -85,6 +85,7 @@ static class RecordingCadenceTests
         Require(RecordingFrameSelection.Index(burst,100,80,20,10)==0,"A short source burst consumed an image needed across the following render gap.");
         Require(RecordingFrameSelection.Index([85,94,100,102,104,106],100,80,20,10)==0,"An incomplete lookahead was mistaken for sustained oversampling.");
         Require(RecordingFrameSelection.Index(Enumerable.Range(0,50).Select(i=>(long)i*5).ToArray(),100,90,20,10)==20,"Sustained oversampling lost nearest-image motion pacing.");
+        Require(RecordingFrameSelection.Index(Enumerable.Range(0,32).Select(i=>(long)i*5).ToArray(),100,90,20,10)==20,"Readback age changed motion phase despite sufficient buffered continuation.");
         Program.Write("recording-cadence-tests.json",new{Pass=true,Fps=new[]{60,120},LegacyArtificialRepeats=legacyRepeats,NewArtificialRepeats=actualRepeats,NarrowWindowRepeats=legacyWindowRepeats,RealTraceRepeats=repeats,LegacyUnevenMotionSteps=legacyUneven,NewUnevenMotionSteps=integerUneven,NoAccumulatedPacingDrift=true,SourceOrderPreserved=true,RealSourceGapsNotInvented=true});
     }
 }
