@@ -1,4 +1,13 @@
-DeskGlide 0.7.28
+DeskGlide 0.7.29
+
+- Fixed updates from protected application folders such as `C:\` and Program Files. Packages, signatures, jobs and backups stay in the user's AppData. Checking directory access no longer creates an `.update-write-test` file beside the application. Writable folders on C: continue to update without administrator approval.
+- When file replacement requires administrator rights, Windows asks for approval for a separate, local file worker. The coordinator downloads/verifies the package and restarts DeskGlide at its existing privilege level. Approval happens before the app hands over; canceling leaves the running app and files intact. Existing RSA signatures, payload hashes, parent-process checks and rollback remain required. Private IPC is restricted to the same Windows account and expected processes. Rollback uses an in-memory journal and rejects altered backup files.
+
+**Updating an older protected copy:** 0.7.26–0.7.28 contain the earlier permission check, which can stop before the new installer starts. Those copies need one final update started as administrator, or a replacement launched from a writable per-user folder. From 0.7.29, the update button requests the necessary Windows approval itself. No permanent administrator mode or Windows permissions changes are required. Protected folders on remote PCs still require local Windows approval; the controller cannot approve UAC remotely.
+
+Validation: restricted temporary-folder permissions reproduce the access-denied case; writable-folder checks leave no probe files. Regression tests cover transaction commit, rollback and interrupted handover, private bounded IPC and peer process identity, canceled approval reporting, tampered backups and compatibility with old update jobs. Existing signed package, portable migration, user-file preservation and version checks are retained. Interactive UAC approval is not automated during gaming. Recording changes and further 120-FPS tests are deferred.
+
+Previous release: 0.7.28
 
 - Replay recording now preserves chronological source frames across small capture-clock variations. This avoids artificial repeat/drop pairs when a source frame lands just after a recording deadline. Capture pacing also retains its clock phase after a missed slot.
 - Recording at a resolution different from the monitor no longer resizes every pixel in a C# loop on the recording deadline. NVIDIA uses preflighted CUDA scaling directly into NVENC; other paths use FFmpeg's optimized scaler. Aspect ratio, black letterboxing and SDR metadata are preserved. The lag watchdog now uses elapsed time so a severely overloaded encoder cannot remain indefinitely in its startup grace period.

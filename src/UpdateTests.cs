@@ -74,6 +74,7 @@ static class UpdateTests
         using var wrong=RSA.Create(2048);Reject(()=>Updates.VerifyManifest(json,signature,wrong.ExportSubjectPublicKeyInfoPem()),"Wrong signing key accepted");
         foreach(string path in new[]{"../escape","/rooted","a/../../escape","a\\escape","a:stream","CON.dll","a/./b","a//b","a./b","tools/ffmpeg.exe","settings.json","Kvm/host-identity.json"})Reject(()=>Updates.ValidateRelative(path),"Unsafe path accepted: "+path);
         Updates.ExtractVerified(zip,payload,verified);
+        UpdateInstallationTests.Run(root,payload,verified);
         Directory.CreateDirectory(target);Directory.CreateDirectory(Path.Combine(target,"tools"));
         File.WriteAllText(Path.Combine(target,"ScreenCapture.exe"),"old exe");File.WriteAllText(Path.Combine(target,"settings.json"),"private profile");File.WriteAllText(Path.Combine(target,"tools","ffmpeg.exe"),"existing encoder");
         bool failed=false;

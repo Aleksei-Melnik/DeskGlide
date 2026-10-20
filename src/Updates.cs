@@ -3,6 +3,9 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -17,7 +20,7 @@ sealed record ReleaseArtifact(string File,long Size,string Sha256);
 sealed record ReleaseManifest(string Version,string File,long Size,string Sha256,Dictionary<string,string> Files,ReleaseArtifact? Portable=null);
 sealed record AvailableRelease(ReleaseManifest Manifest,byte[] Json,byte[] Signature,string Notes);
 sealed record PreparedUpdate(string Folder,ReleaseManifest Manifest);
-sealed record UpdateJob(string Destination,int ParentPid,long ParentStarted,string Nonce,string Executable,bool Portable=false);
+sealed record UpdateJob(string Destination,int ParentPid,long ParentStarted,string Nonce,string Executable,bool Portable=false,bool NeedsElevation=false);
 
 static class Updates
 {
@@ -159,18 +162,42 @@ static class Updates
         for(string? p=Path.GetFullPath(path);p!=null;p=Path.GetDirectoryName(p))
             if((File.Exists(p)||Directory.Exists(p))&&(File.GetAttributes(p)&FileAttributes.ReparsePoint)!=0)throw new IOException("Каталог обновления содержит ссылку: "+p);
     }
-    public static async Task LaunchInstaller(PreparedUpdate prepared)
+    // Request directory access without creating a temporary file beside the EXE.
+    internal static bool NeedsElevation(string target)
+    {
+        RejectReparse(target);
+        using var directory=OpenDirectory(target,2,7,IntPtr.Zero,3,0x02000000,IntPtr.Zero); // FILE_ADD_FILE, OPEN_EXISTING, BACKUP_SEMANTICS
+        if(!directory.IsInvalid)return false;
+        int error=Marshal.GetLastWin32Error();
+        if(error==5)return true;
+        throw new IOException("Не удалось проверить доступ к папке программы.",new Win32Exception(error));
+    }
+    [DllImport("kernel32.dll",EntryPoint="CreateFileW",CharSet=CharSet.Unicode,SetLastError=true)]
+    static extern SafeFileHandle OpenDirectory(string path,uint access,uint share,IntPtr security,uint creation,uint flags,IntPtr template);
+    internal static ProcessStartInfo InstallerStart(string executable,bool elevated)
+        =>new(executable){UseShellExecute=elevated,Verb=elevated?"runas":"",CreateNoWindow=!elevated,WindowStyle=ProcessWindowStyle.Hidden,WorkingDirectory=Path.GetDirectoryName(executable)!};
+    public static async Task LaunchInstaller(PreparedUpdate prepared,Func<Task>? beforeExit=null)
     {
         string target=Path.GetDirectoryName(Environment.ProcessPath!)!;RejectReparse(target);
-        string probe=Path.Combine(target,".update-write-test-"+Guid.NewGuid().ToString("N"));File.WriteAllText(probe,"");File.Delete(probe);
         using var process=Process.GetCurrentProcess();string nonce=Guid.NewGuid().ToString("N");
-        var job=new UpdateJob(target,process.Id,process.StartTime.ToUniversalTime().Ticks,nonce,Path.GetFileName(Environment.ProcessPath!),PortableResources.Bundled&&prepared.Manifest.Portable!=null);
+        var job=new UpdateJob(target,process.Id,process.StartTime.ToUniversalTime().Ticks,nonce,Path.GetFileName(Environment.ProcessPath!),PortableResources.Bundled&&prepared.Manifest.Portable!=null,NeedsElevation(target)&&!KvmInputAccess.Elevated);
         string jobPath=Path.Combine(prepared.Folder,"job.json");File.WriteAllText(jobPath,JsonSerializer.Serialize(job));
         using var ready=new EventWaitHandle(false,EventResetMode.ManualReset,"Local\\SdrCapture.UpdateReady."+nonce);
-        var start=new ProcessStartInfo(Path.Combine(prepared.Folder,"payload","ScreenCapture.exe")){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden};
+        // The coordinator stays at the caller's integrity level. Only its file worker elevates.
+        var start=InstallerStart(Path.Combine(prepared.Folder,"payload","ScreenCapture.exe"),false);
         start.ArgumentList.Add("--apply-update");start.ArgumentList.Add(jobPath);
         using var helper=Process.Start(start)??throw new IOException("Не удалось запустить установщик.");
-        bool ok=await Task.Run(()=>ready.WaitOne(20000));
-        if(!ok)throw new IOException("Установщик не подтвердил готовность. Программа продолжает работать; журнал: "+prepared.Folder);
+        bool ok=await Task.Run(()=>
+        {
+            var timer=Stopwatch.StartNew();
+            while(timer.Elapsed<TimeSpan.FromMinutes(3)){if(ready.WaitOne(100))return true;if(helper.HasExited)return false;}
+            return false;
+        });
+        if(!ok)
+        {
+            string error=Path.Combine(prepared.Folder,"install-message.txt");
+            throw new IOException(File.Exists(error)?File.ReadAllText(error):"Установщик не подтвердил готовность. Программа продолжает работать; журнал: "+prepared.Folder);
+        }
+        if(beforeExit!=null)await beforeExit();
     }
 }

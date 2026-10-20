@@ -10,6 +10,7 @@ internal static class Program
         try
         {
             if(args.FirstOrDefault()==KvmInputHelper.Argument)return KvmInputHelper.Run(args);
+            if(args.FirstOrDefault()==UpdateFileSession.WorkerArgument)return UpdateFileSession.RunWorker(args);
             if(args.Length==3&&args[0]=="--kvm-pipe-fixture")return KvmInputTests.PipeFixture(args[1],int.Parse(args[2]));
             if(args.Contains("--kvm-input-tests")){KvmInputTests.Run();return 0;}
             if(args.Contains("--kvm-helper-approval-test")){KvmInputTests.Approval();return 0;}

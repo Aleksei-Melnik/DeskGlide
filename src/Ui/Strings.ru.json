@@ -424,6 +424,7 @@
   "NDI Runtime is still unavailable. Retry setup in Screen streaming.": "NDI Runtime пока недоступен. Повторите установку во вкладке «Трансляция экрана».",
   "NDI Runtime setup was cancelled. Retry in Screen streaming.": "Установка NDI Runtime отменена. Повторите её во вкладке «Трансляция экрана».",
   "Windows could not verify the {0} installer signature.": "Windows не смогла проверить подпись установщика {0}.",
+  "Administrator approval was canceled. DeskGlide is still running; no files were changed.": "Запрос прав администратора отменён. DeskGlide продолжает работать; файлы не изменены.",
   "GPU encoding is selected automatically: NVIDIA NVENC, AMD AMF or Intel Quick Sync. Codec and resolution support depend on your graphics card and driver.": "Кодировщик видеокарты выбирается автоматически: NVIDIA NVENC, AMD AMF или Intel Quick Sync. Поддержка кодеков и разрешений зависит от карты и её драйвера.",
   "Checking GPU recording support…": "Проверка аппаратного кодировщика…",
   "No GPU encoder supports {0} at {1} × {2}, {3} FPS. Try H.264, lower the resolution or frame rate, and update your graphics driver.": "Аппаратный кодировщик не поддерживает {0} при {1} × {2}, {3} FPS. Выберите H.264, уменьшите разрешение или частоту кадров и обновите драйвер видеокарты.",

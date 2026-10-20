@@ -148,6 +148,20 @@ versions, then updates the Host. Do not bypass signature checks or change this
 order to work around an input issue. Dispose the input manager/helper before
 replacing the application EXE.
 
+From 0.7.29, staging and backups remain in AppData and directory-access checks
+open a directory handle without creating probe files. A protected destination
+uses a separate Windows-approved `UpdateFileSession` worker. The ordinary
+coordinator retains responsibility for restart and health checks, so elevation
+does not spread from the worker to the app. The worker independently verifies
+the signed plan/payload and binds its destination to the live original EXE;
+its private, bounded pipe checks the Windows user and both process identities.
+Approval is obtained before the app hands over. Only install/commit/rollback
+are accepted; a lost connection rolls back an unfinished file transaction.
+Rollback retains the journal in memory and hashes the original backup bytes;
+neither an editable disk journal nor altered backup content is trusted.
+Versions through 0.7.28 can still stop in their old permission probe before
+launching this installer and need a one-time approved update or per-user copy.
+
 0.7.26 established the current signing key after the earlier key was lost.
 **Keep that key for every future release.** The private key is outside the repo
 and backed up in GitHub Actions' encrypted `DESKGLIDE_RELEASE_PRIVATE_KEY`

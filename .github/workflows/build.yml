@@ -71,6 +71,8 @@ jobs:
             app/kvm-test.json
             app/kvm-input-thread-test.json
             app/monitor-layout-tests.json
+            app/update-tests.json
+            app/update-installation-tests.json
             app/recording-cadence-tests.json
             app/gpu-readback-tests.json
             app/replay-app-tests.json
