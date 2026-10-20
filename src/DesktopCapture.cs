@@ -25,6 +25,7 @@ public sealed class DesktopCapture:IDisposable
     internal bool DesktopUpdated {get;private set;}
     internal Action<CaptureObservation>? Observe;
     internal bool BlockingReadbackForTest;
+    internal uint FrameWaitMilliseconds;
     public int Width=>color.Width;
     public int Height=>color.Height;
     public DesktopCapture(DisplayInfo display,bool compensate,int canvasWidth=0,int canvasHeight=0)
@@ -69,7 +70,7 @@ public sealed class DesktopCapture:IDisposable
         if(!display.Hdr)WhiteNits=80;
         else if(now>=whiteReadAt){WhiteNits=WhiteLevel.Read(display.Device);whiteReadAt=now+System.Diagnostics.Stopwatch.Frequency/4;}
         ReleaseAcquired();
-        var result=duplication.AcquireNextFrame(0,out var info,out var resource);
+        var result=duplication.AcquireNextFrame(FrameWaitMilliseconds,out var info,out var resource);
         if(result.Code==unchecked((int)0x887A0027))return frame??color.TryReadNdi();
         result.CheckError();
         acquired=true;
@@ -93,8 +94,8 @@ public sealed class DesktopCapture:IDisposable
                 Observe?.Invoke(new(capturedAt,acquiredAt,System.Diagnostics.Stopwatch.GetTimestamp(),info.LastPresentTime,info.LastMouseUpdateTime,info.AccumulatedFrames,queued));
             }
         }
-        // This path polls with a zero timeout. Holding ownership across the
-        // next pacing wait can prevent a fresh desktop copy and halve capture.
+        // Holding ownership across the next pacing/frame wait can prevent a
+        // fresh desktop copy. Release after submitting this image's GPU copy.
         finally{ReleaseAcquired();}
         return frame??color.TryReadNdi();
     }

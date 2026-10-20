@@ -33,10 +33,23 @@ static class RecordingCadenceTests
             long selected=observed[RecordingFrameSelection.Index(observed,due,prior,8333)];
             long legacy=observed[RecordingFrameSelection.Index(observed,due,legacyPrior,6249)];
             if(selected==prior)repeats++;if(legacy==legacyPrior)legacyWindowRepeats++;
-            Require(selected==observed[frame],"Available jittered source image was discarded at an output boundary.");
+            Require(selected==observed[frame+1],"Selector did not choose the closest forward image at an output boundary.");
             prior=selected;legacyPrior=legacy;
         }
         Require(repeats==0&&legacyWindowRepeats==1,"Real 120 FPS trace did not reproduce and eliminate the narrow-window repeat.");
+        foreach(int fps in new[]{60,120})
+        {
+            long period=1000000/fps;
+            long[] source=Enumerable.Range(0,600).Select(i=>1000000L+i*period+(i%2==0?-1200:1200)).ToArray();
+            long previous=-1;
+            for(int frame=20;frame<580;frame++)
+            {
+                long due=source[20]+(frame-20)*period;
+                int at=RecordingFrameSelection.Index(source,due,previous,period);
+                Require(at==frame,"Source-aligned output discarded an available equal-rate jittered image.");
+                previous=source[at];
+            }
+        }
         int legacyUneven=0,integerUneven=0;
         foreach(int fps in new[]{60,120})foreach(long phase in new long[]{1000,11000,27000})
         {

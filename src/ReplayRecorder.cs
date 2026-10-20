@@ -281,7 +281,12 @@ public sealed class ReplayRecorder:IDisposable
             try
             {
                 videoPipe.WaitForConnectionAsync(token).GetAwaiter().GetResult();
-                epoch=Now;lastVideo=epoch;Volatile.Write(ref liveEnd,0);Volatile.Write(ref liveStart,epoch);started.TrySetResult(epoch);
+                // Align the CFR grid to an actual source image rather than
+                // the arbitrary instant the encoder connected its pipe.
+                // This keeps nearest-image selection away from the midpoint
+                // between source presentations and gives audio the same epoch.
+                using(var anchor=GetFrame())epoch=anchor?.CapturedAt/(double)Stopwatch.Frequency??Now;
+                lastVideo=Now;Volatile.Write(ref liveEnd,0);Volatile.Write(ref liveStart,epoch);started.TrySetResult(epoch);
                 // Both inputs still begin at epoch, with continuous frame/sample
                 // timestamps. Encode video promptly and let the muxer interleave
                 // its small compressed packets while WASAPI catches up, instead

@@ -110,6 +110,10 @@ public sealed class StreamEngine:IDisposable
                     capture.CompensateSdr=config.Compensate;capture.CaptureCursor=config.Cursor;
                     capture.Observe=CaptureObserved;
                     capture.BlockingReadbackForTest=BlockingReadbackForTest;
+                    // Wait briefly for the next desktop presentation. A zero
+                    // timeout loses images arriving just after a poll when the
+                    // source and acquisition clocks run at similar rates.
+                    capture.FrameWaitMilliseconds=ReplayEnabled?(uint)Math.Clamp(1000/CaptureRate,1,8):0;
                     long begin=Stopwatch.GetTimestamp();
                     var fresh=capture.Next();
                     CaptureMs=Stopwatch.GetElapsedTime(begin).TotalMilliseconds;
