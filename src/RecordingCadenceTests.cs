@@ -33,7 +33,7 @@ static class RecordingCadenceTests
             long selected=observed[RecordingFrameSelection.Index(observed,due,prior,8333)];
             long legacy=observed[RecordingFrameSelection.Index(observed,due,legacyPrior,6249)];
             if(selected==prior)repeats++;if(legacy==legacyPrior)legacyWindowRepeats++;
-            Require(selected==observed[frame+1],"Selector did not choose the closest forward image at an output boundary.");
+            Require(selected>prior&&Math.Abs(selected-due)<=8333,"Selector repeated/reordered an available image or exceeded its timing bound.");
             prior=selected;legacyPrior=legacy;
         }
         Require(repeats==0&&legacyWindowRepeats==1,"Real 120 FPS trace did not reproduce and eliminate the narrow-window repeat.");
@@ -78,6 +78,13 @@ static class RecordingCadenceTests
         }
         Require(RecordingFrameSelection.Index([],100,-1,20)==-1,"Empty source history accepted.");
         Require(RecordingFrameSelection.Index([10,20,100],50,20,10)==1,"Missing source footage was replaced with a distant future frame.");
+        long[] upcoming=[0,8,14,23,39,47,55,63,71,79,87,95];
+        Require(RecordingFrameSelection.Index(upcoming,20,8,8)==2,"Nearest selection skipped an available image and caused an avoidable next-slot repeat.");
+        Require(RecordingFrameSelection.Index(upcoming,28,14,8)==3,"Lookahead did not preserve the next distinct source image.");
+        long[] burst=[85,94,100,102,104,106,108,110,112,114,116,118,120,122,124,126,190,200,210];
+        Require(RecordingFrameSelection.Index(burst,100,80,20,10)==0,"A short source burst consumed an image needed across the following render gap.");
+        Require(RecordingFrameSelection.Index([85,94,100,102,104,106],100,80,20,10)==0,"An incomplete lookahead was mistaken for sustained oversampling.");
+        Require(RecordingFrameSelection.Index(Enumerable.Range(0,50).Select(i=>(long)i*5).ToArray(),100,90,20,10)==20,"Sustained oversampling lost nearest-image motion pacing.");
         Program.Write("recording-cadence-tests.json",new{Pass=true,Fps=new[]{60,120},LegacyArtificialRepeats=legacyRepeats,NewArtificialRepeats=actualRepeats,NarrowWindowRepeats=legacyWindowRepeats,RealTraceRepeats=repeats,LegacyUnevenMotionSteps=legacyUneven,NewUnevenMotionSteps=integerUneven,NoAccumulatedPacingDrift=true,SourceOrderPreserved=true,RealSourceGapsNotInvented=true});
     }
 }

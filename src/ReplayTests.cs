@@ -23,6 +23,9 @@ static class ReplayTests
         // silently passing with an obsolete device ID from an old profile.
         if(localOnly)config=config with{AudioMode="Mixed",Silent=false,Microphone="",GameAudio="default:render",ExtraAudio=""};
         using var replay=new ReplayRecorder(config);
+        var prepared=new System.Collections.Concurrent.ConcurrentQueue<long>();
+        var selected=new System.Collections.Concurrent.ConcurrentQueue<(long Due,long Captured)>();
+        replay.FramePreparedForTest=prepared.Enqueue;replay.FrameSelectedForTest=(due,captured)=>selected.Enqueue((due,captured));
         var intervals=new System.Collections.Concurrent.ConcurrentQueue<double>();long priorSource=0;
         using var engine=new StreamEngine{NdiEnabled=!localOnly,ReplayEnabled=true,ReplayFrameRate=fps,FrameAvailable=frame=>
         {if(priorSource>0)intervals.Enqueue((frame.CapturedAt-priorSource)*1000.0/Stopwatch.Frequency);priorSource=frame.CapturedAt;replay.Offer(frame);}};
@@ -46,7 +49,7 @@ static class ReplayTests
         if(!localOnly&&engine.Frames-priorNdi<60)throw new Exception("Turning replay off stopped NDI.");
         var deltas=intervals.Order().ToArray();
         bool pass=!localOnly||(audioRead>48000&&audioMissing==0&&replay.HistoryMisses==0);
-        Program.Write(localOnly?"replay-local-test.json":"replay-live-test.json",new{Pass=pass,LocalOnly=localOnly,seconds,fps,codec,config.Quality,duration,Source=engine.SourceName,File=saved.LocalPath,Audio=audioStatus,AudioDiagnostics=audioDiagnostics,AudioMissingSamples=audioMissing,AudioReadSamples=audioRead,replay.RepeatedInputFrames,replay.HistoryMisses,replay.MaxPipeWriteMs,replay.MaxWriterLateMs,SourceIntervalMedianMs=deltas.Length==0?0:deltas[deltas.Length/2],SourceIntervalP95Ms=deltas.Length==0?0:deltas[(int)(deltas.Length*.95)],Samples=samples});
+        Program.Write(localOnly?"replay-local-test.json":"replay-live-test.json",new{Pass=pass,LocalOnly=localOnly,seconds,fps,codec,config.Quality,duration,Source=engine.SourceName,File=saved.LocalPath,Audio=audioStatus,AudioDiagnostics=audioDiagnostics,AudioMissingSamples=audioMissing,AudioReadSamples=audioRead,replay.RepeatedInputFrames,replay.DuplicateSourceFrames,replay.SessionEpochTicks,replay.HistoryMisses,replay.MaxPipeWriteMs,replay.MaxWriterLateMs,SourceIntervalMedianMs=deltas.Length==0?0:deltas[deltas.Length/2],SourceIntervalP95Ms=deltas.Length==0?0:deltas[(int)(deltas.Length*.95)],Samples=samples,PreparedTimes=prepared.ToArray(),Selections=selected.Select(s=>new{s.Due,s.Captured}).ToArray(),QpcFrequency=Stopwatch.Frequency});
         if(!pass)throw new Exception("Real-game diagnostic found missing audio or exhausted frame history.");
     }
     public static void Run()=>RunAsync().GetAwaiter().GetResult();

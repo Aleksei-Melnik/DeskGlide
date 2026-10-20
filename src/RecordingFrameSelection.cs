@@ -2,24 +2,48 @@ namespace SdrCapture;
 
 static class RecordingFrameSelection
 {
-    // Stay closest to the CFR deadline while advancing in source order. The
-    // recording epoch is aligned to a real source frame; the bounded lookahead
-    // avoids repeat/drop pairs when a presentation arrives after its deadline.
-    internal static int Index(ReadOnlySpan<long> times,long due,long previous,long tolerance)
+    // Oversampled input can choose the nearest picture. Near-output-rate input
+    // must conserve chronological images instead of skipping one and holding
+    // the next. Density is measured from distinct, already-buffered pictures.
+    internal static int Index(ReadOnlySpan<long> times,long due,long previous,long tolerance,long period=0)
     {
         if(times.IsEmpty)return -1;
         if(tolerance>0&&previous>=0)
         {
+            if(period<=0)period=tolerance;
+            long end=Math.Min(times[^1],due+period*8);
+            int first=0,last=times.Length-1;
+            while(first<times.Length&&times[first]<due)first++;
+            while(last>first&&times[last]>end)last--;
+            bool dense=last-first>=4&&(long)(last-first)*period*4>=(times[last]-times[first])*7;
+            // A short burst is not sustained oversampling. Choosing its nearest
+            // image may consume the only image for a following deadline. Only
+            // skip chronological candidates when the buffered continuation can
+            // supply every one of the next eight output slots within the bound.
+            dense&=times[^1]>=due+period*8+tolerance;
             int best=-1;long distance=long.MaxValue;
             for(int i=0;i<times.Length;i++)
                 if(times[i]>previous&&times[i]>=due-tolerance&&times[i]<=due+tolerance)
                 {
+                    if(!dense)return i;
                     long error=Math.Abs(times[i]-due);
-                    if(error<distance){distance=error;best=i;}
+                    if(error<distance&&ContinuationFits(times,i,due,tolerance,period)){distance=error;best=i;}
                 }
             if(best>=0)return best;
+            for(int i=0;i<times.Length;i++)
+                if(times[i]>previous&&times[i]>=due-tolerance&&times[i]<=due+tolerance)return i;
         }
         for(int i=times.Length-1;i>=0;i--)if(times[i]<=due)return i;
         return 0;
+    }
+    static bool ContinuationFits(ReadOnlySpan<long> times,int at,long due,long tolerance,long period)
+    {
+        for(int slot=1;slot<=8;slot++)
+        {
+            long target=due+period*slot;
+            do{at++;}while(at<times.Length&&times[at]<target-tolerance);
+            if(at==times.Length||times[at]>target+tolerance)return false;
+        }
+        return true;
     }
 }

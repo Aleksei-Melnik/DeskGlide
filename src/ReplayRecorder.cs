@@ -57,6 +57,12 @@ public sealed class ReplayRecorder:IDisposable
     public double MaxFramePreparationAgeMs {get;private set;}
     public long SessionEpochTicks {get;private set;}
     public long AudioReadyTicks {get;private set;}
+    long duplicateSourceFrames;
+    public long DuplicateSourceFrames=>Interlocked.Read(ref duplicateSourceFrames);
+    internal int SourceHistoryCount {get{lock(framesGate)return frames.Count;}}
+    internal Action<long>? FramePreparedForTest;
+    internal Action<long,long>? FrameSelectedForTest;
+    internal RecordingFrame? SelectForTest(long due,long previous,long tolerance)=>GetFrame(due,previous,tolerance);
     internal bool SynchronousFrameConversionForTest;
     public long ConversionQueueDrops=>incoming.Dropped;
     public long ConversionQueueBytes=>incoming.QueuedBytes;
@@ -75,7 +81,7 @@ public sealed class ReplayRecorder:IDisposable
     public long CacheBytes {get{lock(chunksGate)return chunks.Sum(c=>c.Bytes);}}
     public static double Now=>Stopwatch.GetTimestamp()/(double)Stopwatch.Frequency;
     public ReplayRecorder(ReplayOptions value,bool syntheticAudio=false,int? testWindowSeconds=null):this(value,syntheticAudio,testWindowSeconds,null){}
-    internal ReplayRecorder(ReplayOptions value,bool syntheticAudio,int? testWindowSeconds,RecordingEncoder? validationEncoder)
+    internal ReplayRecorder(ReplayOptions value,bool syntheticAudio,int? testWindowSeconds,RecordingEncoder? validationEncoder,bool startEncoder=true)
     {
         this.validationEncoder=validationEncoder;
         options=value with {};this.syntheticAudio=syntheticAudio;this.testWindowSeconds=testWindowSeconds;
@@ -83,7 +89,7 @@ public sealed class ReplayRecorder:IDisposable
         Directory.CreateDirectory(runFolder);
         CleanOldBuffers();
         incoming=new(ConvertFrame,e=>{Error=e.Message;Log.Write("Recording frame conversion: "+e.Message);});
-        worker=Task.Run(Run);
+        worker=startEncoder?Task.Run(Run):Task.CompletedTask;
     }
     void CleanOldBuffers()
     {
@@ -125,7 +131,14 @@ public sealed class ReplayRecorder:IDisposable
         lock(framesGate)
         {
             if(Volatile.Read(ref disposed)!=0||!Volatile.Read(ref options).Enabled||generation!=Volatile.Read(ref version)){reference.Dispose();return;}
+            // DWM can publish a new desktop timestamp for unchanged pixels.
+            // Such an entry is not a new video image: retaining it lets the
+            // CFR selector repeat that image despite a fresh one being ready.
+            // Compare exact encoded-input pixels; keep the original image time.
+            if(frames.Count>0&&frames[^1].Width==reference.Width&&frames[^1].Height==reference.Height&&frames[^1].Data.SequenceEqual(reference.Data))
+            {reference.Dispose();Interlocked.Increment(ref duplicateSourceFrames);return;}
             frames.Add(reference);
+            FramePreparedForTest?.Invoke(reference.CapturedAt);
             var config=Volatile.Read(ref options);
             int steady=Math.Max(12,(int)Math.Ceiling((ReplayAudio.WaitSeconds(config)+1.0/60+.50)*config.Fps)+3);
             bool warming=Stopwatch.GetTimestamp()<Volatile.Read(ref warmupUntil);
@@ -144,7 +157,7 @@ public sealed class ReplayRecorder:IDisposable
             if(frames.Count==0)return null;
             Span<long> times=stackalloc long[frames.Count];for(int n=0;n<frames.Count;n++)times[n]=frames[n].CapturedAt;
             if(timestamp<long.MaxValue-tolerance&&times[0]>timestamp+tolerance)HistoryMisses++;
-            int i=RecordingFrameSelection.Index(times,timestamp,previous,tolerance);
+            int i=RecordingFrameSelection.Index(times,timestamp,previous,tolerance,Stopwatch.Frequency/Volatile.Read(ref options).Fps);
             if(i>=0)
             {
                 var selected=frames[i].Retain();
@@ -316,13 +329,13 @@ public sealed class ReplayRecorder:IDisposable
                     token.ThrowIfCancellationRequested();
                     MaxWriterLateMs=Math.Max(MaxWriterLateMs,(Now-due)*1000);
                     if(Now-epoch>5&&Now-due>1)throw new IOException(UiStrings.F("{0} cannot keep up with {1} FPS. Lower recording resolution or frame rate.",encoder.Label,config.Fps));
-                    // A shorter-than-one-frame acceptance window can discard
-                    // an available image just behind its lower bound, promote
-                    // the next one early, then repeat that image on the next
-                    // deadline. Allow a full output period on either side;
-                    // the existing playout delay already covers this lookahead.
-                    using var frame=GetFrame((long)(due*Stopwatch.Frequency),previousCapture,Stopwatch.Frequency/config.Fps);if(frame==null){Thread.Sleep(1);continue;}
+                    // Match distinct pictures through short DWM/render timing
+                    // variations. Bound image-time deviation to 20 ms,
+                    // using the existing 100 ms playout without adding latency.
+                    long tolerance=Stopwatch.Frequency/50;
+                    using var frame=GetFrame((long)(due*Stopwatch.Frequency),previousCapture,tolerance);if(frame==null){Thread.Sleep(1);continue;}
                     if(frame.CapturedAt==previousCapture)RepeatedInputFrames++;previousCapture=frame.CapturedAt;
+                    FrameSelectedForTest?.Invoke((long)(due*Stopwatch.Frequency),frame.CapturedAt);
                     var data=frame.Data;
                     if(frame.Width!=inputWidth||frame.Height!=inputHeight)
                     {resized??=new byte[inputWidth*inputHeight*3/2];RecordingPixels.ResizeNv12(data,frame.Width,frame.Height,resized,inputWidth,inputHeight);data=resized;}

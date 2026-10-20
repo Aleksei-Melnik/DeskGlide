@@ -57,6 +57,7 @@ internal static class Program
             if(args.Contains("--replay-app-tests")){ReplayAppTests.Run();return 0;}
             if(args.Contains("--recording-cadence-tests")){RecordingCadenceTests.Run();return 0;}
             if(args.Contains("--recording-frame-queue-tests")){RecordingFrameQueueTests.Run();return 0;}
+            if(args.Contains("--recording-duplicate-tests")){RecordingDuplicateTests.Run();return 0;}
             if(args.Contains("--gpu-readback-tests")){GpuReadbackTests.Run();return 0;}
             if(args.Contains("--recording-sdr-tests")){RecordingSdrTests.Run(args.Contains("--hardware"),args.Contains("--scaled"));return 0;}
             if(args.Contains("--capture-game-test")){int f=Array.IndexOf(args,"--fps"),s=Array.IndexOf(args,"--seconds"),c=Array.IndexOf(args,"--codec"),x=Array.IndexOf(args,"--width"),y=Array.IndexOf(args,"--height");CaptureCadenceTests.Observe(f<0?60:int.Parse(args[f+1]),s<0?12:int.Parse(args[s+1]),c<0?"HEVC":args[c+1],x<0?0:int.Parse(args[x+1]),y<0?0:int.Parse(args[y+1]));return 0;}
