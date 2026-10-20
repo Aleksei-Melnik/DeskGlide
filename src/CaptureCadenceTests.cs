@@ -10,6 +10,8 @@ namespace SdrCapture;
 // mode changes, input injection, live profile edits, network stream or audio output.
 static class CaptureCadenceTests
 {
+    internal readonly record struct Presentation(uint Id,long DrawBegin,long PresentBegin,long PresentEnd,uint DisplayedCount,uint Refresh,long SyncAt,int StatisticsResult);
+    readonly record struct PixelSample(long Time,int Id,double Arrival,bool Valid,int Inverse,int BottomId,int BottomInverse,string Probe);
     public static void Present(int seconds)
     {
         var display=DisplayInfo.All().First();var screen=Screen.AllScreens.Single(s=>s.DeviceName==display.Device).Bounds;
@@ -50,10 +52,17 @@ static class CaptureCadenceTests
         Task? worker;
         public Point Origin {get;private set;}
         public long Presented;
+        public readonly System.Collections.Concurrent.ConcurrentQueue<Presentation> Presentations=new();
         public Exception? Failure;
+        public readonly int RenderWidth,RenderHeight;
         protected override bool ShowWithoutActivation=>false;
-        public Surface(Rectangle screen)
-        {Text="DeskGlide capture timing test · closes automatically";ClientSize=new(960,540);StartPosition=FormStartPosition.Manual;Location=new(screen.X+(screen.Width-960)/2,screen.Y+(screen.Height-540)/2);TopMost=true;}
+        public Surface(Rectangle screen,bool fullScreen=false)
+        {
+            RenderWidth=fullScreen?screen.Width:960;RenderHeight=fullScreen?screen.Height:540;
+            Text="DeskGlide capture timing test · closes automatically";ClientSize=new(RenderWidth,RenderHeight);StartPosition=FormStartPosition.Manual;
+            if(fullScreen){FormBorderStyle=FormBorderStyle.None;Location=screen.Location;}else Location=new(screen.X+(screen.Width-RenderWidth)/2,screen.Y+(screen.Height-RenderHeight)/2);
+            TopMost=true;
+        }
         public void Begin()
         {
             Origin=PointToScreen(Point.Empty);IntPtr window=Handle;
@@ -64,8 +73,8 @@ static class CaptureCadenceTests
                     using var factory=DXGI.CreateDXGIFactory2<IDXGIFactory2>(false);
                     using var device=D3D11.D3D11CreateDevice(DriverType.Hardware,DeviceCreationFlags.BgraSupport,FeatureLevel.Level_11_0);
                     using var context=device.ImmediateContext;
-                    using var swap=factory.CreateSwapChainForHwnd(device,window,new SwapChainDescription1{Width=960,Height=540,Format=Format.R8G8B8A8_UNorm,BufferCount=2,BufferUsage=Usage.RenderTargetOutput,SampleDescription=new(1,0),SwapEffect=SwapEffect.FlipDiscard});
-                    using var image=device.CreateTexture2D(new Texture2DDescription(Format.R8G8B8A8_UNorm,960,540,1,1,BindFlags.UnorderedAccess));
+                    using var swap=factory.CreateSwapChainForHwnd(device,window,new SwapChainDescription1{Width=(uint)RenderWidth,Height=(uint)RenderHeight,Format=Format.R8G8B8A8_UNorm,BufferCount=2,BufferUsage=Usage.RenderTargetOutput,SampleDescription=new(1,0),SwapEffect=SwapEffect.FlipDiscard});
+                    using var image=device.CreateTexture2D(new Texture2DDescription(Format.R8G8B8A8_UNorm,(uint)RenderWidth,(uint)RenderHeight,1,1,BindFlags.UnorderedAccess));
                     using var view=device.CreateUnorderedAccessView(image);
                     using var back=swap.GetBuffer<ID3D11Texture2D>(0);
                     using var shader=device.CreateComputeShader(Vortice.D3DCompiler.Compiler.Compile(Scene,"main","CaptureCadence.hlsl","cs_5_0").Span);
@@ -75,10 +84,13 @@ static class CaptureCadenceTests
                     {
                         uint index=(uint)Interlocked.Read(ref Presented)+1;
                         pacing.WaitUntil(origin+(index-1)*Stopwatch.Frequency/240,stop.Token);
+                        long drawBegin=Stopwatch.GetTimestamp();
                         context.UpdateSubresource(new[]{index,0u,0u,0u},constants);
                         context.CSSetShader(shader);context.CSSetConstantBuffer(0,constants);context.CSSetUnorderedAccessView(0,view);
-                        context.Dispatch(120,68,1);context.CSSetUnorderedAccessView(0,null);context.CopyResource(back,image);
-                        swap.Present(0,PresentFlags.None).CheckError();Interlocked.Increment(ref Presented);
+                        context.Dispatch((uint)((RenderWidth+7)/8),(uint)((RenderHeight+7)/8),1);context.CSSetUnorderedAccessView(0,null);context.CopyResource(back,image);
+                        long presentBegin=Stopwatch.GetTimestamp();swap.Present(0,PresentFlags.None).CheckError();
+                        long presentEnd=Stopwatch.GetTimestamp();var statisticsResult=swap.GetFrameStatistics(out var statistics);
+                        Presentations.Enqueue(new(index,drawBegin,presentBegin,presentEnd,statistics.PresentCount,statistics.PresentRefreshCount,statistics.SyncQPCTime,statisticsResult.Code));Interlocked.Increment(ref Presented);
                     }
                 }
                 catch(Exception e){Failure=e;}
@@ -89,28 +101,31 @@ static class CaptureCadenceTests
             RWTexture2D<float4> image:register(u0);
             cbuffer Parameters:register(b0){uint index;uint3 pad;}
             [numthreads(8,8,1)]void main(uint3 p:SV_DispatchThreadID){
-                if(p.x>=960||p.y>=540)return;
+                uint w,h;image.GetDimensions(w,h);if(p.x>=w||p.y>=h)return;
                 uint bit=(index>>((p.x/16)%16))&1;if(p.x>=256)bit^=1;
-                float v=(p.y<24||p.y>=516)&&p.x<512?bit:frac((p.x+index*3)/960.0);
+                float v=(p.y<24||p.y>=h-24)&&p.x<512?bit:frac((p.x+index*3)/(float)w);
                 image[p.xy]=float4(v,v,v,1);
             }
             """;
     }
-    public static void Run(int fps,int seconds,string codec="HEVC",int width=0,int height=0,bool ndi=false)
+    public static void Run(int fps,int seconds,string codec="HEVC",int width=0,int height=0,bool ndi=false,bool blocking=false,bool fullScreen=false,bool directConversion=false)
     {
         string root=Path.Combine(AppContext.BaseDirectory,"capture-cadence-"+DateTime.Now.ToString("yyyyMMdd-HHmmss"));Directory.CreateDirectory(root);
         Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",root);
-        var display=DisplayInfo.All().First();var observations=new List<(long Time,int Id,double Arrival,bool Valid)>();
+        var display=DisplayInfo.All().First();var observations=new List<PixelSample>();
         var options=new ReplayOptions{Enabled=true,Fps=fps,Codec=codec,Width=width==0?display.Width:width,Height=height==0?display.Height:height,Folder=Path.Combine(root,"clips")};
         using var recorder=new ReplayRecorder(options,syntheticAudio:true,testWindowSeconds:Math.Max(5,seconds-5));
+        recorder.SynchronousFrameConversionForTest=directConversion;
         var screen=Screen.AllScreens.Single(s=>s.DeviceName==display.Device).Bounds;
-        using var surface=new Surface(screen);
+        using var surface=new Surface(screen,fullScreen);
         using var engine=new StreamEngine{NdiEnabled=ndi,ReplayEnabled=true,ReplayFrameRate=fps};
+        var acquisition=new System.Collections.Concurrent.ConcurrentQueue<CaptureObservation>();engine.CaptureObserved=acquisition.Enqueue;engine.BlockingReadbackForTest=blocking;
         engine.FrameAvailable=frame=>
         {
             int x=surface.Origin.X-screen.X,y=surface.Origin.Y-screen.Y+8;
-            if(x<0||y<0||x+512>frame.Width||y+524>=frame.Height)return;
-            int bottom=y+524,id=0,inverse=0,bottomId=0,bottomInverse=0;
+            int bottom=surface.Origin.Y-screen.Y+surface.RenderHeight-8;
+            if(x<0||y<0||x+512>frame.Width||bottom>=frame.Height)return;
+            int id=0,inverse=0,bottomId=0,bottomInverse=0;
             for(int bit=0;bit<16;bit++)
             {
                 if(frame.Data[(y*frame.Width+x+bit*16+8)*2+1]>128)id|=1<<bit;
@@ -118,7 +133,9 @@ static class CaptureCadenceTests
                 if(frame.Data[(bottom*frame.Width+x+bit*16+8)*2+1]>128)bottomId|=1<<bit;
                 if(frame.Data[(bottom*frame.Width+x+256+bit*16+8)*2+1]>128)bottomInverse|=1<<bit;
             }
-            lock(observations)observations.Add((frame.CapturedAt,id,ReplayRecorder.Now,(id^inverse)==65535&&(bottomId^bottomInverse)==65535&&id==bottomId));
+            int middle=surface.Origin.Y-screen.Y+surface.RenderHeight/2;
+            Span<byte> probe=stackalloc byte[16];for(int n=0;n<probe.Length;n++)probe[n]=frame.Data[(middle*frame.Width+x+30+n*55)*2+1];
+            lock(observations)observations.Add(new(frame.CapturedAt,id,ReplayRecorder.Now,(id^inverse)==65535&&(bottomId^bottomInverse)==65535&&id==bottomId,inverse,bottomId,bottomInverse,Convert.ToHexString(probe)));
             recorder.Offer(frame);
         };
         ReplayResult? saved=null;int captureRate=0;
@@ -170,10 +187,10 @@ static class CaptureCadenceTests
         Application.Run(surface);engine.ReplayEnabled=false;
         if(surface.Failure!=null)throw surface.Failure;
         var clip=saved??throw new Exception("Diagnostic closed before saving.");recorder.Update(options with{Enabled=false});
-        (long Time,int Id,double Arrival,bool Valid)[] samples;lock(observations)samples=observations.ToArray();var deltas=samples.Zip(samples.Skip(1),(a,b)=>(b.Time-a.Time)*1000.0/Stopwatch.Frequency).ToArray();
+        PixelSample[] samples;lock(observations)samples=observations.ToArray();var deltas=samples.Zip(samples.Skip(1),(a,b)=>(b.Time-a.Time)*1000.0/Stopwatch.Frequency).ToArray();
         string raw=Path.Combine(root,"frame-ids.raw");int ox=(surface.Origin.X-screen.X)*options.Width/display.Width,oy=(surface.Origin.Y-screen.Y+8)*options.Height/display.Height;
         using var deadline=new CancellationTokenSource(120000);
-        int bottomY=(surface.Origin.Y-screen.Y+532)*options.Height/display.Height;
+        int bottomY=(surface.Origin.Y-screen.Y+surface.RenderHeight-8)*options.Height/display.Height;
         string markerFilter=$"split[a][b];[a]crop={512*options.Width/display.Width}:2:{ox}:{oy},scale=32:1:flags=neighbor[t];[b]crop={512*options.Width/display.Width}:2:{ox}:{bottomY},scale=32:1:flags=neighbor[d];[t][d]vstack,format=gray";
         ReplayTools.RunAsync(ReplayTools.Ffmpeg,["-v","error","-y","-i",clip.LocalPath,"-an","-vf",markerFilter,"-fps_mode","passthrough","-f","rawvideo",raw],deadline.Token).GetAwaiter().GetResult();
         byte[] bytes=File.ReadAllBytes(raw);var ids=new List<int>();int invalid=0;
@@ -190,9 +207,10 @@ static class CaptureCadenceTests
         var orderedAges=ndiAges.Order().ToArray();
         Program.Write("capture-cadence-test.json",new{Pass=valid,MarkerValid=valid,InvalidMarkers=invalid,codec,options.Width,options.Height,ndi,CaptureRate=captureRate,QpcFrequency=Stopwatch.Frequency,fps,seconds,surface.Presented,Captured=samples.Length,SourceRepeated=samples.Zip(samples.Skip(1),(a,b)=>a.Id==b.Id).Count(v=>v),
             SourceIntervalMedian=deltas.Order().ElementAt(deltas.Length/2),SourceIntervalP95=deltas.Order().ElementAt((int)(deltas.Length*.95)),SourceIntervalMaximum=deltas.Max(),
-            engine.MaxCaptureMs,engine.MaxObserverMs,recorder.MaxConvertMs,recorder.MaxPipeWriteMs,recorder.RepeatedInputFrames,recorder.HistoryMisses,
+            engine.MaxCaptureMs,engine.MaxObserverMs,recorder.MaxConvertMs,recorder.MaxFramePreparationAgeMs,recorder.ConversionQueueDrops,recorder.ConversionQueueBytes,recorder.MaxPipeWriteMs,recorder.RepeatedInputFrames,recorder.HistoryMisses,
             NdiFrames=ndiFrames,NdiRepeated=ndiRepeated,NdiMatchedFrames=ndiAges.Count,NdiAgeMedianMs=orderedAges.Length==0?0:orderedAges[orderedAges.Length/2],NdiAgeP95Ms=orderedAges.Length==0?0:orderedAges[(int)(orderedAges.Length*.95)],NdiReceiveError=receiveError?.Message,
-            OutputFrames=ids.Count,OutputRepeated=steps.Count(s=>s==0),OutputMaxStep=steps.Max(),recorder.Error,clip.LocalPath,Root=root,Samples=samples.Select(s=>new{s.Time,s.Id,s.Arrival,s.Valid}).ToArray(),OutputIds=ids});
+            OutputFrames=ids.Count,OutputRepeated=steps.Count(s=>s==0),OutputMaxStep=steps.Max(),recorder.Error,clip.LocalPath,Root=root,Samples=samples,OutputIds=ids,
+            BlockingReadback=blocking,FullScreenSource=fullScreen,DirectConversion=directConversion,Presentations=surface.Presentations.ToArray(),Acquisitions=acquisition.ToArray()});
         if(!valid)throw new Exception("Presentation marker or local NDI receive validation failed; see report.");
     }
 }

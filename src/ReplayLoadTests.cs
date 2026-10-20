@@ -82,7 +82,7 @@ static class ReplayLoadTests
             var third=recorder.SaveAsync("Load").GetAwaiter().GetResult();
             Program.Write($"load-{fps}-{codec}-{stress}{(encoderName==null?"":"-"+encoderName)}{(hdr?"-hdr":"")}{(sync?"-sync":"")}.json",new{fps,codec,stress,seconds,encoderName,hdr,sync,width,height,audio,synthetic,producerOrigin,referenceStart,QpcFrequency=Stopwatch.Frequency,captured,producerSkipped,SourceMissingIds=sourceMissingIds.ToArray(),GpuConvertMs=maxConvertMs,
                 recorder.EncodedFrames,recorder.RepeatedInputFrames,recorder.HistoryMisses,recorder.MaxWriterLateMs,recorder.EncoderStarts,
-                recorder.MaxConvertMs,recorder.MaxPipeWriteMs,recorder.AudioStatus,recorder.AudioDiagnostics,recorder.Error,Memory=memorySamples,First=first,Second=second,Third=third,Root=root});
+                recorder.MaxConvertMs,recorder.MaxFramePreparationAgeMs,recorder.ConversionQueueDrops,recorder.ConversionQueueBytes,recorder.MaxPipeWriteMs,recorder.AudioStatus,recorder.AudioDiagnostics,recorder.Error,Memory=memorySamples,First=first,Second=second,Third=third,Root=root});
             if(recorder.Error!=null||recorder.EncoderStarts!=1)throw new Exception("Recording restarted under load; see report");
         }
         finally

@@ -26,6 +26,10 @@ static class RecordingPixels
     }
     static readonly Vector128<byte> yMask=Vector128.Create((byte)1,3,5,7,9,11,13,15,128,128,128,128,128,128,128,128);
     static readonly Vector128<byte> uvMask=Vector128.Create((byte)0,2,4,6,8,10,12,14,128,128,128,128,128,128,128,128);
+    static readonly Vector256<byte> yMask256=Vector256.Create(yMask,yMask);
+    static readonly Vector256<byte> uvMask256=Vector256.Create(uvMask,uvMask);
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static Vector128<byte> Pack16(Vector256<byte> value,Vector256<byte> mask)=>Avx2.Permute4x64(Avx2.Shuffle(value,mask).AsUInt64(),0xD8).AsByte().GetLower();
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static void Nv12(ReadOnlySpan<byte> uyvy,Span<byte> nv12,int width,int height)
     {
@@ -35,6 +39,14 @@ static class RecordingPixels
         {
             int a=row*width*2,b=a+width*2,ya=row*width,yb=ya+width,uv=width*height+row/2*width;
             int x=0;
+            if(Avx2.IsSupported)for(;x+16<=width;x+=16)
+            {
+                var top=Unsafe.ReadUnaligned<Vector256<byte>>(ref Unsafe.Add(ref source,a+x*2));
+                var bottom=Unsafe.ReadUnaligned<Vector256<byte>>(ref Unsafe.Add(ref source,b+x*2));
+                Unsafe.WriteUnaligned(ref Unsafe.Add(ref target,ya+x),Pack16(top,yMask256));
+                Unsafe.WriteUnaligned(ref Unsafe.Add(ref target,yb+x),Pack16(bottom,yMask256));
+                Unsafe.WriteUnaligned(ref Unsafe.Add(ref target,uv+x),Pack16(Avx2.Average(top,bottom),uvMask256));
+            }
             if(Ssse3.IsSupported)for(;x+8<=width;x+=8)
             {
                 var top=Unsafe.ReadUnaligned<Vector128<byte>>(ref Unsafe.Add(ref source,a+x*2));

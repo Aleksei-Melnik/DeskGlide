@@ -5,7 +5,7 @@ static class RecordingPixelTests
     public static void Run()
     {
         var random=new Random(73);
-        foreach(int width in new[]{6,8,10,34,2560})
+        foreach(int width in new[]{6,8,10,16,18,30,32,34,62,64,66,2560})
         {
             int height=width==2560?1440:6;byte[] input=new byte[width*height*2],output=new byte[width*height*3/2];random.NextBytes(input);
             RecordingPixels.Nv12(input,output,width,height);

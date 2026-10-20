@@ -39,9 +39,10 @@ static class RecordingSdrTests
                 {
                     pacing.WaitUntil(origin+index*Stopwatch.Frequency/fps,stop.Token);if(stop.IsCancellationRequested)break;
                     long next=Math.Max(index,(Stopwatch.GetTimestamp()-origin)*fps/Stopwatch.Frequency);producerSkipped+=next-index;index=next;
-                    for(int y=0;y<16;y++)for(int bit=0;bit<16;bit++)for(int x=bit*16;x<(bit+1)*16;x++)ndi.Data[(y*640+x)*2+1]=(byte)(((index>>bit)&1)==0?16:235);
-                    ndi.CapturedAt=origin+index*Stopwatch.Frequency/fps+(index%2==0?-1:1)*Stopwatch.Frequency/1000;
-                    recorder.Offer(ndi);sourceIds.Enqueue((int)index);index++;
+                    using var frame=new VideoBuffer(640,360);ndi.Data.AsSpan(0,ndi.Length).CopyTo(frame.Data);
+                    for(int y=0;y<16;y++)for(int bit=0;bit<16;bit++)for(int x=bit*16;x<(bit+1)*16;x++)frame.Data[(y*640+x)*2+1]=(byte)(((index>>bit)&1)==0?16:235);
+                    frame.CapturedAt=origin+index*Stopwatch.Frequency/fps+(index%2==0?-1:1)*Stopwatch.Frequency/1000;
+                    recorder.Offer(frame);sourceIds.Enqueue((int)index);index++;
                 }
             },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
             ReplayResult saved;

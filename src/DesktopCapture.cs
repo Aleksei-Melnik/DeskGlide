@@ -4,6 +4,7 @@ using Vortice.DXGI;
 
 namespace SdrCapture;
 sealed class CaptureResetException(string message):Exception(message);
+internal readonly record struct CaptureObservation(long CapturedAt,long AcquiredAt,long SubmittedAt,long DesktopAt,long MouseAt,uint Accumulated,bool Queued);
 public sealed class DesktopCapture:IDisposable
 {
     readonly IDXGIFactory1 factory;
@@ -22,6 +23,8 @@ public sealed class DesktopCapture:IDisposable
     public double WhiteNits {get;private set;}
     internal uint AccumulatedFrames {get;private set;}
     internal bool DesktopUpdated {get;private set;}
+    internal Action<CaptureObservation>? Observe;
+    internal bool BlockingReadbackForTest;
     public int Width=>color.Width;
     public int Height=>color.Height;
     public DesktopCapture(DisplayInfo display,bool compensate,int canvasWidth=0,int canvasHeight=0)
@@ -70,6 +73,7 @@ public sealed class DesktopCapture:IDisposable
         if(result.Code==unchecked((int)0x887A0027))return frame??color.TryReadNdi();
         result.CheckError();
         acquired=true;
+        long acquiredAt=Observe!=null?System.Diagnostics.Stopwatch.GetTimestamp():0;
         AccumulatedFrames=info.AccumulatedFrames;DesktopUpdated=info.LastPresentTime>0;
         try
         {
@@ -79,7 +83,14 @@ public sealed class DesktopCapture:IDisposable
                 color.Cursor.Enabled=CaptureCursor;color.Cursor.Update(duplication,info);
                 long capturedAt=Math.Max(info.LastPresentTime,info.LastMouseUpdateTime);
                 if(capturedAt<=0)capturedAt=System.Diagnostics.Stopwatch.GetTimestamp();
-                color.QueueNdi(texture,display.Hdr,display.Hdr&&CompensateSdr?(float)(80/WhiteNits):1,capturedAt);
+                bool queued;
+                if(BlockingReadbackForTest)
+                {
+                    var direct=color.ConvertNdi(texture,display.Hdr,display.Hdr&&CompensateSdr?(float)(80/WhiteNits):1);direct.CapturedAt=capturedAt;
+                    frame?.Dispose();frame=direct;queued=true;
+                }
+                else queued=color.QueueNdi(texture,display.Hdr,display.Hdr&&CompensateSdr?(float)(80/WhiteNits):1,capturedAt);
+                Observe?.Invoke(new(capturedAt,acquiredAt,System.Diagnostics.Stopwatch.GetTimestamp(),info.LastPresentTime,info.LastMouseUpdateTime,info.AccumulatedFrames,queued));
             }
         }
         // This path polls with a zero timeout. Holding ownership across the

@@ -41,6 +41,8 @@ public sealed class StreamEngine:IDisposable
     public long LastFreshAt {get;private set;}
     public bool Running=>sendTask is {IsCompleted:false};
     public Action<VideoBuffer>? FrameAvailable {get;set;}
+    internal Action<CaptureObservation>? CaptureObserved;
+    internal bool BlockingReadbackForTest;
     public volatile bool NdiEnabled=true;
     public volatile int NdiAudioVolume=50;
     public volatile string NdiAudioDevice="";
@@ -105,6 +107,8 @@ public sealed class StreamEngine:IDisposable
                         Log.Write($"Capture opened: {display.Device}, {display.Width}x{display.Height}, output={canvasWidth}x{canvasHeight}, HDR={display.Hdr}");
                     }
                     capture.CompensateSdr=config.Compensate;capture.CaptureCursor=config.Cursor;
+                    capture.Observe=CaptureObserved;
+                    capture.BlockingReadbackForTest=BlockingReadbackForTest;
                     long begin=Stopwatch.GetTimestamp();
                     var fresh=capture.Next();
                     CaptureMs=Stopwatch.GetElapsedTime(begin).TotalMilliseconds;

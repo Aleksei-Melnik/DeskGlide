@@ -1,3 +1,13 @@
+DeskGlide 0.7.31
+
+- Fixed a remaining 120 FPS repeat/drop pair at the recording deadline. The selector could discard an available image just outside its 3/4-frame acceptance window, promote the next image early and repeat it on the following deadline. Chronological selection now allows one output period on either side, within the existing 100 ms playout buffer. Real source stalls retain their actual timing; no motion interpolation is used.
+- NV12 packing runs on a separate, bounded worker instead of holding up desktop acquisition. Source references retain their presentation timestamps and recording generation; disabling recording drains pending frames. The queue is limited to eight images and 64 MiB (or one image when larger), with oldest-frame drop accounting during overload.
+- AVX2 processors pack 16 pixels at a time while preserving the same limited-range SDR BT.709 luma/chroma codes. SSSE3 and scalar fallbacks remain supported. Recording uses the existing NDI HDR-to-SDR conversion. Audio clocks, app-based save folders, update signing and protected-folder update handling are retained.
+
+Validation: regression tests reproduce the narrow-window repeat with an actual timing trace; queue tests cover blocked conversion, retained pixels/timestamps, bounded overload, clearing and shutdown. Bit-exact pixel tests run with AVX2, SSSE3 and scalar paths. Fullscreen desktop acquisition, simultaneous NDI, encoder/scaling coverage and long audio/save-boundary checks are documented in docs/RECORDING-VALIDATION-0.7.31.md.
+
+Previous release: 0.7.30
+
 DeskGlide 0.7.30
 
 - Updates work from protected folders such as `C:\` and Program Files: packages, jobs and backups stay in AppData; the access check creates no `.update-write-test` file beside the application. Windows requests administrator approval only for a separate file-replacement worker when necessary. The running application retains its existing privilege level, and canceling approval leaves it open.
