@@ -91,13 +91,21 @@ Capture can continue for replay while NDI is disabled.
 Since 0.7.28, desktop conversion queues up to three UYVY staging buffers and
 maps only a completed copy (`DO_NOT_WAIT`). It keeps the original DXGI timestamp,
 drains on desktop timeouts and resets the queue on format/size changes. This
-avoids waiting immediately on GPU work but can add one capture interval of
-delivery latency. The replay acquisition worker uses 20% polling headroom and
-drains all completed copies on each poll; encoding stays at 60/120 FPS and the
+avoids waiting immediately on GPU work and retains a bounded delivery queue.
+Since 0.7.31, replay acquires at 120/240 Hz for 60/120 FPS, briefly waiting for a
+new desktop presentation (at most 8/4 ms) so updates just after a poll are not
+lost. It releases ownership after queuing the GPU copy and drains all completed
+copies each iteration. Deadlines derive from their index without accumulated
+fractional-tick drift; encoding stays at 60/120 FPS and the
 independent NDI sender stays at 60 FPS. Do not claim a zero-copy desktop-to-NVENC path: replay still
 packs CPU UYVY into NV12 and transports native-sized raw frames to FFmpeg.
 
-`ReplayRecorder` packs offered frames into a bounded history and owns rolling
+`ReplayRecorder` retains offered immutable frame references in a bounded
+conversion queue (eight images, 64 MiB, allowing one image when larger).
+A separate worker packs NV12 with AVX2/SSSE3/scalar paths, retaining source
+timestamps and recording generation. A completed conversion for an obsolete
+generation is rejected; disable/shutdown drain pending references. It keeps a
+bounded NV12 history and owns rolling
 compressed segments. `RecordingEncoder` selects/preflights GPU encoding;
 `RecordingVideoEncoder` and pipe writers separate video encoding from audio
 muxing so audio arrival does not retain uncompressed video for the whole wait.
@@ -105,11 +113,19 @@ Saving pins completed segments and `ReplayDelivery` copies finalized clips.
 `TimedAudioCapture` maps WASAPI sample/device timestamps to a 48 kHz timeline;
 `ReplayAudio` reads local/KVM sources without changing the NDI latency clock.
 
-The recorder selects an unconsumed source sample within 3/4 of a frame interval
-around its output deadline before falling back to the latest preceding image.
-The short look-ahead is covered by the existing 100 ms recording playout delay.
-This preserves source order through ordinary clock jitter; it cannot invent
-frames missing from the source. `RecordingSdr` tags raw input frames as limited
+The recorder waits briefly for initial local audio packets, then anchors its
+video/audio epoch to a real source image at or after audio readiness. Startup
+waits are bounded for unavailable/silent inputs and static desktops. Exact NV12
+comparison discards consecutive unchanged images even when DWM assigns them
+new presentation timestamps, retaining the first image's timestamp. Recording
+matches distinct images within 20 ms of the output deadline. Near-output-rate
+sources conserve chronological images; sustained oversampling can select the
+nearest image only when the continuation supplies the fully buffered deadlines
+(up to eight). A short source burst or insufficient lookahead keeps chronological
+selection. Missing images fall back to the latest preceding image.
+The timing allowance uses the existing 100 ms recording playout delay. This
+preserves source order through ordinary jitter; it cannot invent frames missing
+from the source. `RecordingSdr` tags raw input frames as limited
 BT.709 before encoding, in addition to output tags. Container metadata alone is
 insufficient for AV1 NVENC sequence-header primaries/transfer.
 

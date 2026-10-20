@@ -1,5 +1,8 @@
 # Recording validation — DeskGlide 0.7.28
 
+Follow-up corrections and motion/audio measurements for the remaining 120-FPS
+issue are documented in [0.7.31 validation](RECORDING-VALIDATION-0.7.31.md).
+
 Hardware: Windows 11, RTX 5070 (driver 617.42), native 2560 × 1440 at
 approximately 500 Hz, HDR enabled, Windows SDR white 240 nits. Tests used
 isolated replay directories. The installed recorder/NDI sender were saved and
