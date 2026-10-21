@@ -29,6 +29,7 @@ static class ScreenshotClipboard
     internal static void Publish(nint owner,Payload payload)
     {
         uint png=RegisterClipboardFormat("PNG");if(png==0)throw new Win32Exception();
+        using var bitmap=new ClipboardBitmap(payload.Dib);
         using var dibMemory=new ClipboardMemory(payload.Dib);using var pngMemory=new ClipboardMemory(payload.Png);
         bool opened=false;
         for(int attempt=0;attempt<6;attempt++){if(OpenClipboard(owner)){opened=true;break;}if(attempt<5)Thread.Sleep(10);}
@@ -36,9 +37,25 @@ static class ScreenshotClipboard
         try
         {
             if(!EmptyClipboard())throw new Win32Exception(Marshal.GetLastWin32Error());
-            dibMemory.Publish(8);pngMemory.Publish(png);
+            bitmap.Publish();dibMemory.Publish(8);pngMemory.Publish(png);
         }
         finally{CloseClipboard();}
+    }
+    sealed class ClipboardBitmap:IDisposable
+    {
+        nint handle;
+        internal unsafe ClipboardBitmap(byte[] dib)
+        {
+            fixed(byte* header=dib)
+            {
+                handle=CreateDIBSection(0,(nint)header,0,out var pixels,0,0);
+                if(handle==0)throw new Win32Exception(Marshal.GetLastWin32Error());
+                dib.AsSpan(40).CopyTo(new Span<byte>((void*)pixels,dib.Length-40));
+            }
+        }
+        internal void Publish()
+        {if(SetClipboardData(2,handle)==0)throw new Win32Exception(Marshal.GetLastWin32Error());handle=0;}
+        public void Dispose(){if(handle!=0){DeleteObject(handle);handle=0;}}
     }
     sealed class ClipboardMemory:IDisposable
     {
@@ -54,6 +71,8 @@ static class ScreenshotClipboard
         {if(SetClipboardData(format,handle)==0)throw new Win32Exception(Marshal.GetLastWin32Error());handle=0;}
         public void Dispose(){if(handle!=0){GlobalFree(handle);handle=0;}}
     }
+    [DllImport("gdi32.dll",SetLastError=true)]static extern nint CreateDIBSection(nint dc,nint info,uint usage,out nint pixels,nint section,uint offset);
+    [DllImport("gdi32.dll")]static extern bool DeleteObject(nint bitmap);
     [DllImport("user32.dll",SetLastError=true)]static extern bool OpenClipboard(nint window);
     [DllImport("user32.dll",SetLastError=true)]static extern bool EmptyClipboard();
     [DllImport("user32.dll")]static extern bool CloseClipboard();

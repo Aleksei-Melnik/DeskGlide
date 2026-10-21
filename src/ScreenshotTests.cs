@@ -340,7 +340,7 @@ static class ScreenshotTests
         var payload=ScreenshotClipboard.Prepare(image);var owner=new NativeWindow();owner.CreateHandle(new CreateParams{Parent=new IntPtr(-3)});
         var watch=Stopwatch.StartNew();try{ScreenshotClipboard.Publish(owner.Handle,payload);}finally{owner.DestroyHandle();}
         double publishMs=watch.Elapsed.TotalMilliseconds;
-        using var pasted=Clipboard.GetImage();Require(pasted!=null&&pasted.Size==image.Size,"Native screenshot clipboard cannot synthesize a Windows bitmap after editor close.");
+        using var pasted=Clipboard.GetImage();Require(pasted!=null&&pasted.Size==image.Size,"Native screenshot bitmap is unavailable after editor close; formats="+string.Join(",",Clipboard.GetDataObject()?.GetFormats()??[])+"; size="+pasted?.Size);
         using var decoded=new Bitmap(pasted!);Require(decoded.GetPixel(0,0).ToArgb()==Color.CornflowerBlue.ToArgb()&&decoded.GetPixel(15,12).ToArgb()==Color.Black.ToArgb(),"Clipboard changed colors or exposed redacted pixels.");
         var data=Clipboard.GetDataObject()??throw new Exception("Clipboard is empty.");
         using var png=data.GetData("PNG",false) as MemoryStream;Require(png!=null&&Pixel(png.ToArray(),15,12,out _).ToArgb()==Color.Black.ToArgb(),"Clipboard PNG did not survive its owner window.");
