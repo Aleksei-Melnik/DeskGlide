@@ -1,3 +1,15 @@
+DeskGlide 0.7.35
+
+- Fixed PrintScreen and the tray screenshot command failing while replay recording or NDI was active. Windows allows one duplication of an output per process; the screenshot path tried opening a second one and failed with E_INVALIDARG before showing the editor. Screenshots now acquire native SDR/FP16 HDR pixels in a short-lived, ordinary child process without stopping the existing capture.
+- Frozen pixels return over an inherited anonymous pipe, with bounded dimensions, payload lengths, timeout and cancellation. No desktop image is staged on disk, no network endpoint or new elevated command is introduced, and HDR-to-SDR conversion and native-resolution PNG export are retained.
+- A failed screenshot now shows a visible error dialog instead of relying on a tray balloon that Windows can hide. Successful capture opens the same compact selection/drawing editor; Save writes a PNG and Copy writes the clipboard. Canceling keeps both unchanged.
+
+Validation: reproduced the original same-process DXGI conflict on the local HDR 2560×1440 display, then captured and PNG-decoded successfully through the worker while the continuous capture kept producing frames. Regression tests exercise SDR/HDR transfer through the actual child process, malformed/truncated payloads, error propagation and cancellation; existing color, editor, KVM and update checks are retained. The physical Fn+L keyboard firmware combination still requires a user keypress after updating.
+
+Update through **Updates → Update all PCs**. No Windows restart is needed. The existing signing key, settings and pairing are retained. PrintScreen must be free of another screenshot application's registration.
+
+Previous release: 0.7.34
+
 DeskGlide 0.7.34
 
 - Reworked the PrintScreen editor into compact controls directly beside the selected region. Drawing tools sit above the border; copy, save and other actions sit in a narrow bar at its side. The bars follow crop movement/resizing and flip inward or to another side near monitor edges. Icons are original DeskGlide vector drawings.

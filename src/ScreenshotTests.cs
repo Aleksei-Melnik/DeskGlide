@@ -2,6 +2,7 @@ using System.Drawing.Imaging;
 using System.Text.Json;
 using System.Windows.Media.Imaging;
 using Vortice.DXGI;
+using System.Diagnostics;
 
 namespace SdrCapture;
 
@@ -40,6 +41,7 @@ static class ScreenshotTests
         {
             var legacy=JsonSerializer.Deserialize<Settings>("{}")!;Require(legacy.Screenshots.Enabled,"Legacy settings did not receive the screenshot default.");legacy.Screenshots.Validate();
             var settings=new Settings{Screenshots=new(){Enabled=false,Folder=folder}};
+            WorkerTests();
             Require(!settings.Copy().Screenshots.Enabled&&settings.Copy().Screenshots.Folder==folder,"Settings copy lost screenshot preferences.");
             Require(JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!.Screenshots==settings.Screenshots,"Screenshot settings failed round trip.");
             bool rejected=false;try{new ScreenshotOptions{Folder="relative"}.Validate();}catch(ArgumentException){rejected=true;}Require(rejected,"Relative destination accepted.");
@@ -126,17 +128,68 @@ static class ScreenshotTests
                     Require(!editor.Visible,"Diagnostic editor stole focus.");
                 }
             }
-            Program.Write("screenshot-tests.json",new{Pass=true,SdrRoundTrip=true,HdrWhiteLevels=new[]{80,200,480},HighlightAndNonfiniteChecks=true,MixedDisplays=true,AllRotations=true,CropAndAnnotations=true,FlattenedRedaction=true,UndoRedo=true,AtomicSave=true,LegacyPreferences=true,OffscreenEditorPreviews=previews,GlobalKeysRegistered=false,DesktopCaptured=false,ClipboardWritten=false,InteractivePrintScreenTest=false});
+            Program.Write("screenshot-tests.json",new{Pass=true,IsolatedWorkerRoundTrip=true,WorkerErrorAndCancellation=true,BoundedPixelProtocol=true,SdrRoundTrip=true,HdrWhiteLevels=new[]{80,200,480},HighlightAndNonfiniteChecks=true,MixedDisplays=true,AllRotations=true,CropAndAnnotations=true,FlattenedRedaction=true,UndoRedo=true,AtomicSave=true,LegacyPreferences=true,OffscreenEditorPreviews=previews,GlobalKeysRegistered=false,DesktopCaptured=false,ClipboardWritten=false,InteractivePrintScreenTest=false});
         }
         finally{SynchronizationContext.SetSynchronizationContext(previousContext);if(Directory.Exists(folder))Directory.Delete(folder,true);}
     }
     internal static void Capture()
     {
-        using var lifetime=new CancellationTokenSource(TimeSpan.FromSeconds(12));using var frame=ScreenshotFrame.Capture(lifetime.Token);
+        using var lifetime=new CancellationTokenSource(TimeSpan.FromSeconds(25));using var frame=ScreenshotCaptureWorker.Capture(lifetime.Token);
         using var output=new MemoryStream();ScreenshotFiles.SavePng(output,frame.Preview);
         using var decoded=System.Drawing.Image.FromStream(new MemoryStream(output.ToArray()));
         Require(decoded.Size==frame.Bounds.Size,"Live screenshot PNG dimensions changed.");
         Program.Write("screenshot-capture-test.json",new{Pass=true,frame.Bounds,frame.HasHdr,Tiles=frame.Tiles.Select(t=>new{t.Bounds,t.Hdr,t.WhiteNits}),PngBytes=output.Length,SavedDesktopImage=false,WindowsActivated=false,ClipboardWritten=false});
+    }
+    internal static IReadOnlyList<ScreenshotTile> WorkerFixture(string mode,CancellationToken cancel)
+    {
+        if(mode=="wait"){cancel.WaitHandle.WaitOne();cancel.ThrowIfCancellationRequested();}
+        if(mode=="error")throw new IOException("Synthetic screenshot worker failure.");
+        if(mode!="pixels")throw new IOException("Invalid screenshot fixture.");
+        return [Sdr(new(-8,-2,8,4),(x,y)=>Color.FromArgb(x*31,y*63,128)),Hdr(new(0,-2,8,4),240,(x,y)=>(x/2f,y/2f,1))];
+    }
+    static void WorkerTests()
+    {
+        using var expected=new ScreenshotFrame(WorkerFixture("pixels",default));
+        using(var actual=ScreenshotCaptureWorker.Capture(fixture:"pixels"))
+        {
+            Require(expected.Bounds==actual.Bounds&&actual.HasHdr&&actual.Tiles.Count==2,"Screenshot worker lost monitor metadata.");
+            for(int y=0;y<expected.Bounds.Height;y++)for(int x=0;x<expected.Bounds.Width;x++)
+                Require(expected.Preview.GetPixel(x,y)==actual.Preview.GetPixel(x,y),"Screenshot worker changed SDR/HDR pixels.");
+        }
+        bool rejected=false;try{using var bad=ScreenshotCaptureWorker.Capture(fixture:"error");}
+        catch(IOException e){rejected=e.Message=="Synthetic screenshot worker failure.";}Require(rejected,"Screenshot worker swallowed the capture failure.");
+        using(var cancel=new CancellationTokenSource(TimeSpan.FromSeconds(1)))
+        {
+            var watch=Stopwatch.StartNew();rejected=false;
+            try{using var ignored=ScreenshotCaptureWorker.Capture(cancel.Token,"wait");}catch(OperationCanceledException){rejected=true;}
+            Require(rejected&&watch.Elapsed<TimeSpan.FromSeconds(8),"Screenshot cancellation leaked a waiting worker.");
+        }
+        using var wire=new MemoryStream();using(var writer=new BinaryWriter(wire,System.Text.Encoding.UTF8,leaveOpen:true))ScreenshotCaptureWorker.Write(writer,WorkerFixture("pixels",default));
+        var bytes=wire.ToArray();
+        foreach(var invalid in new[]{bytes[..^1],bytes.Concat(new byte[]{1}).ToArray(),Mutate(5,int.MaxValue),Mutate(17,int.MaxValue),Mutate(47,int.MaxValue)})
+        {
+            rejected=false;try{using var reader=new BinaryReader(new MemoryStream(invalid));using var bad=ScreenshotCaptureWorker.Read(reader);}catch(IOException){rejected=true;}
+            Require(rejected,"Unbounded, truncated or trailing screenshot data was accepted.");
+        }
+        byte[] Mutate(int offset,int value){var copy=bytes.ToArray();BitConverter.TryWriteBytes(copy.AsSpan(offset,4),value);return copy;}
+    }
+    internal static void ConcurrentCapture()
+    {
+        // Hold the real replay/NDI duplication in this process while requesting
+        // the production screenshot path. No windows, input or image files.
+        var display=DisplayInfo.All().First();using var capture=new DesktopCapture(display,true){FrameWaitMilliseconds=10};
+        bool collision=false;
+        try{using var forbidden=ScreenshotFrame.Capture();}
+        catch(SharpGen.Runtime.SharpGenException e) when(e.ResultCode.Code==unchecked((int)0x80070057)){collision=true;}
+        Require(collision,"Could not reproduce the original in-process DXGI duplication conflict.");
+        using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        long reads=0,frames=0;var task=Task.Run(()=>ScreenshotCaptureWorker.Capture(timeout.Token),timeout.Token);
+        while(!task.IsCompleted){using var image=capture.Next();reads++;if(image!=null)frames++;}
+        using var frame=task.GetAwaiter().GetResult();using var after=capture.Next();
+        Require(frame.Bounds.Width>0&&reads>0,"Screenshot did not run alongside continuous capture.");
+        using var output=new MemoryStream();ScreenshotFiles.SavePng(output,frame.Preview);
+        using var decoded=Image.FromStream(new MemoryStream(output.ToArray()));Require(decoded.Size==frame.Bounds.Size,"Concurrent PNG dimensions changed.");
+        Program.Write("screenshot-concurrent-capture-test.json",new{Pass=true,OriginalDxgiConflictReproduced=collision,IsolatedScreenshotSucceeded=true,CaptureReadsDuringScreenshot=reads,FramesDuringScreenshot=frames,ContinuousCaptureStillUsable=true,frame.Bounds,frame.HasHdr,PngBytes=output.Length,SavedDesktopImage=false,WindowsActivated=false,ClipboardWritten=false});
     }
     internal static void Ui()
     {

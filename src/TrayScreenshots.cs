@@ -11,12 +11,13 @@ sealed partial class TrayApp
         if(closing||screenshotBusy)return;
         if(screenshotEditor is {IsDisposed:false}){screenshotEditor.Activate();return;}
         screenshotBusy=true;ScreenshotFrame? frame=null;bool paused=false;
+        Log.Write("Screenshot capture requested.");
         try
         {
             // Freeze before showing any overlay. Do not stop recording, change HDR
             // settings, inject input or include our editor in the captured image.
             var token=screenshotLifetime.Token;
-            frame=await Task.Run(()=>ScreenshotFrame.Capture(token),token);
+            frame=await Task.Run(()=>ScreenshotCaptureWorker.Capture(token),token);
             if(closing){frame.Dispose();frame=null;return;}
             // Block new edge activations before the queued return-to-local is
             // processed; reversing these can race a physical edge movement.
@@ -28,11 +29,20 @@ sealed partial class TrayApp
                 screenshotEditor=null;ownedFrame.Dispose();
                 RestoreScreenshotInput();
             };
-            try{editor.Show();frame=null;}
+            try{editor.Show();frame=null;Log.Write("Screenshot editor opened.");}
             catch{screenshotEditor=null;editor.Dispose();throw;}
         }
         catch(OperationCanceledException){}
-        catch(Exception e){if(!closing){Log.Write("Screenshot: "+e);notifications.Enqueue(UiStrings.T("Screenshot failed: ")+e.Message);}}
+        catch(Exception e)
+        {
+            if(!closing)
+            {
+                Log.Write("Screenshot: "+e);
+                // A balloon can be hidden by Focus Assist or a full-screen app.
+                // A failed explicit capture must leave a visible explanation.
+                MessageBox.Show(UiStrings.T("Screenshot failed: ")+e.Message,"DeskGlide",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            }
+        }
         finally{frame?.Dispose();screenshotBusy=false;if(paused&&screenshotEditor==null)RestoreScreenshotInput();}
     }
     void RestoreScreenshotInput()

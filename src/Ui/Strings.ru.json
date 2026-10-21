@@ -28,6 +28,7 @@
   "No desktop frame arrived. Take the screenshot again.": "Не удалось получить изображение рабочего стола. Повторите захват.",
   "Screenshot saved: ": "Скриншот сохранён: ",
   "Screenshot failed: ": "Не удалось создать скриншот: ",
+  "Screen capture timed out. Try again.": "Время ожидания захвата экрана истекло. Повторите попытку.",
   "Select": "Область",
   "Pen": "Карандаш",
   "Line": "Линия",

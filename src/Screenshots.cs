@@ -53,6 +53,25 @@ sealed class ScreenshotTile(Rectangle bounds,int width,int height,ModeRotation r
     internal Rectangle Bounds {get;}=bounds;
     internal bool Hdr {get;}=hdr;
     internal double WhiteNits {get;}=whiteNits;
+    internal void Write(BinaryWriter writer)
+    {
+        writer.Write(Bounds.X);writer.Write(Bounds.Y);writer.Write(Bounds.Width);writer.Write(Bounds.Height);
+        writer.Write(width);writer.Write(height);writer.Write((int)rotation);writer.Write(linear);writer.Write(Hdr);writer.Write(WhiteNits);
+        writer.Write(pixels.Length);writer.Write(pixels);
+    }
+    internal static ScreenshotTile Read(BinaryReader reader,ref long totalPixels)
+    {
+        var bounds=new Rectangle(reader.ReadInt32(),reader.ReadInt32(),reader.ReadInt32(),reader.ReadInt32());ScreenshotFrame.CheckSize(bounds);
+        int width=reader.ReadInt32(),height=reader.ReadInt32();var rotation=(ModeRotation)reader.ReadInt32();bool linear=reader.ReadBoolean(),hdr=reader.ReadBoolean();double white=reader.ReadDouble();
+        bool quarter=rotation is ModeRotation.Rotate90 or ModeRotation.Rotate270;
+        if(rotation is not (ModeRotation.Unspecified or ModeRotation.Identity or ModeRotation.Rotate90 or ModeRotation.Rotate180 or ModeRotation.Rotate270)||
+            width!=(quarter?bounds.Height:bounds.Width)||height!=(quarter?bounds.Width:bounds.Height)||hdr&&!linear||!double.IsFinite(white)||white<1||white>10000)
+            throw new IOException("Invalid screenshot tile.");
+        totalPixels+=(long)width*height;ScreenshotFrame.CheckPixelCount(totalPixels);
+        int count=reader.ReadInt32();if(count!=checked(width*height*(linear?8:4)))throw new IOException("Invalid screenshot pixel length.");
+        byte[] pixels=new byte[count];reader.BaseStream.ReadExactly(pixels);
+        return new(bounds,width,height,rotation,linear,hdr,white,pixels);
+    }
     internal void Read(int x,int y,out float r,out float g,out float b)
     {
         (int sx,int sy)=Source(x,y,width,height,rotation);
@@ -95,12 +114,19 @@ sealed class ScreenshotFrame:IDisposable
     internal ScreenshotFrame(IReadOnlyList<ScreenshotTile> tiles)
     {
         if(tiles.Count==0)throw new IOException("No active displays.");
+        CheckPixelCount(tiles.Sum(t=>(long)t.Bounds.Width*t.Bounds.Height));
         Tiles=tiles;Bounds=tiles.Select(t=>t.Bounds).Aggregate(Rectangle.Union);
         CheckSize(Bounds);Preview=new(Bounds.Width,Bounds.Height,PixelFormat.Format32bppArgb);
         try{BuildPreview();}catch{Preview.Dispose();throw;}
     }
     internal static void CheckSize(Rectangle bounds)
-    {if(bounds.Width<=0||bounds.Height<=0||(long)bounds.Width*bounds.Height>MaximumPixels)throw new IOException(UiStrings.T("The selected desktop is too large to capture safely."));}
+    {
+        if(bounds.Width<=0||bounds.Height<=0||bounds.X < -1_000_000||bounds.Y < -1_000_000||(long)bounds.X+bounds.Width>1_000_000||(long)bounds.Y+bounds.Height>1_000_000)
+            throw new IOException(UiStrings.T("The selected desktop is too large to capture safely."));
+        CheckPixelCount((long)bounds.Width*bounds.Height);
+    }
+    internal static void CheckPixelCount(long count)
+    {if(count<=0||count>MaximumPixels)throw new IOException(UiStrings.T("The selected desktop is too large to capture safely."));}
     unsafe void BuildPreview()
     {
         var data=Preview.LockBits(new(0,0,Preview.Width,Preview.Height),ImageLockMode.WriteOnly,PixelFormat.Format32bppArgb);
@@ -127,11 +153,17 @@ sealed class ScreenshotFrame:IDisposable
         finally{Preview.UnlockBits(data);}
     }
     internal static ScreenshotFrame Capture(CancellationToken cancel=default)
+        =>new(CaptureTiles(cancel));
+    // Only the short-lived screenshot worker owns these duplications. The tray
+    // process already duplicates the output for replay/NDI and cannot open it twice.
+    internal static IReadOnlyList<ScreenshotTile> CaptureTiles(CancellationToken cancel=default)
     {
         using var factory=DXGI.CreateDXGIFactory1<IDXGIFactory1>();
         var displays=DisplayInfo.All();var tiles=new List<ScreenshotTile>();
+        if(displays.Count==0)throw new IOException("No active displays.");
+        CheckPixelCount(displays.Sum(d=>(long)d.Width*d.Height));
         foreach(var display in displays){cancel.ThrowIfCancellationRequested();tiles.Add(CaptureTile(factory,display,cancel));}
-        return new(tiles);
+        return tiles;
     }
     static unsafe ScreenshotTile CaptureTile(IDXGIFactory1 factory,DisplayInfo display,CancellationToken cancel)
     {

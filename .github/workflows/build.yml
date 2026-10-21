@@ -68,6 +68,8 @@ jobs:
             artifacts/streamdeck/*.streamDeckPlugin
             app/streamdeck*.json
             app/kvm-input-tests.json
+            app/screenshot-tests.json
+            app/screenshot-ui-tests.json
             app/kvm-test.json
             app/kvm-input-thread-test.json
             app/monitor-layout-tests.json
