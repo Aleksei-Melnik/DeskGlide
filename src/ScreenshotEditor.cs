@@ -200,7 +200,7 @@ sealed class ScreenshotEditor:Form
     {
         string size=$"{r.Width} × {r.Height}";
         var measured=TextRenderer.MeasureText(size,Font);
-        var label=new Rectangle(r.Left,Math.Max(0,r.Top-(int)Math.Ceiling(measured.Height)-S(9)),(int)Math.Ceiling(measured.Width)+S(14),(int)Math.Ceiling(measured.Height)+S(6));
+        var label=new Rectangle(r.Left,Math.Max(0,r.Top-measured.Height-S(9)),measured.Width+S(14),measured.Height+S(6));
         if(tools.Visible&&label.IntersectsWith(tools.Bounds))label.Y=Math.Min(frame.Bounds.Height-label.Height,r.Bottom+S(7));
         return label;
     }
