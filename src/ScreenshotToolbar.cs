@@ -52,26 +52,28 @@ static class ScreenshotBarLayout
 {
     internal static ScreenshotBarPositions Place(Rectangle selection,Rectangle screen,Size tools,Size actions,int gap)
     {
-        int tx=Math.Clamp(selection.Right-tools.Width,screen.Left,screen.Right-tools.Width);
-        int ty=selection.Top-tools.Height-gap;
-        if(ty<screen.Top)ty=selection.Bottom+gap;
-        if(ty+tools.Height>screen.Bottom)ty=screen.Top+gap;
-        ty=Math.Clamp(ty,screen.Top,screen.Bottom-tools.Height);
-        int ax=selection.Right+gap;
-        if(ax+actions.Width>screen.Right)ax=selection.Left-actions.Width-gap;
-        if(ax<screen.Left)ax=screen.Right-actions.Width-gap;
-        ax=Math.Clamp(ax,screen.Left,screen.Right-actions.Width);
-        int ay=Math.Clamp(selection.Top,screen.Top,screen.Bottom-actions.Height);
+        // Drawing tools follow the right edge, export actions the bottom edge.
+        // Flip at monitor boundaries, then separate the bars even for full-screen
+        // and tiny selections where they have to sit inside the frozen image.
+        int tx=selection.Right+gap;
+        if(tx+tools.Width>screen.Right)tx=selection.Left-tools.Width-gap;
+        tx=Math.Clamp(tx,screen.Left,screen.Right-tools.Width);
+        int ty=Math.Clamp(selection.Bottom-tools.Height,screen.Top,screen.Bottom-tools.Height);
+        int ax=Math.Clamp(selection.Right-actions.Width,screen.Left,screen.Right-actions.Width);
+        int ay=selection.Bottom+gap;
+        if(ay+actions.Height>screen.Bottom)ay=selection.Top-actions.Height-gap;
+        ay=Math.Clamp(ay,screen.Top,screen.Bottom-actions.Height);
         var toolsRect=new Rectangle(tx,ty,tools.Width,tools.Height);
         if(toolsRect.IntersectsWith(new(ax,ay,actions.Width,actions.Height)))
         {
-            if(toolsRect.Bottom+gap+actions.Height<=screen.Bottom)ay=toolsRect.Bottom+gap;
-            else if(toolsRect.Top-gap-actions.Height>=screen.Top)ay=toolsRect.Top-gap-actions.Height;
+            if(toolsRect.Left-gap-actions.Width>=screen.Left)ax=toolsRect.Left-gap-actions.Width;
+            else if(toolsRect.Right+gap+actions.Width<=screen.Right)ax=toolsRect.Right+gap;
             else
             {
-                // A small monitor can require side-by-side bars inside the area.
-                ax=screen.Right-actions.Width;tx=Math.Min(tx,ax-gap-tools.Width);
-                tx=Math.Max(screen.Left,tx);
+                // The compact bars together fit vertically on a small monitor.
+                ay=screen.Bottom-actions.Height;
+                ty=Math.Min(ty,ay-gap-tools.Height);
+                ty=Math.Max(screen.Top,ty);
             }
         }
         return new(new(tx,ty),new(ax,ay));

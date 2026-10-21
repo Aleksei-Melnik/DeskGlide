@@ -48,10 +48,11 @@ sealed class ScreenshotHotkey:NativeWindow,IDisposable
 
 // A tile owns a single unrotated DXGI desktop image. Preserve FP16 scRGB until
 // tone mapping; capturing HDR through an 8-bit GDI bitmap irreversibly clips it.
-sealed class ScreenshotTile(Rectangle bounds,int width,int height,ModeRotation rotation,bool linear,bool hdr,double whiteNits,byte[] pixels,long desktopPresentTime=1,bool protectedContent=false,int pointerOnlySkipped=0)
+sealed class ScreenshotTile(Rectangle bounds,int width,int height,ModeRotation rotation,bool linear,bool hdr,double whiteNits,byte[] pixels,long desktopPresentTime=1,bool protectedContent=false,int pointerOnlySkipped=0,bool converted=false)
 {
     internal Rectangle Bounds {get;}=bounds;
     internal bool Hdr {get;}=hdr;
+    internal bool NeedsToneMap=>Hdr&&!converted;
     internal double WhiteNits {get;}=whiteNits;
     internal long DesktopPresentTime {get;}=desktopPresentTime;
     internal bool ProtectedContent {get;}=protectedContent;
@@ -61,7 +62,7 @@ sealed class ScreenshotTile(Rectangle bounds,int width,int height,ModeRotation r
         writer.Write(Bounds.X);writer.Write(Bounds.Y);writer.Write(Bounds.Width);writer.Write(Bounds.Height);
         writer.Write(width);writer.Write(height);writer.Write((int)rotation);writer.Write(linear);writer.Write(Hdr);writer.Write(WhiteNits);
         writer.Write(pixels.Length);writer.Write(pixels);
-        writer.Write(DesktopPresentTime);writer.Write(ProtectedContent);writer.Write(PointerOnlySkipped);
+        writer.Write(DesktopPresentTime);writer.Write(ProtectedContent);writer.Write(PointerOnlySkipped);writer.Write(converted);
     }
     internal static ScreenshotTile Read(BinaryReader reader,ref long totalPixels)
     {
@@ -69,14 +70,30 @@ sealed class ScreenshotTile(Rectangle bounds,int width,int height,ModeRotation r
         int width=reader.ReadInt32(),height=reader.ReadInt32();var rotation=(ModeRotation)reader.ReadInt32();bool linear=reader.ReadBoolean(),hdr=reader.ReadBoolean();double white=reader.ReadDouble();
         bool quarter=rotation is ModeRotation.Rotate90 or ModeRotation.Rotate270;
         if(rotation is not (ModeRotation.Unspecified or ModeRotation.Identity or ModeRotation.Rotate90 or ModeRotation.Rotate180 or ModeRotation.Rotate270)||
-            width!=(quarter?bounds.Height:bounds.Width)||height!=(quarter?bounds.Width:bounds.Height)||hdr&&!linear||!double.IsFinite(white)||white<1||white>10000)
+            width!=(quarter?bounds.Height:bounds.Width)||height!=(quarter?bounds.Width:bounds.Height)||!double.IsFinite(white)||white<1||white>10000)
             throw new IOException("Invalid screenshot tile.");
         totalPixels+=(long)width*height;ScreenshotFrame.CheckPixelCount(totalPixels);
         int count=reader.ReadInt32();if(count!=checked(width*height*(linear?8:4)))throw new IOException("Invalid screenshot pixel length.");
         byte[] pixels=new byte[count];reader.BaseStream.ReadExactly(pixels);
-        long presented=reader.ReadInt64();bool masked=reader.ReadBoolean();int skipped=reader.ReadInt32();
+        long presented=reader.ReadInt64();bool masked=reader.ReadBoolean();int skipped=reader.ReadInt32();bool converted=reader.ReadBoolean();
+        if(hdr&&!linear&&!converted||converted&&(linear||rotation!=ModeRotation.Identity))throw new IOException("Invalid screenshot color conversion.");
         if(presented<=0||skipped<0||skipped>65536)throw new IOException("Screenshot contains no presented desktop frame.");
-        return new(bounds,width,height,rotation,linear,hdr,white,pixels,presented,masked,skipped);
+        return new(bounds,width,height,rotation,linear,hdr,white,pixels,presented,masked,skipped,converted);
+    }
+    internal bool CopySdrRow(int y,Span<byte> destination)
+    {
+        if(linear||NeedsToneMap)return false;
+        if(rotation is ModeRotation.Identity or ModeRotation.Unspecified)
+        {
+            pixels.AsSpan(y*width*4,width*4).CopyTo(destination);
+            for(int x=3;x<destination.Length;x+=4)destination[x]=255;
+        }
+        else for(int x=0;x<Bounds.Width;x++)
+        {
+            var (sx,sy)=Source(x,y,width,height,rotation);int p=(sy*width+sx)*4,d=x*4;
+            destination[d]=pixels[p];destination[d+1]=pixels[p+1];destination[d+2]=pixels[p+2];destination[d+3]=255;
+        }
+        return true;
     }
     internal void Read(int x,int y,out float r,out float g,out float b)
     {
@@ -151,10 +168,12 @@ sealed class ScreenshotFrame:IDisposable
                 foreach(var tile in Tiles)
                 {
                     int ty=y+Bounds.Y-tile.Bounds.Y;if(ty<0||ty>=tile.Bounds.Height)continue;
+                    int offset=(tile.Bounds.X-Bounds.X)*4;
+                    if(tile.CopySdrRow(ty,new Span<byte>(row+offset,tile.Bounds.Width*4)))continue;
                     for(int tx=0;tx<tile.Bounds.Width;tx++)
                     {
                         tile.Read(tx,ty,out float r,out float g,out float b);
-                        if(tile.Hdr)ScreenshotTile.ToneMap(ref r,ref g,ref b,tile.WhiteNits);
+                        if(tile.NeedsToneMap)ScreenshotTile.ToneMap(ref r,ref g,ref b,tile.WhiteNits);
                         int x=tile.Bounds.X-Bounds.X+tx;
                         row[x*4]=ScreenshotTile.Encode(b);row[x*4+1]=ScreenshotTile.Encode(g);row[x*4+2]=ScreenshotTile.Encode(r);
                     }
@@ -171,63 +190,105 @@ sealed class ScreenshotFrame:IDisposable
     // Only the short-lived screenshot worker owns these duplications. The tray
     // process already duplicates the output for replay/NDI and cannot open it twice.
     internal static IReadOnlyList<ScreenshotTile> CaptureTiles(CancellationToken cancel=default)
+    {using var ready=new PreparedCapture();return ready.Capture(cancel);}
+    internal sealed class PreparedCapture:IDisposable
     {
-        using var factory=DXGI.CreateDXGIFactory1<IDXGIFactory1>();
-        var displays=DisplayInfo.All();var tiles=new List<ScreenshotTile>();
-        if(displays.Count==0)throw new IOException("No active displays.");
-        CheckPixelCount(displays.Sum(d=>(long)d.Width*d.Height));
-        foreach(var display in displays){cancel.ThrowIfCancellationRequested();tiles.Add(CaptureTile(factory,display,cancel));}
-        return tiles;
-    }
-    static unsafe ScreenshotTile CaptureTile(IDXGIFactory1 factory,DisplayInfo display,CancellationToken cancel)
-    {
-        factory.EnumAdapters1(display.Adapter,out var adapter).CheckError();using var adapterLife=adapter;
-        adapter.EnumOutputs(display.Output,out var raw).CheckError();using var rawLife=raw;
-        using var output=raw.QueryInterface<IDXGIOutput6>();var d=output.Description1;
-        var bounds=Rectangle.FromLTRB(d.DesktopCoordinates.Left,d.DesktopCoordinates.Top,d.DesktopCoordinates.Right,d.DesktopCoordinates.Bottom);CheckSize(bounds);
-        bool hdr=d.ColorSpace==ColorSpaceType.RgbFullG2084NoneP2020;
-        if(!d.AttachedToDesktop||hdr!=display.Hdr)throw new IOException(UiStrings.T("Display mode changed. Take the screenshot again."));
-        D3D11.D3D11CreateDevice(adapter,DriverType.Unknown,DeviceCreationFlags.BgraSupport,[FeatureLevel.Level_11_0],out ID3D11Device device,out ID3D11DeviceContext context).CheckError();
-        using var deviceLife=device;using var contextLife=context;
-        using var output5=output.QueryInterface<IDXGIOutput5>();
-        using var duplication=output5.DuplicateOutput1(device,hdr?[Format.R16G16B16A16_Float]:[Format.B8G8R8A8_UNorm,Format.R16G16B16A16_Float]);
-        var deadline=System.Diagnostics.Stopwatch.StartNew();int pointerOnly=0;
-        while(deadline.Elapsed<TimeSpan.FromSeconds(5))
+        readonly List<PreparedOutput> outputs=[];
+        internal PreparedCapture()
         {
-            cancel.ThrowIfCancellationRequested();
-            var result=duplication.AcquireNextFrame(100,out var info,out var resource);
-            if(result.Code==unchecked((int)0x887A0027))continue;
-            result.CheckError();
             try
             {
-                using(resource)
-                {
-                    // S_OK can describe only the hardware pointer. A newly
-                    // opened duplication has no previous desktop image to reuse;
-                    // its texture can still be entirely uninitialized/black.
-                    if(!HasDesktopImage(info.LastPresentTime)){pointerOnly++;continue;}
-                    using var texture=resource.QueryInterface<ID3D11Texture2D>();
-                    var td=texture.Description;bool linear=td.Format==Format.R16G16B16A16_Float;
-                    if((!linear&&td.Format!=Format.B8G8R8A8_UNorm)||(hdr&&!linear))throw new IOException("Unsafe screenshot color format: "+td.Format);
-                    bool rotated=d.Rotation is ModeRotation.Rotate90 or ModeRotation.Rotate270;
-                    if(td.Width!=(rotated?bounds.Height:bounds.Width)||td.Height!=(rotated?bounds.Width:bounds.Height))throw new IOException(UiStrings.T("Display mode changed. Take the screenshot again."));
-                    td.BindFlags=BindFlags.None;td.Usage=ResourceUsage.Staging;td.CPUAccessFlags=CpuAccessFlags.Read;td.MiscFlags=ResourceOptionFlags.None;
-                    using var staging=device.CreateTexture2D(td);context.CopyResource(staging,texture);
-                    int stride=checked((int)td.Width*(linear?8:4));byte[] pixels=new byte[checked(stride*(int)td.Height)];
-                    var map=context.Map(staging,0,MapMode.Read);
-                    try{fixed(byte* dst=pixels)for(int y=0;y<td.Height;y++)System.Buffer.MemoryCopy((byte*)map.DataPointer+y*map.RowPitch,dst+y*stride,stride,stride);}
-                    finally{context.Unmap(staging,0);}
-                    var tile=new ScreenshotTile(bounds,(int)td.Width,(int)td.Height,d.Rotation,linear,hdr,hdr?WhiteLevel.Read(display.Device):80,pixels,info.LastPresentTime,info.ProtectedContentMaskedOut,pointerOnly);
-                    float low=float.MaxValue,high=float.MinValue;int nonzero=0,samples=0;
-                    for(int y=0;y<bounds.Height;y+=Math.Max(1,bounds.Height/24))for(int x=0;x<bounds.Width;x+=Math.Max(1,bounds.Width/32))
-                    {tile.Read(x,y,out float r,out float g,out float b);low=Math.Min(low,Math.Min(r,Math.Min(g,b)));high=Math.Max(high,Math.Max(r,Math.Max(g,b)));if(r!=0||g!=0||b!=0)nonzero++;samples++;}
-                    Log.Write($"Screenshot DXGI: desktop={info.LastPresentTime}, mouse={info.LastMouseUpdateTime}, accumulated={info.AccumulatedFrames}, protected={info.ProtectedContentMaskedOut}, format={td.Format}, pointerOnlySkipped={pointerOnly}, range={low:G4}..{high:G4}, nonzero={nonzero}/{samples}.");
-                    return tile;
-                }
+                using var factory=DXGI.CreateDXGIFactory1<IDXGIFactory1>();var displays=DisplayInfo.All();
+                if(displays.Count==0)throw new IOException("No active displays.");
+                CheckPixelCount(displays.Sum(d=>(long)d.Width*d.Height));
+                foreach(var display in displays)outputs.Add(new(factory,display));
             }
-            finally{duplication.ReleaseFrame();}
+            catch{Dispose();throw;}
         }
-        throw new IOException(UiStrings.T("No desktop frame arrived. Take the screenshot again."));
+        internal IReadOnlyList<ScreenshotTile> Capture(CancellationToken cancel)
+        {
+            var displays=DisplayInfo.All();
+            if(displays.Count!=outputs.Count||outputs.Any(o=>!displays.Any(d=>o.Matches(d))))throw new IOException("Display mode changed. Take the screenshot again.");
+            var tiles=new List<ScreenshotTile>();foreach(var output in outputs){cancel.ThrowIfCancellationRequested();tiles.Add(output.Capture(cancel));}return tiles;
+        }
+        public void Dispose(){foreach(var output in outputs)output.Dispose();outputs.Clear();}
+    }
+    sealed class PreparedOutput:IDisposable
+    {
+        readonly DisplayInfo display;
+        readonly IDXGIAdapter1 adapter;readonly IDXGIOutput6 output;
+        readonly ID3D11Device device;readonly ID3D11DeviceContext context;readonly IDXGIOutputDuplication duplication;
+        readonly Rectangle bounds;readonly bool hdr;readonly OutputDescription1 d;readonly ScreenshotGpuReadback readback;
+        internal PreparedOutput(IDXGIFactory1 factory,DisplayInfo display)
+        {
+            this.display=display;
+            try
+            {
+                factory.EnumAdapters1(display.Adapter,out adapter).CheckError();adapter.EnumOutputs(display.Output,out var raw).CheckError();
+                using(raw)output=raw.QueryInterface<IDXGIOutput6>();d=output.Description1;
+                bounds=Rectangle.FromLTRB(d.DesktopCoordinates.Left,d.DesktopCoordinates.Top,d.DesktopCoordinates.Right,d.DesktopCoordinates.Bottom);CheckSize(bounds);
+                hdr=d.ColorSpace==ColorSpaceType.RgbFullG2084NoneP2020;
+                if(!d.AttachedToDesktop||hdr!=display.Hdr)throw new IOException(UiStrings.T("Display mode changed. Take the screenshot again."));
+                D3D11.D3D11CreateDevice(adapter,DriverType.Unknown,DeviceCreationFlags.BgraSupport,[FeatureLevel.Level_11_0],out device,out context).CheckError();
+                using var output5=output.QueryInterface<IDXGIOutput5>();
+                duplication=output5.DuplicateOutput1(device,hdr?[Format.R16G16B16A16_Float]:[Format.B8G8R8A8_UNorm,Format.R16G16B16A16_Float]);
+                readback=new(device,context,bounds.Width,bounds.Height);
+            }
+            catch{Dispose();throw;}
+        }
+        internal bool Matches(DisplayInfo next)=>next.Device==display.Device&&next.Adapter==display.Adapter&&next.Output==display.Output&&next.Hdr==display.Hdr&&next.Width==display.Width&&next.Height==display.Height;
+        internal unsafe ScreenshotTile Capture(CancellationToken cancel)
+        {
+            var current=output.Description1;
+            if(!current.AttachedToDesktop||current.Rotation!=d.Rotation||current.ColorSpace!=d.ColorSpace||!current.DesktopCoordinates.Equals(d.DesktopCoordinates))throw new IOException(UiStrings.T("Display mode changed. Take the screenshot again."));
+            var deadline=System.Diagnostics.Stopwatch.StartNew();int pointerOnly=0;
+            while(deadline.Elapsed<TimeSpan.FromSeconds(5))
+            {
+                cancel.ThrowIfCancellationRequested();
+                var result=duplication.AcquireNextFrame(100,out var info,out var resource);
+                if(result.Code==unchecked((int)0x887A0027))continue;
+                result.CheckError();
+                try
+                {
+                    using(resource)
+                    {
+                        // S_OK can describe only the hardware pointer. A newly
+                        // opened duplication has no previous desktop image to reuse;
+                        // its texture can still be entirely uninitialized/black.
+                        if(!HasDesktopImage(info.LastPresentTime)){pointerOnly++;continue;}
+                        using var texture=resource.QueryInterface<ID3D11Texture2D>();
+                        var td=texture.Description;bool linear=td.Format==Format.R16G16B16A16_Float;
+                        if((!linear&&td.Format!=Format.B8G8R8A8_UNorm)||(hdr&&!linear))throw new IOException("Unsafe screenshot color format: "+td.Format);
+                        bool rotated=d.Rotation is ModeRotation.Rotate90 or ModeRotation.Rotate270;
+                        if(td.Width!=(rotated?bounds.Height:bounds.Width)||td.Height!=(rotated?bounds.Width:bounds.Height))throw new IOException(UiStrings.T("Display mode changed. Take the screenshot again."));
+                        double white=hdr?WhiteLevel.Read(display.Device):80;byte[] pixels;ScreenshotTile tile;
+                        if(linear)
+                        {
+                            pixels=readback.Read(texture,d.Rotation,hdr,white);
+                            tile=new(bounds,bounds.Width,bounds.Height,ModeRotation.Identity,false,hdr,white,pixels,info.LastPresentTime,info.ProtectedContentMaskedOut,pointerOnly,converted:true);
+                        }
+                        else
+                        {
+                            td.BindFlags=BindFlags.None;td.Usage=ResourceUsage.Staging;td.CPUAccessFlags=CpuAccessFlags.Read;td.MiscFlags=ResourceOptionFlags.None;
+                            using var staging=device.CreateTexture2D(td);context.CopyResource(staging,texture);
+                            int stride=checked((int)td.Width*4);pixels=new byte[checked(stride*(int)td.Height)];
+                            var map=context.Map(staging,0,MapMode.Read);
+                            try{fixed(byte* dst=pixels)for(int y=0;y<td.Height;y++)System.Buffer.MemoryCopy((byte*)map.DataPointer+y*map.RowPitch,dst+y*stride,stride,stride);}
+                            finally{context.Unmap(staging,0);}
+                            tile=new(bounds,(int)td.Width,(int)td.Height,d.Rotation,false,false,white,pixels,info.LastPresentTime,info.ProtectedContentMaskedOut,pointerOnly);
+                        }
+                        float low=float.MaxValue,high=float.MinValue;int nonzero=0,samples=0;
+                        for(int y=0;y<bounds.Height;y+=Math.Max(1,bounds.Height/24))for(int x=0;x<bounds.Width;x+=Math.Max(1,bounds.Width/32))
+                        {tile.Read(x,y,out float r,out float g,out float b);low=Math.Min(low,Math.Min(r,Math.Min(g,b)));high=Math.Max(high,Math.Max(r,Math.Max(g,b)));if(r!=0||g!=0||b!=0)nonzero++;samples++;}
+                        Log.Write($"Screenshot DXGI: desktop={info.LastPresentTime}, mouse={info.LastMouseUpdateTime}, accumulated={info.AccumulatedFrames}, protected={info.ProtectedContentMaskedOut}, format={td.Format}, pointerOnlySkipped={pointerOnly}, range={low:G4}..{high:G4}, nonzero={nonzero}/{samples}.");
+                        return tile;
+                    }
+                }
+                finally{duplication.ReleaseFrame();}
+            }
+            throw new IOException(UiStrings.T("No desktop frame arrived. Take the screenshot again."));
+        }
+        public void Dispose(){readback?.Dispose();duplication?.Dispose();context?.Dispose();device?.Dispose();output?.Dispose();adapter?.Dispose();}
     }
     internal static bool HasDesktopImage(long lastPresentTime)=>lastPresentTime>0;
     internal Bitmap Crop(Rectangle selection)

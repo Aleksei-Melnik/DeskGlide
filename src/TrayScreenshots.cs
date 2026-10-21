@@ -2,6 +2,7 @@ namespace SdrCapture;
 
 sealed partial class TrayApp
 {
+    readonly ScreenshotCaptureCache screenshotCapture=new();
     readonly ScreenshotHotkey screenshotHotkey=new();
     readonly CancellationTokenSource screenshotLifetime=new();
     ScreenshotEditor? screenshotEditor;
@@ -17,7 +18,7 @@ sealed partial class TrayApp
             // Freeze before showing any overlay. Do not stop recording, change HDR
             // settings, inject input or include our editor in the captured image.
             var token=screenshotLifetime.Token;
-            frame=await Task.Run(()=>ScreenshotCaptureWorker.Capture(token),token);
+            frame=await Task.Run(()=>screenshotCapture.Capture(token),token);
             if(closing){frame.Dispose();frame=null;return;}
             // Block new edge activations before the queued return-to-local is
             // processed; reversing these can race a physical edge movement.
@@ -27,7 +28,7 @@ sealed partial class TrayApp
             editor.FormClosed+=(_,_)=>
             {
                 screenshotEditor=null;ownedFrame.Dispose();
-                RestoreScreenshotInput();
+                RestoreScreenshotInput();if(!closing)screenshotCapture.Warm();
             };
             try{editor.Show();frame=null;Log.Write("Screenshot editor opened.");}
             catch{screenshotEditor=null;editor.Dispose();throw;}
@@ -48,5 +49,5 @@ sealed partial class TrayApp
     void RestoreScreenshotInput()
     {if(controller!=null)controller.ViewerActive=viewers.Values.Any(v=>!v.IsClosed&&v.IsActive);}
     void CloseScreenshots()
-    {screenshotLifetime.Cancel();screenshotEditor?.Close();screenshotHotkey.Dispose();screenshotLifetime.Dispose();}
+    {screenshotLifetime.Cancel();screenshotCapture.Dispose();screenshotEditor?.Close();screenshotHotkey.Dispose();screenshotLifetime.Dispose();}
 }

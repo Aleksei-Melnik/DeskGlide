@@ -32,6 +32,60 @@ static class ScreenshotTests
         var image=decoder.Frames[0];metadata=image.Metadata as BitmapMetadata;
         var converted=new FormatConvertedBitmap(image,System.Windows.Media.PixelFormats.Bgra32,null,0);byte[] value=new byte[4];converted.CopyPixels(new(x,y,1,1),value,4,0);return Color.FromArgb(value[3],value[2],value[1],value[0]);
     }
+    internal static void Latency()
+    {
+        var tile=Sdr(new(0,0,2560,1440),(x,y)=>Color.FromArgb(x%256,y%256,(x*13+y*17)%256));
+        var watch=Stopwatch.StartNew();
+        using var frame=new ScreenshotFrame([tile]);
+        double previewMs=watch.Elapsed.TotalMilliseconds;
+        var document=new ScreenshotDocument(frame){Selection=new(0,0,2560,1440)};
+        watch.Restart();using var image=document.Render();double renderMs=watch.Elapsed.TotalMilliseconds;
+        watch.Restart();using var png=new MemoryStream();ScreenshotFiles.SavePng(png,image);double pngMs=watch.Elapsed.TotalMilliseconds;
+        watch.Restart();var payload=ScreenshotClipboard.Prepare(image);double dataMs=watch.Elapsed.TotalMilliseconds;
+        using var decoded=Image.FromStream(new MemoryStream(payload.Png));Require(decoded.Size==image.Size,"Fast clipboard PNG changed dimensions.");
+        Require(Pixel(payload.Png,128,22,out var metadata)==image.GetPixel(128,22)&&metadata?.GetQuery("/sRGB/RenderingIntent") is byte intent&&intent==0,"Fast clipboard PNG changed colors/tag.");
+        // Decode every pixel through WIC, including the flattened opaque redact.
+        var pixels=new byte[image.Width*image.Height*4];
+        using(var input=new MemoryStream(payload.Png))
+        {
+            var decoder=new PngBitmapDecoder(input,BitmapCreateOptions.PreservePixelFormat,BitmapCacheOption.OnLoad);
+            var rgba=new FormatConvertedBitmap(decoder.Frames[0],System.Windows.Media.PixelFormats.Bgra32,null,0);rgba.CopyPixels(pixels,image.Width*4,0);
+        }
+        Require(pixels.AsSpan().SequenceEqual(payload.Dib.AsSpan(40)),"Native DIB and PNG pixels differ.");
+        Program.Write("screenshot-latency-test.json",new{Pass=true,PreviewMs=previewMs,RenderMs=renderMs,WicPngMs=pngMs,ClipboardPreparationMs=dataMs,PngBytes=png.Length,ClipboardWritten=false,NativeWindowCreated=false});
+    }
+    static void GpuColors()
+    {
+        using var device=Vortice.Direct3D11.D3D11.D3D11CreateDevice(Vortice.Direct3D.DriverType.Hardware,Vortice.Direct3D11.DeviceCreationFlags.BgraSupport,Vortice.Direct3D.FeatureLevel.Level_11_0);
+        using var context=device.ImmediateContext;int maximumError=0,cases=0;
+        foreach(var rotation in new[]{ModeRotation.Identity,ModeRotation.Rotate90,ModeRotation.Rotate180,ModeRotation.Rotate270})
+        foreach(bool hdr in new[]{false,true})foreach(double white in new[]{80d,200d,480d})
+        {
+            const int width=17,height=9;byte[] bytes=new byte[width*height*8];var random=new Random(71);
+            for(int i=0;i<width*height*4;i++)
+            {
+                float value=i%4==3?1:i<8?new[]{float.NaN,float.PositiveInfinity,float.NegativeInfinity,0f,.1f,.3f,.75f,1f}[i]:(float)(random.NextDouble()*4-.2)*(float)(white/80);
+                BitConverter.TryWriteBytes(bytes.AsSpan(i*2,2),BitConverter.HalfToUInt16Bits((Half)value));
+            }
+            bool quarter=rotation is ModeRotation.Rotate90 or ModeRotation.Rotate270;var size=new Size(quarter?height:width,quarter?width:height);
+            using var texture=device.CreateTexture2D(new Vortice.Direct3D11.Texture2DDescription(Format.R16G16B16A16_Float,width,height,1,1,Vortice.Direct3D11.BindFlags.ShaderResource));
+            context.UpdateSubresource(bytes,texture,0,width*8);
+            using var converter=new ScreenshotGpuReadback(device,context,size.Width,size.Height);
+            var converted=converter.Read(texture,rotation,hdr,white);
+            using var expected=new ScreenshotFrame([new(new(Point.Empty,size),width,height,rotation,true,hdr,white,bytes)]);
+            using var actual=new ScreenshotFrame([new(new(Point.Empty,size),size.Width,size.Height,ModeRotation.Identity,false,hdr,white,converted,converted:true)]);
+            using(var wire=new MemoryStream())
+            {using(var writer=new BinaryWriter(wire,System.Text.Encoding.UTF8,leaveOpen:true))ScreenshotCaptureWorker.Write(writer,actual.Tiles);wire.Position=0;using var reader=new BinaryReader(wire);using var transferred=ScreenshotCaptureWorker.Read(reader);Require(SamePixels(actual.Preview,transferred.Preview),"The worker converted HDR pixels twice.");}
+            for(int y=0;y<size.Height;y++)for(int x=0;x<size.Width;x++)
+            {
+                var a=actual.Preview.GetPixel(x,y);var b=expected.Preview.GetPixel(x,y);
+                maximumError=Math.Max(maximumError,Math.Max(Math.Abs(a.R-b.R),Math.Max(Math.Abs(a.G-b.G),Math.Abs(a.B-b.B))));
+                Require(a.A==255&&maximumError<=1,"GPU screenshot tone mapping/rotation differs from the CPU reference.");
+            }
+            cases++;
+        }
+        Program.Write("screenshot-gpu-tests.json",new{Pass=true,Cases=cases,AllRotations=true,HdrAndLinearSdr=true,NonfiniteAndNegative=true,MaximumCodeValueError=maximumError,NativeResolution=true});
+    }
     internal static void Run()
     {
         // No hooks, focus changes, OS input, clipboard writes or live desktop capture.
@@ -42,6 +96,8 @@ static class ScreenshotTests
             var legacy=JsonSerializer.Deserialize<Settings>("{}")!;Require(legacy.Screenshots.Enabled,"Legacy settings did not receive the screenshot default.");legacy.Screenshots.Validate();
             var settings=new Settings{Screenshots=new(){Enabled=false,Folder=folder}};
             WorkerTests();
+            GpuColors();
+            Latency();
             RenderDamage(800,500);
             Require(!settings.Copy().Screenshots.Enabled&&settings.Copy().Screenshots.Folder==folder,"Settings copy lost screenshot preferences.");
             Require(JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!.Screenshots==settings.Screenshots,"Screenshot settings failed round trip.");
@@ -106,11 +162,13 @@ static class ScreenshotTests
             foreach(var screen in new[]{new Rectangle(0,0,1280,720),new(0,0,1080,1920),new(0,0,640,480),new(-1000,-500,1280,720),new(0,0,320,240)})
             foreach(var selection in new[]{screen,new(screen.Left,screen.Top,30,30),new(screen.Right-30,screen.Bottom-30,30,30),new(screen.Left+60,screen.Top+60,200,100)})
             {
-                var toolSize=screen.Width<400?new Size(246,76):new Size(416,42);var actionSize=new Size(42,178);
+                var toolSize=screen.Height<400?new Size(52,196):new Size(28,220);var actionSize=new Size(100,28);
                 var place=ScreenshotBarLayout.Place(selection,screen,toolSize,actionSize,7);
                 var toolsRect=new Rectangle(place.Tools,toolSize);var actionsRect=new Rectangle(place.Actions,actionSize);
                 Require(screen.Contains(toolsRect)&&screen.Contains(actionsRect)&&!toolsRect.IntersectsWith(actionsRect),"Compact screenshot bars overlap or escape a monitor edge.");
             }
+            var normal=ScreenshotBarLayout.Place(new(100,100,700,400),new(0,0,1600,900),new(28,220),new(100,28),5);
+            Require(normal.Tools.X==805&&normal.Actions.Y==505,"Screenshot controls are not right/below the selection.");
             using(var frame=new ScreenshotFrame([Sdr(new(0,0,1600,900),(x,y)=>Color.FromArgb(15+x/40,20+y/30,42+(x+y)/60))]))
             {
                 using(var g=Graphics.FromImage(frame.Preview))
@@ -217,6 +275,18 @@ static class ScreenshotTests
             for(int y=0;y<expected.Bounds.Height;y++)for(int x=0;x<expected.Bounds.Width;x++)
                 Require(expected.Preview.GetPixel(x,y)==actual.Preview.GetPixel(x,y),"Screenshot worker changed SDR/HDR pixels.");
         }
+        using(var ready=new ScreenshotCaptureWorker.Ready(default,"pixels"))
+        using(var actual=ready.Capture(default))
+        {Require(SamePixels(expected.Preview,actual.Preview),"A prewarmed screenshot worker changed pixels.");}
+        // Disposing a ready worker before its request must stop it without ever
+        // acquiring a desktop; cancellation must stop an active request too.
+        using(var unused=new ScreenshotCaptureWorker.Ready(default,"pixels")){Require(unused.TestPipeClosure(),"Closing the parent request pipe left a screenshot worker alive.");}
+        using(var ready=new ScreenshotCaptureWorker.Ready(default,"wait"))
+        using(var cancel=new CancellationTokenSource(TimeSpan.FromMilliseconds(200)))
+        {
+            bool canceled=false;try{using var ignored=ready.Capture(cancel.Token);}catch(OperationCanceledException){canceled=true;}
+            Require(canceled,"Cancellation left a prewarmed worker running.");
+        }
         bool rejected=false;try{using var bad=ScreenshotCaptureWorker.Capture(fixture:"error");}
         catch(IOException e){rejected=e.Message=="Synthetic screenshot worker failure.";}Require(rejected,"Screenshot worker swallowed the capture failure.");
         using(var cancel=new CancellationTokenSource(TimeSpan.FromSeconds(1)))
@@ -264,10 +334,33 @@ static class ScreenshotTests
         using var decoded=Image.FromStream(new MemoryStream(output.ToArray()));Require(decoded.Size==frame.Bounds.Size,"Concurrent PNG dimensions changed.");
         Program.Write("screenshot-concurrent-capture-test.json",new{Pass=true,OriginalDxgiConflictReproduced=collision,IsolatedScreenshotSucceeded=true,CaptureReadsDuringScreenshot=reads,FramesDuringScreenshot=frames,ContinuousCaptureStillUsable=true,frame.Bounds,frame.HasHdr,PngBytes=output.Length,SavedDesktopImage=false,WindowsActivated=false,ClipboardWritten=false});
     }
+    static void ClipboardRoundTrip()
+    {
+        using var image=new Bitmap(127,63);using(var g=Graphics.FromImage(image)){g.Clear(Color.CornflowerBlue);g.FillRectangle(Brushes.Black,12,8,30,20);}
+        var payload=ScreenshotClipboard.Prepare(image);var owner=new NativeWindow();owner.CreateHandle(new CreateParams{Parent=new IntPtr(-3)});
+        var watch=Stopwatch.StartNew();try{ScreenshotClipboard.Publish(owner.Handle,payload);}finally{owner.DestroyHandle();}
+        double publishMs=watch.Elapsed.TotalMilliseconds;
+        using var pasted=Clipboard.GetImage();Require(pasted!=null&&pasted.Size==image.Size,"Native screenshot clipboard cannot synthesize a Windows bitmap after editor close.");
+        using var decoded=new Bitmap(pasted!);Require(decoded.GetPixel(0,0).ToArgb()==Color.CornflowerBlue.ToArgb()&&decoded.GetPixel(15,12).ToArgb()==Color.Black.ToArgb(),"Clipboard changed colors or exposed redacted pixels.");
+        var data=Clipboard.GetDataObject()??throw new Exception("Clipboard is empty.");
+        using var png=data.GetData("PNG",false) as MemoryStream;Require(png!=null&&Pixel(png.ToArray(),15,12,out _).ToArgb()==Color.Black.ToArgb(),"Clipboard PNG did not survive its owner window.");
+        using var transferred=KvmClipboardImage.Capture(data);Require(transferred!=null,"KVM cannot read the screenshot clipboard.");
+        Program.Write("screenshot-clipboard-tests.json",new{Pass=true,NativePublishMs=publishMs,OwnerDestroyedBeforePaste=true,WindowsBitmap=true,Png=true,Redaction=true,KvmCompatible=true});
+    }
+    internal static void WarmCapture()
+    {
+        using var cancel=new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var watch=Stopwatch.StartNew();using var cold=ScreenshotCaptureWorker.Capture(cancel.Token);double coldMs=watch.Elapsed.TotalMilliseconds;
+        watch.Restart();using var ready=new ScreenshotCaptureWorker.Ready(cancel.Token);double initializationMs=watch.Elapsed.TotalMilliseconds;
+        watch.Restart();using var warm=ready.Capture(cancel.Token);double warmMs=watch.Elapsed.TotalMilliseconds;
+        Require(cold.Bounds==warm.Bounds&&warm.Tiles.All(t=>t.DesktopPresentTime>0),"A warmed worker lost desktop presentation metadata.");
+        Program.Write("screenshot-warm-capture-test.json",new{Pass=true,ColdCaptureMs=coldMs,WarmInitializationMs=initializationMs,WarmRequestMs=warmMs,warm.Bounds,warm.HasHdr,Metadata=warm.Tiles.Select(t=>new{t.DesktopPresentTime,t.PointerOnlySkipped}),DesktopImageSaved=false,WindowsActivated=false,ClipboardWritten=false});
+    }
     internal static void Ui()
     {
         if(EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var running))
         {running.Dispose();throw new InvalidOperationException("Close DeskGlide before screenshot UI tests; they activate a synthetic test window.");}
+        ClipboardRoundTrip();
         Application.EnableVisualStyles();using var frame=new ScreenshotFrame([Sdr(new(0,0,1100,760),(_,_)=>Color.DarkSlateBlue)]);
         foreach(string language in new[]{"en","ru"})
         {
@@ -284,17 +377,19 @@ static class ScreenshotTests
                     editor.TestAction("Undo");Require(!editor.Document.CanUndo&&editor.Document.CanRedo,"Editor Undo button failed.");
                     editor.TestAction("More");Require(editor.MoreVisible&&!editor.IsDisposed,"The compact More menu closed the editor.");
                     editor.TestAction("Redo");editor.CloseMore();Application.DoEvents();Require(!editor.IsDisposed&&editor.Document.CanUndo,"Editor Redo menu action failed or dismissed the screenshot.");
-                    Require(!editor.TestKey(Keys.Control|Keys.Z)&&editor.Document.CanUndo,"Removed editor key combination still executes an action.");
+                    Require(editor.TestKey(Keys.Control|Keys.Z)&&!editor.Document.CanUndo&&editor.Document.CanRedo,"Ctrl+Z did not undo the annotation while a toolbar had focus.");
                     Require(!editor.TestKey(Keys.Control|Keys.S)&&!editor.TestKey(Keys.Control|Keys.C),"Removed copy/save key combination still executes an action.");
                     editor.TestTool(ScreenshotTool.Pen);editor.TestDrag(new(80,90),new(70,80));Require(editor.Document.Selection==new Rectangle(70,80,740,430),"Crop handles stopped resizing when a drawing tool was selected.");
                     editor.CheckToolbar();
-                    editor.TestTool(ScreenshotTool.Text);editor.TestDrag(new(200,200),new(200,200));editor.TestKey(Keys.Escape);Require(!editor.IsDisposed,"Escape during text editing closed the capture.");
+                    editor.TestAction("Redo");editor.TestTool(ScreenshotTool.Text);editor.TestDrag(new(200,200),new(200,200));
+                    Require(editor.EditingText&&!editor.TestKey(Keys.Control|Keys.Z)&&editor.Document.CanUndo,"Ctrl+Z during text entry intercepted native text undo or removed a drawing.");
+                    editor.TestKey(Keys.Escape);Require(!editor.IsDisposed,"Escape during text editing closed the capture.");
                 }
                 catch(Exception e){failure=e;}
                 finally{editor.Close();}
             });
             Application.Run(editor);if(failure!=null)throw failure;
         }
-        Program.Write("screenshot-ui-tests.json",new{Pass=true,Languages=new[]{"en","ru"},NativeWindowShown=true,NativeWindowPainted=true,SelectionAndResize=true,AnnotationAndUndoButtons=true,CompactMoreMenu=true,RemovedEditorChords=true,ResizeWhileDrawing=true,TextCancel=true,ToolbarBounds=true,DesktopCaptured=false,OsInputInjected=false,ClipboardWritten=false,PrintScreenPressed=false});
+        Program.Write("screenshot-ui-tests.json",new{Pass=true,Languages=new[]{"en","ru"},NativeWindowShown=true,NativeWindowPainted=true,SelectionAndResize=true,AnnotationAndUndoButtons=true,CompactMoreMenu=true,CtrlZUndo=true,RemovedCopySaveChords=true,ResizeWhileDrawing=true,TextCancel=true,ToolbarBounds=true,DesktopCaptured=false,OsInputInjected=false,ClipboardWritten=false,PrintScreenPressed=false});
     }
 }

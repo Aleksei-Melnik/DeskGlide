@@ -89,6 +89,7 @@ sealed partial class TrayApp:ApplicationContext
         saveWait=ThreadPool.RegisterWaitForSingleObject(saveEvent,(_,_)=>{if(!closing)try{dispatcher.BeginInvoke(SaveReplay);}catch(InvalidOperationException){}},null,Timeout.Infinite,false);
         hotkey.SaveRequested+=SaveReplay;
         if(!hotkey.Set(settings.Replay.HotkeyModifiers,settings.Replay.HotkeyKey))notifications.Enqueue("Горячая клавиша занята. Выберите другую в Replay Buffer → Settings.");
+        screenshotCapture.Warm();
         screenshotHotkey.Requested+=()=>dispatcher.BeginInvoke(TakeScreenshot);
         if(!screenshotHotkey.Set(settings.Screenshots.Enabled))notifications.Enqueue(UiStrings.T("PrintScreen is used by another app. Close that app or use Screenshot in the DeskGlide tray menu."));
         delivery.Notification+=message=>notifications.Enqueue(message);

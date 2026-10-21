@@ -74,8 +74,8 @@ sealed class ScreenshotEditor:Form
     readonly ScreenshotDocument document;
     readonly ScreenshotOptions options;
     readonly Action<string> saved;
-    readonly FlowLayoutPanel tools=new(){BackColor=Color.FromArgb(24,22,34),Padding=new(4),WrapContents=true};
-    readonly FlowLayoutPanel actions=new(){BackColor=Color.FromArgb(24,22,34),Padding=new(4),FlowDirection=FlowDirection.TopDown,WrapContents=false};
+    readonly FlowLayoutPanel tools=new(){BackColor=Color.FromArgb(24,22,34),Padding=new(4),FlowDirection=FlowDirection.TopDown,WrapContents=true};
+    readonly FlowLayoutPanel actions=new(){BackColor=Color.FromArgb(24,22,34),Padding=new(4),WrapContents=false};
     readonly Color barColor=Color.FromArgb(24,22,34);
     readonly ToolTip tips=new();
     readonly ContextMenuStrip more=new();
@@ -84,7 +84,6 @@ sealed class ScreenshotEditor:Form
     readonly List<Point> points=[];
     float scale=1;
     Font? ownedFont;
-    Point mousePoint;
     Region? paintDamage;
     internal int PaintCount {get;private set;}
     ScreenshotTool tool;
@@ -186,13 +185,13 @@ sealed class ScreenshotEditor:Form
         var screen=Screen.FromPoint(center).Bounds;screen.Offset(-frame.Bounds.X,-frame.Bounds.Y);
         screen=Rectangle.Intersect(screen,new(Point.Empty,frame.Bounds.Size));
         int cell=S(22)+2,padding=2*S(2),gap=S(5);
-        actions.Size=new(cell+padding,actions.Controls.Count*cell+padding);
-        int columns=Math.Min(tools.Controls.Count,Math.Max(1,(screen.Width-actions.Width-3*gap-padding)/cell));
-        int rows=(tools.Controls.Count+columns-1)/columns;tools.Size=new(columns*cell+padding,rows*cell+padding);
+        actions.Size=new(actions.Controls.Count*cell+padding,cell+padding);
+        int rows=Math.Min(tools.Controls.Count,Math.Max(1,(screen.Height-actions.Height-3*gap-padding)/cell));
+        int columns=(tools.Controls.Count+rows-1)/rows;tools.Size=new(columns*cell+padding,rows*cell+padding);
         var place=ScreenshotBarLayout.Place(r,screen,tools.Size,actions.Size,gap);
         tools.Location=place.Tools;actions.Location=place.Actions;tools.BringToFront();actions.BringToFront();RefreshActions();
     }
-    protected override void OnShown(EventArgs e){base.OnShown(e);Bounds=frame.Bounds;mousePoint=PointToClient(Cursor.Position);Activate();Focus();}
+    protected override void OnShown(EventArgs e){base.OnShown(e);Bounds=frame.Bounds;Activate();Focus();}
     protected override void OnDpiChanged(DpiChangedEventArgs e)
     {e.Cancel=true;base.OnDpiChanged(e);Bounds=frame.Bounds;ApplyMetrics(e.DeviceDpiNew);}
     protected override void OnPaintBackground(PaintEventArgs e){} // Every invalid pixel is restored from an opaque frozen bitmap.
@@ -203,14 +202,6 @@ sealed class ScreenshotEditor:Form
         var label=new Rectangle(r.Left,Math.Max(0,r.Top-measured.Height-S(9)),measured.Width+S(14),measured.Height+S(6));
         if(tools.Visible&&label.IntersectsWith(tools.Bounds))label.Y=Math.Min(frame.Bounds.Height-label.Height,r.Bottom+S(7));
         return label;
-    }
-    Rectangle HintBounds()
-    {
-        var size=TextRenderer.MeasureText(UiStrings.T("Drag to select an area"),Font);
-        var absolute=new Point(frame.Bounds.X+mousePoint.X,frame.Bounds.Y+mousePoint.Y);
-        var screen=Screen.FromPoint(absolute).Bounds;screen.Offset(-frame.Bounds.X,-frame.Bounds.Y);screen.Intersect(new(Point.Empty,frame.Bounds.Size));
-        int width=size.Width+S(20),height=size.Height+S(12);
-        return new(Math.Clamp(mousePoint.X+S(18),screen.Left,Math.Max(screen.Left,screen.Right-width)),Math.Clamp(mousePoint.Y+S(22),screen.Top,Math.Max(screen.Top,screen.Bottom-height)),width,height);
     }
     void InvalidateArea(Rectangle area)
     {area.Intersect(ClientRectangle);if(area.Width>0&&area.Height>0){DamageObserved?.Invoke(area);Invalidate(area);}}
@@ -260,11 +251,6 @@ sealed class ScreenshotEditor:Form
             string size=$"{r.Width} × {r.Height}";var label=LabelBounds(r);
             using var fill=new SolidBrush(barColor);g.FillRectangle(fill,label);g.DrawString(size,Font,Brushes.White,label.Left+S(7),label.Top+S(3));
         }
-        else
-        {
-            string hint=UiStrings.T("Drag to select an area");var box=HintBounds();
-            using var fill=new SolidBrush(barColor);g.FillRectangle(fill,box);g.DrawString(hint,Font,Brushes.White,box.Left+S(10),box.Top+S(6));
-        }
         if(errorMessage.Length>0){using var fill=new SolidBrush(barColor);var size=g.MeasureString(errorMessage,Font);g.FillRectangle(fill,8,frame.Bounds.Height-size.Height-20,size.Width+20,size.Height+12);g.DrawString(errorMessage,Font,Brushes.LightPink,18,frame.Bounds.Height-size.Height-14);}
         g.Restore(paintState);PaintCount++;base.OnPaint(e);
     }
@@ -289,8 +275,8 @@ sealed class ScreenshotEditor:Form
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {
-        base.OnMouseMove(e);var priorHint=HintBounds();mousePoint=e.Location;
-        if(!dragging){if(document.Selection.IsEmpty){InvalidateArea(priorHint);InvalidateArea(HintBounds());}Cursor=Hit(e.Location) switch{1 or 3=>Cursors.SizeNWSE,2 or 4=>Cursors.SizeNESW,5 or 7=>Cursors.SizeNS,6 or 8=>Cursors.SizeWE,9 when tool==ScreenshotTool.Select=>Cursors.SizeAll,_=>Cursors.Cross};return;}
+        base.OnMouseMove(e);
+        if(!dragging){Cursor=Hit(e.Location) switch{1 or 3=>Cursors.SizeNWSE,2 or 4=>Cursors.SizeNESW,5 or 7=>Cursors.SizeNS,6 or 8=>Cursors.SizeWE,9 when tool==ScreenshotTool.Select=>Cursors.SizeAll,_=>Cursors.Cross};return;}
         var p=Limit(e.Location);
         var before=document.Selection;Rectangle inkDirty=default;
         if(pending!=null)
@@ -307,7 +293,7 @@ sealed class ScreenshotEditor:Form
             document.Selection=ScreenshotDocument.Between(new(l,t),new(r,b));
         }
         else document.Selection=ScreenshotDocument.Between(anchor,p);
-        if(pending!=null)InvalidateArea(inkDirty);else{InvalidateArea(priorHint);InvalidateSelection(before,document.Selection);}
+        if(pending!=null)InvalidateArea(inkDirty);else InvalidateSelection(before,document.Selection);
     }
     protected override void OnMouseUp(MouseEventArgs e)
     {
@@ -337,17 +323,20 @@ sealed class ScreenshotEditor:Form
     {
         if(keyData==Keys.Escape){if(textInput!=null){var box=textInput;textInput=null;Controls.Remove(box);box.Font.Dispose();box.Dispose();Focus();}else Close();return true;}
         if(textInput!=null&&keyData==Keys.Enter){CommitText();Focus();return true;}
+        if(keyData==(Keys.Control|Keys.Z)&&textInput==null){document.Undo();RefreshActions();return true;}
         return base.ProcessCmdKey(ref msg,keyData);
     }
     void Copy()
     {
-        CommitText();using var image=document.Render();var data=ClipboardData(image);
-        Clipboard.SetDataObject(data,true,5,80);Close();
+        CommitText();var watch=System.Diagnostics.Stopwatch.StartNew();using var image=document.Render();
+        var payload=ScreenshotClipboard.Prepare(image);double prepared=watch.Elapsed.TotalMilliseconds;
+        ScreenshotClipboard.Publish(Handle,payload);
+        Log.Write($"Screenshot copied: prepare={prepared:F1} ms, total={watch.Elapsed.TotalMilliseconds:F1} ms.");Close();
     }
     internal static DataObject ClipboardData(Bitmap image)
     {
-        using var png=new MemoryStream();ScreenshotFiles.SavePng(png,image);
-        var data=new DataObject();data.SetData(DataFormats.Bitmap,true,image);data.SetData("PNG",false,new MemoryStream(png.ToArray()));return data;
+        var payload=ScreenshotClipboard.Prepare(image);
+        var data=new DataObject();data.SetData(DataFormats.Bitmap,true,image);data.SetData("PNG",false,new MemoryStream(payload.Png));return data;
     }
     void Save(bool choose)
     {
@@ -378,6 +367,7 @@ sealed class ScreenshotEditor:Form
     internal void TestPointerUp(Point p)=>OnMouseUp(new(MouseButtons.Left,1,p.X,p.Y,0));
     internal void TestDpi(int dpi)=>ApplyMetrics(dpi);
     internal Size LargestButton=>tools.Controls.Cast<Control>().Concat(actions.Controls.Cast<Control>()).Select(c=>c.Size).MaxBy(s=>s.Width);
+    internal bool EditingText=>textInput!=null;
     internal bool MoreVisible=>more.Visible;
     internal void CloseMore()=>more.Close();
     internal void PaintCanvas(Bitmap target,Rectangle clip)

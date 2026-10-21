@@ -71,6 +71,9 @@ jobs:
             app/screenshot-tests.json
             app/screenshot-ui-tests.json
             app/screenshot-render-tests.json
+            app/screenshot-latency-test.json
+            app/screenshot-clipboard-tests.json
+            app/screenshot-gpu-tests.json
             app/kvm-test.json
             app/kvm-input-thread-test.json
             app/monitor-layout-tests.json

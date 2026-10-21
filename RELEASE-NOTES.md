@@ -1,3 +1,15 @@
+DeskGlide 0.7.37
+
+- Restored Ctrl+Z for screenshot annotations, including when a toolbar button has focus. Text entry retains Windows text undo. Removed the selection-hint banner. Drawing tools now sit vertically at the right of the selection; Copy, Save, More and Close sit below it. Compact sizing and edge/full-screen placement are retained.
+- Reduced screenshot startup work after PrintScreen. A private ordinary worker preinitializes DXGI while idle and acquires fresh presented pixels only on request. HDR tone mapping and monitor rotation run at native resolution on the GPU, then SDR rows copy directly into the preview. A changed/invalid duplication is rebuilt for the same request. The waiting worker stops on pipe closure/application exit and is recreated after editing.
+- Replaced synchronous OLE clipboard conversion with eager Windows bitmap and sRGB PNG formats. Fast lossless clipboard PNG encoding uses the flattened selection; saved files retain normal PNG compression. Pasting remains available after the editor closes, including through DeskGlide's KVM clipboard.
+
+Validation: synthetic crop/annotation/redaction, compact toolbar geometry, Ctrl+Z/text routing, native clipboard persistence, SDR/HDR conversion and private worker error/cancellation checks. The dedicated screenshot shader matches the CPU reference over all rotations and three SDR white levels; incremental rendering, KVM and signed-update regressions are retained. Local 2560×1440 HDR diagnostic measured a prewarmed request at about 80 ms versus 494 ms cold, excluding editor/display latency; synthetic clipboard preparation was about 35 ms. Hardware load and image contents affect latency; no claim of zero-latency opening is made.
+
+Update through **Updates → Update all PCs**. The existing signing key, settings and pairing are retained. No Windows restart is needed.
+
+Previous release: 0.7.36
+
 DeskGlide 0.7.36
 
 - Fixed intermittent completely black screenshots over browsers, ChatGPT and other static windows. A fresh DXGI duplication can first return a pointer-only event with no desktop presentation and an empty texture. Capture now releases those events and waits for a presented image, with cancellation and a bounded deadline. Presentation metadata is validated again when the worker's pixels arrive. Legitimately black scenes remain valid; no brightness heuristic or capture-protection override is used.
