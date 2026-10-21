@@ -42,6 +42,7 @@ static class ScreenshotTests
             var legacy=JsonSerializer.Deserialize<Settings>("{}")!;Require(legacy.Screenshots.Enabled,"Legacy settings did not receive the screenshot default.");legacy.Screenshots.Validate();
             var settings=new Settings{Screenshots=new(){Enabled=false,Folder=folder}};
             WorkerTests();
+            RenderDamage(800,500);
             Require(!settings.Copy().Screenshots.Enabled&&settings.Copy().Screenshots.Folder==folder,"Settings copy lost screenshot preferences.");
             Require(JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!.Screenshots==settings.Screenshots,"Screenshot settings failed round trip.");
             bool rejected=false;try{new ScreenshotOptions{Folder="relative"}.Validate();}catch(ArgumentException){rejected=true;}Require(rejected,"Relative destination accepted.");
@@ -138,7 +139,67 @@ static class ScreenshotTests
         using var output=new MemoryStream();ScreenshotFiles.SavePng(output,frame.Preview);
         using var decoded=System.Drawing.Image.FromStream(new MemoryStream(output.ToArray()));
         Require(decoded.Size==frame.Bounds.Size,"Live screenshot PNG dimensions changed.");
-        Program.Write("screenshot-capture-test.json",new{Pass=true,frame.Bounds,frame.HasHdr,Tiles=frame.Tiles.Select(t=>new{t.Bounds,t.Hdr,t.WhiteNits}),PngBytes=output.Length,SavedDesktopImage=false,WindowsActivated=false,ClipboardWritten=false});
+        int nonzero=0,samples=0;for(int y=0;y<frame.Preview.Height;y+=Math.Max(1,frame.Preview.Height/24))for(int x=0;x<frame.Preview.Width;x+=Math.Max(1,frame.Preview.Width/32))
+        {var pixel=frame.Preview.GetPixel(x,y);if(pixel.R>0||pixel.G>0||pixel.B>0)nonzero++;samples++;}
+        Require(frame.Tiles.All(t=>t.DesktopPresentTime>0),"A pointer-only/uninitialized texture became a screenshot.");
+        Program.Write("screenshot-capture-test.json",new{Pass=true,frame.Bounds,frame.HasHdr,Tiles=frame.Tiles.Select(t=>new{t.Bounds,t.Hdr,t.WhiteNits,t.DesktopPresentTime,t.ProtectedContent,t.PointerOnlySkipped}),PngBytes=output.Length,NonzeroPreviewSamples=nonzero,PreviewSamples=samples,SavedDesktopImage=false,WindowsActivated=false,ClipboardWritten=false});
+    }
+    static unsafe bool SamePixels(Bitmap a,Bitmap b)
+    {
+        var bounds=new Rectangle(Point.Empty,a.Size);var left=a.LockBits(bounds,ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
+        try
+        {
+            var right=b.LockBits(bounds,ImageLockMode.ReadOnly,PixelFormat.Format32bppArgb);
+            try
+            {
+                for(int y=0;y<a.Height;y++)
+                {
+                    var actual=new ReadOnlySpan<byte>((byte*)left.Scan0+y*left.Stride,a.Width*4);var expected=new ReadOnlySpan<byte>((byte*)right.Scan0+y*right.Stride,a.Width*4);
+                    if(actual.SequenceEqual(expected))continue;
+                    for(int at=0;at<actual.Length;at++)if(actual[at]!=expected[at]){Program.Write("screenshot-render-mismatch.json",new{X=at/4,Y=y,Channel=at%4,Actual=actual[at],Expected=expected[at]});break;}
+                    return false;
+                }
+                return true;
+            }
+            finally{b.UnlockBits(right);}
+        }
+        finally{a.UnlockBits(left);}
+    }
+    internal static void RenderPerformance()=>RenderDamage(2560,1440);
+    static void RenderDamage(int width,int height)
+    {
+        using var frame=new ScreenshotFrame([Sdr(new(0,0,width,height),(x,y)=>Color.FromArgb(x%256,y%256,(x+y)%256))]);
+        using var editor=new ScreenshotEditor(frame,new(),_=>{}){SyntheticPointer=true};
+        using(var blit=new Bitmap(width,height))
+        {
+            using(var g=Graphics.FromImage(blit)){g.CompositingMode=System.Drawing.Drawing2D.CompositingMode.SourceCopy;g.InterpolationMode=System.Drawing.Drawing2D.InterpolationMode.NearestNeighbor;g.PixelOffsetMode=System.Drawing.Drawing2D.PixelOffsetMode.None;var patch=new Rectangle(76,76,48,48);g.DrawImage(frame.Preview,patch,patch,GraphicsUnit.Pixel);}
+            Require(blit.GetPixel(100,99)==frame.Preview.GetPixel(100,99),"Opaque native-pixel patch was filtered or shifted.");
+        }
+        foreach(int dpi in new[]{96,120,144,192,288})
+        {editor.TestDpi(dpi);using var preview=editor.RenderDiagnostic(new(40,40,width-80,height-80));editor.CheckToolbar();Require(editor.LargestButton.Width<=26&&editor.LargestButton.Height<=26,"DPI made the compact editor buttons oversized.");}
+        editor.TestDpi(96);editor.Document.Selection=new(40,40,width-80,height-80);editor.TestTool(ScreenshotTool.Pen);
+        using var incremental=new Bitmap(width,height);using var reference=new Bitmap(width,height);var area=new Rectangle(0,0,width,height);
+        var damage=new List<Rectangle>();editor.DamageObserved=damage.Add;
+        editor.TestPointerDown(new(100,100));editor.PaintCanvas(incremental,area);
+        var elapsed=new List<double>();long damagedPixels=0;
+        for(int i=0;i<96;i++)
+        {
+            damage.Clear();editor.TestPointerMove(new(100+i*3,100+(int)(Math.Sin(i*.15)*25)));
+            Require(damage.Count>0&&damage.All(r=>(long)r.Width*r.Height<(long)width*height/4),"Pen movement invalidated the entire frozen desktop.");
+            var watch=Stopwatch.StartNew();foreach(var rect in damage){editor.PaintCanvas(incremental,rect);damagedPixels+=(long)rect.Width*rect.Height;}elapsed.Add(watch.Elapsed.TotalMilliseconds);
+            if(i%12==0){editor.PaintCanvas(reference,area);Require(SamePixels(incremental,reference),"Incremental pen rendering left stale pixels or clipped a stroke.");}
+        }
+        editor.TestPointerUp(new(385,100));editor.TestTool(ScreenshotTool.Select);
+        foreach(var pair in new[]{(new Point(40,40),new Point(55,55)),(new Point(200,200),new Point(220,215))})
+        {
+            editor.TestPointerDown(pair.Item1);editor.PaintCanvas(incremental,area);damage.Clear();editor.TestPointerMove(pair.Item2);
+            foreach(var rect in damage)editor.PaintCanvas(incremental,rect);
+            editor.PaintCanvas(reference,area);Require(SamePixels(incremental,reference),"Moving/resizing the selection left a shade, border or size-label trail.");editor.TestPointerUp(pair.Item2);
+        }
+        // Export must use original pixels, never the cached dimmed background.
+        using var crop=frame.Crop(new(20,20,20,20));Require(crop.GetPixel(0,0)==frame.Preview.GetPixel(20,20)&&frame.ShadedPreview.GetPixel(20,20)!=crop.GetPixel(0,0),"The display shade contaminated the saved screenshot.");
+        Require(!editor.Visible&&!editor.IsHandleCreated,"Offscreen rendering tests created a native input window.");
+        elapsed.Sort();Program.Write("screenshot-render-tests.json",new{Pass=true,width,height,Frames=elapsed.Count,MedianPaintMs=elapsed[elapsed.Count/2],P95PaintMs=elapsed[(int)(elapsed.Count*.95)],MaximumPaintMs=elapsed[^1],MeanDamagedPixelRatio=damagedPixels/(double)(width*height*elapsed.Count),IncrementalPixelsMatchFullPaint=true,CompactDpiValues=new[]{96,120,144,192,288},MaximumButtonPixels=26,NativeWindowCreated=false,OsInputInjected=false});
     }
     internal static IReadOnlyList<ScreenshotTile> WorkerFixture(string mode,CancellationToken cancel)
     {
@@ -172,6 +233,18 @@ static class ScreenshotTests
             Require(rejected,"Unbounded, truncated or trailing screenshot data was accepted.");
         }
         byte[] Mutate(int offset,int value){var copy=bytes.ToArray();BitConverter.TryWriteBytes(copy.AsSpan(offset,4),value);return copy;}
+        // The same all-black pixels must be rejected without a desktop present,
+        // and accepted for a genuinely presented black screen. Do not guess
+        // validity from brightness or exclude dark screenshots.
+        foreach(long presented in new[]{0L,1L})
+        {
+            using var message=new MemoryStream();using(var writer=new BinaryWriter(message,System.Text.Encoding.UTF8,leaveOpen:true))
+                ScreenshotCaptureWorker.Write(writer,[new(new(0,0,1,1),1,1,ModeRotation.Identity,false,false,80,[0,0,0,255],presented)]);
+            message.Position=0;rejected=false;
+            try{using var reader=new BinaryReader(message,System.Text.Encoding.UTF8,leaveOpen:true);using var black=ScreenshotCaptureWorker.Read(reader);Require(black.Preview.GetPixel(0,0).R==0,"A valid black desktop was altered.");}
+            catch(IOException){rejected=true;}
+            Require(rejected==(presented==0),"Uninitialized and legitimately black screenshots were confused.");
+        }
     }
     internal static void ConcurrentCapture()
     {
@@ -207,8 +280,10 @@ static class ScreenshotTests
                     editor.TestDrag(new(450,300),new(460,310));Require(editor.Document.Selection==new Rectangle(110,110,700,400),"Selection drag failed.");
                     editor.TestDrag(new(110,110),new(80,90));Require(editor.Document.Selection==new Rectangle(80,90,730,420),"Corner resize failed.");
                     editor.TestTool(ScreenshotTool.Arrow);editor.TestDrag(new(150,150),new(400,300));Require(editor.Document.CanUndo,"Drawing through the editor lost the mark.");
+                    editor.Refresh();Require(editor.PaintCount>0,"The shown screenshot editor never painted its native window.");
                     editor.TestAction("Undo");Require(!editor.Document.CanUndo&&editor.Document.CanRedo,"Editor Undo button failed.");
-                    editor.TestAction("Redo");Require(editor.Document.CanUndo,"Editor Redo button failed.");
+                    editor.TestAction("More");Require(editor.MoreVisible&&!editor.IsDisposed,"The compact More menu closed the editor.");
+                    editor.TestAction("Redo");editor.CloseMore();Application.DoEvents();Require(!editor.IsDisposed&&editor.Document.CanUndo,"Editor Redo menu action failed or dismissed the screenshot.");
                     Require(!editor.TestKey(Keys.Control|Keys.Z)&&editor.Document.CanUndo,"Removed editor key combination still executes an action.");
                     Require(!editor.TestKey(Keys.Control|Keys.S)&&!editor.TestKey(Keys.Control|Keys.C),"Removed copy/save key combination still executes an action.");
                     editor.TestTool(ScreenshotTool.Pen);editor.TestDrag(new(80,90),new(70,80));Require(editor.Document.Selection==new Rectangle(70,80,740,430),"Crop handles stopped resizing when a drawing tool was selected.");
@@ -220,6 +295,6 @@ static class ScreenshotTests
             });
             Application.Run(editor);if(failure!=null)throw failure;
         }
-        Program.Write("screenshot-ui-tests.json",new{Pass=true,Languages=new[]{"en","ru"},NativeWindowShown=true,SelectionAndResize=true,AnnotationAndUndoButtons=true,RemovedEditorChords=true,ResizeWhileDrawing=true,TextCancel=true,ToolbarBounds=true,DesktopCaptured=false,OsInputInjected=false,ClipboardWritten=false,PrintScreenPressed=false});
+        Program.Write("screenshot-ui-tests.json",new{Pass=true,Languages=new[]{"en","ru"},NativeWindowShown=true,NativeWindowPainted=true,SelectionAndResize=true,AnnotationAndUndoButtons=true,CompactMoreMenu=true,RemovedEditorChords=true,ResizeWhileDrawing=true,TextCancel=true,ToolbarBounds=true,DesktopCaptured=false,OsInputInjected=false,ClipboardWritten=false,PrintScreenPressed=false});
     }
 }

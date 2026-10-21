@@ -1,3 +1,15 @@
+DeskGlide 0.7.36
+
+- Fixed intermittent completely black screenshots over browsers, ChatGPT and other static windows. A fresh DXGI duplication can first return a pointer-only event with no desktop presentation and an empty texture. Capture now releases those events and waits for a presented image, with cancellation and a bounded deadline. Presentation metadata is validated again when the worker's pixels arrive. Legitimately black scenes remain valid; no brightness heuristic or capture-protection override is used.
+- Made the editor much smaller. At 100% scale the main toolbar is 220×28 pixels with 22-pixel buttons; Copy, Save, More and Close occupy a 28×100-pixel side bar. Redaction, stroke width, redo, Save as and printing are in More. Button growth is capped to 26 pixels across the tested 100–300% DPI settings.
+- Improved interactive rendering. The frozen dimmed background is prepared once; pointer movement no longer recomposites the entire monitor. Pen strokes redraw their changed area and grow without copying the whole point list on every move. Crop movement/resizing restores only changed shade strips, borders and labels, retaining the actual Win32 update region through double buffering. Export continues to use original undimmed screenshot pixels.
+
+Validation: reproduced a real pointer-only all-zero HDR frame, then verified capture skips that event and returns a presented HDR 2560×1440 image. Synthetic incremental pen, crop move and resize frames match full redraws pixel-for-pixel. Tests check compact geometry across DPI changes, actual native-window painting and the More menu. Offscreen paint timings describe renderer cost, not measured display FPS. Existing PNG/HDR, KVM and signed-update checks are retained.
+
+Update through **Updates → Update all PCs**. The existing signing key, settings and pairing are retained; Windows does not need a restart.
+
+Previous release: 0.7.35
+
 DeskGlide 0.7.35
 
 - Fixed PrintScreen and the tray screenshot command failing while replay recording or NDI was active. Windows allows one duplication of an output per process; the screenshot path tried opening a second one and failed with E_INVALIDARG before showing the editor. Screenshots now acquire native SDR/FP16 HDR pixels in a short-lived, ordinary child process without stopping the existing capture.

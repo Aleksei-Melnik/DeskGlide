@@ -18,6 +18,7 @@ internal static class Program
             if(args.Contains("--screenshot-ui-tests")){ScreenshotTests.Ui();return 0;}
             if(args.Contains("--screenshot-capture-test")){ScreenshotTests.Capture();return 0;}
             if(args.Contains("--screenshot-concurrent-capture-test")){ScreenshotTests.ConcurrentCapture();return 0;}
+            if(args.Contains("--screenshot-render-performance-test")){ScreenshotTests.RenderPerformance();return 0;}
             if(args.Contains("--kvm-helper-approval-test")){KvmInputTests.Approval();return 0;}
             if(args.FirstOrDefault()=="--restart-after")args=ApplicationRestart.WaitForPreviousInstance(args);
             if(args.Length==3&&args[0]=="--restart-test-parent"){RestartTests.Parent(args[1],args[2]);return 0;}

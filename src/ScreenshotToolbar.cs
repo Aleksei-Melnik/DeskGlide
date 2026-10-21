@@ -40,6 +40,7 @@ sealed class ScreenshotButton(string glyph):Button
             case "SaveAs":g.DrawLines(pen,[new(11,3),new(3,3),new(3,21),new(14,21)]);g.DrawLine(pen,12,15,21,6);g.DrawLines(pen,[new(16,6),new(21,6),new(21,11)]);break;
             case "Print":g.DrawRectangle(pen,3,8,18,9);g.DrawRectangle(pen,7,14,10,7);g.DrawLines(pen,[new(7,6),new(7,3),new(17,3),new(17,6)]);g.FillEllipse(brush,17,10,2,2);break;
             case "Close":g.DrawLine(pen,5,5,19,19);g.DrawLine(pen,19,5,5,19);break;
+            case "More":g.FillEllipse(brush,10,3,4,4);g.FillEllipse(brush,10,10,4,4);g.FillEllipse(brush,10,17,4,4);break;
         }
         g.Restore(state);
         if(Focused&&ShowFocusCues)ControlPaint.DrawFocusRectangle(g,new(2,2,Width-4,Height-4),color,BackColor);

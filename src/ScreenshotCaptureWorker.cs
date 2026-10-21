@@ -12,7 +12,7 @@ static class ScreenshotCaptureWorker
 {
     internal const string Argument="--screenshot-worker";
     internal const string FixtureArgument="--screenshot-worker-fixture";
-    const int Magic=0x31475344,MaximumTiles=64,MaximumErrorBytes=4096;
+    const int Magic=0x32475344,MaximumTiles=64,MaximumErrorBytes=4096;
     internal static ScreenshotFrame Capture(CancellationToken cancel=default,string? fixture=null)
     {
         cancel.ThrowIfCancellationRequested();

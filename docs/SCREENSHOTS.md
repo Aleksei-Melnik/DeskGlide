@@ -1,4 +1,4 @@
-# Local screenshots (0.7.35)
+# Local screenshots (0.7.36)
 
 Press **PrintScreen**, drag an area, then annotate or export it. Screenshots are
 also available from the DeskGlide tray menu. Configure the shortcut and folder in
@@ -16,6 +16,13 @@ are original DeskGlide work; it does not contain Lightshot code, assets or brand
 It offers common screenshot workflows rather than a claim of complete Lightshot
 service compatibility or legal clearance.
 
+Since 0.7.36, the primary tools occupy a 220×28-pixel bar at 100% scale,
+with 22-pixel buttons. The side bar is 28×100 pixels: Copy, Save, More, Close.
+More contains redaction, stroke width, redo, Save as and printing. Toolbar
+scaling is capped at 1.15 and reapplied after DPI changes; buttons stay within
+26 physical pixels in tests spanning 96–288 DPI. The screenshot crop retains
+its native pixel dimensions.
+
 ## Controls
 
 | Action | Control |
@@ -23,9 +30,10 @@ service compatibility or legal clearance.
 | Capture | PrintScreen |
 | Copy bitmap and PNG | Copy button beside the area |
 | Save a unique PNG to the configured folder | Save button beside the area |
-| Choose a destination | Save as button |
-| Print through the Windows dialog | Print button |
-| Undo / redo annotations | Undo / Redo buttons above the area |
+| Choose a destination | More → Save as |
+| Print through the Windows dialog | More → Print |
+| Undo / redo annotations | Undo above the area / More → Redo |
+| Redaction / stroke width | More → Redact / Stroke width |
 | Move selected area | Drag inside it with Select |
 | Resize selected area | Drag an edge/corner handle |
 | Commit text | Enter or choose another tool |
@@ -59,6 +67,21 @@ counts, geometry, rotation, color format and byte lengths before building the
 preview. Total tile pixels and the combined canvas are each bounded to 40 million
 pixels. A 20-second timeout/cancellation terminates the child. No temporary desktop
 image, network listener, named public IPC endpoint or new elevation is needed.
+
+A successful `AcquireNextFrame` may contain only a pointer update, with
+`LastPresentTime == 0`. A newly created duplication has no previous image to
+reuse, and this returned a completely empty texture during local reproduction.
+Capture now releases and skips those events, waiting up to five seconds for a
+desktop presentation. The receiving process also validates a positive present
+timestamp. Pixel brightness does not determine validity: an actual presented
+black screen remains capturable. Windows-protected content remains protected.
+
+The editor caches an opaque dimmed bitmap beside the original preview. It
+restores changed areas by opaque native-pixel blits and redraws annotations
+within the invalid region. Crop motion invalidates changed shade strips,
+outlines and labels; `GetUpdateRgn` preserves disjoint strips through WinForms
+double buffering. Pending freehand points grow in place and are frozen when
+the stroke ends. None of the shade/UI caches is used in PNG or clipboard output.
 
 For each HDR monitor, linear scRGB is scaled by `80 / WindowsSdrWhiteNits`.
 The same hue-preserving fixed highlight shoulder used by the established
@@ -106,6 +129,10 @@ English/Russian editor previews without showing a window.
 It also transfers synthetic mixed SDR/HDR pixels through the production worker,
 checks process error/cancellation, and rejects malformed, truncated and trailing
 pixel messages.
+It distinguishes missing desktop-presentation metadata from valid black
+content, checks repeated DPI changes and compares incremental pen/crop frames
+against complete redraws. Offscreen pointer tests create no native window and
+do not take OS mouse capture or focus.
 
 `--screenshot-ui-tests` operates a real synthetic editor window and is guarded
 against a running DeskGlide session. It checks reverse selection, move/resize,
@@ -113,6 +140,13 @@ arrow annotation, undo/redo, text cancellation and toolbar bounds.
 It also verifies visible Undo/Redo buttons, absence of the retired keyboard
 combinations, resize handles while drawing and compact bar bounds. CI runs both
 tests in folder, standalone portable and signed release packages.
+Native tests also force actual window painting and exercise More/Redo without
+dismissing the editor.
+
+`--screenshot-render-performance-test` runs the pixel-comparison and compact-DPI
+checks at 2560×1440 and records median/p95 paint cost and invalidated area. This
+measures offscreen renderer work, not display presentation FPS or end-to-end
+input latency.
 
 `--screenshot-capture-test` performs a real DXGI capture and PNG round trip,
 reports only dimensions/HDR/white level/encoded size and retains no desktop
