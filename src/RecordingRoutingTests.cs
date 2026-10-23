@@ -29,6 +29,7 @@ static class RecordingRoutingTests
         Check(restored.Settings.Recording.Profile==settings.Recording.Profile,"Backup lost the independent recording profile.");
         Check(!RecordingRouting.CurrentPoll(1,2,"pending","active")&&!RecordingRouting.CurrentPoll(1,2,"active","active")&&RecordingRouting.CurrentPoll(2,2,"active","active"),"A delayed pre-start status can overwrite a confirmed recording session.");
         Check(!RecordingRouting.PreserveUnconfirmedStart("busy",null,"session")&&!RecordingRouting.PreserveUnconfirmedStart("denied",null,"session")&&RecordingRouting.PreserveUnconfirmedStart("unknown",null,"session")&&RecordingRouting.PreserveUnconfirmedStart("failed",new(Recording:true,RecordingSession:"session"),"session"),"A definitive remote rejection leaves a phantom recording or an uncertain start is discarded.");
+        Check(RecordingProtocol.Timeout("stopRecording").TotalSeconds==600&&RecordingProtocol.Timeout("release").TotalSeconds==600&&RecordingProtocol.Timeout("status").TotalSeconds==8,"Long recording finalization inherits the short status deadline.");
         using(var service=new KvmService(new(){Role="Off"}))
         {
             string one=Guid.NewGuid().ToString("N"),two=Guid.NewGuid().ToString("N");service.SelectAudioPeers([one,two,one]);

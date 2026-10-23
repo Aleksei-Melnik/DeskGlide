@@ -22,7 +22,7 @@ sealed partial class TrayApp
     ReplayOptions? remoteRecordingProfile;
     ReplayOptions? localRecordingProfile;
     long remoteRecordingGeneration;
-    bool recordingPolling,recordingReconciling,recordingBusy;
+    bool recordingPolling,recordingReconciling,recordingBusy,recordingUpdatePending;
     string recordingStatus="Recording is stopped.";
     string? recordingError;
     ReplayOptions LocalReplayProfile()=>settings.Replay with{Enabled=settings.Replay.Enabled&&settings.Replay.EncodingComputer.Length==0};
@@ -54,7 +54,7 @@ sealed partial class TrayApp
     }
     void BindRecordingRemote(KvmService service)
     {
-        recordingNode??=new(()=>settings.Recording.Copy(),()=>settings.Replay with{},_=>delivery.Wake());
+        recordingNode??=new(()=>settings.Recording.Copy() with{AllowRemoteEncoding=settings.Recording.AllowRemoteEncoding&&!recordingUpdatePending&&!closing},()=>settings.Replay with{},_=>delivery.Wake());
         recordingRemote=new(service,recordingNode.Handle);
         // Re-send the desired replay profile after rebuilding the control channel.
         remoteReplayProfile=null;recordingStates.Clear();recordingProblems.Clear();
@@ -290,13 +290,22 @@ sealed partial class TrayApp
     async Task FinishRecordingBeforeUpdate()
     {
         if(recordingBusy||savingReplay)throw new IOException("Дождитесь завершения сохранения записи перед обновлением.");
-        recordingBusy=true;
+        recordingBusy=true;recordingUpdatePending=true;
         try
         {
+            // A receiver can be updated before its controller by Update all PCs.
+            // Drain its incoming recording too, before the installer exits us.
+            if(recordingNode!=null)await recordingNode.RefreshPreferencesAsync();
             if(recordings.HasRecording){await recordings.StopRecordingAsync(true);localRecordingProfile=null;delivery.Wake();}
             if(remoteRecordingPeer!=null&&remoteRecordingSession!=null)
             {
-                await RemoteCommand(remoteRecordingPeer,Command("stopRecording",remoteRecordingSession));
+                // Update all PCs restarts receivers first. A disconnected or
+                // already retired session must not prevent the controller update.
+                if(PeerConnected(remoteRecordingPeer))
+                {
+                    try{await RemoteCommand(remoteRecordingPeer,Command("stopRecording",remoteRecordingSession));}
+                    catch(RecordingCommandFailure e)when(e.Code is "session" or "completed" or "offline"||e.State is{Recording:false}){}
+                }
                 remoteRecordingPeer=null;remoteRecordingSession=null;remoteRecordingProfile=null;
             }
         }

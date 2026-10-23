@@ -39,7 +39,7 @@ static class RecordingProtocol
     public static bool BoundedText(string? value,int length)=>value!=null&&value.Length<=length&&!value.Any(char.IsControl);
     public static bool Envelope(string channel,KvmMessage message)=>channel=="control"&&message.Type is "recording-request" or "recording-reply"&&
         GuidId(message.Id)&&message.Text!=null&&message.Text.Length<=MaxWireBytes&&Encoding.UTF8.GetByteCount(message.Text)<=MaxWireBytes;
-    public static TimeSpan Timeout(string command)=>TimeSpan.FromSeconds(command=="saveReplay"?600:command=="capabilities"?120:command=="status"?8:30);
+    public static TimeSpan Timeout(string command)=>TimeSpan.FromSeconds(command is "saveReplay" or "stopRecording" or "release"?600:command=="capabilities"?120:command=="status"?8:30);
     public static RecordingCommand Normalize(RecordingCommand request)=>request with{Id=Guid.ParseExact(request.Id,"N").ToString("N"),Session=request.Session==null?null:Guid.ParseExact(request.Session,"N").ToString("N")};
     public static bool Valid(RecordingCommand value)
     {

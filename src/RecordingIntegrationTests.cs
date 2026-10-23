@@ -140,12 +140,19 @@ static class RecordingIntegrationTests
             Require(node.Snapshot.RecordingSession==interruptedSession,"Reconnect changed the logical recording session.");
             long resumedAt=Owner().MetricsRecorder.EncodedFrames;
             await Wait(()=>Owner().MetricsRecorder.EncodedFrames>=resumedAt+Fps*5,15,"The resumed recording did not encode five seconds.",()=>Details(node,coordinators,sources,producers));
-            await Command(node,peer,new(Id(),"stopRecording",interruptedSession));
+            // Planned updates temporarily revoke incoming encoding permission
+            // and await this same release path before the process exits.
+            preferences.AllowRemoteEncoding=false;
+            await node.RefreshPreferencesAsync();
+            Require(!node.Snapshot.ReplayEnabled&&!node.Snapshot.Recording&&!Owner().HasRecording&&sources.Single().Disposed,
+                "Permission revocation did not finalize recording, stop replay, and release its NDI input.");
+            var reentry=await node.Handle(peer,new(Id(),"configureReplay",Id(),sender.SourceName,profile));
+            Require(!reentry.Ok&&reentry.Code=="denied"&&sources.Count==1,"A new incoming session bypassed the update preparation permission block.");
             var resumed=saved.Where(s=>Path.GetFileName(s.LocalPath).StartsWith("Recording-",StringComparison.Ordinal)&&s.LocalPath!=normal.LocalPath&&s.LocalPath!=interrupted.LocalPath).Single();
+            Require(saved.Count==4,"Receiver permission revocation did not complete all expected media exports.");
             Require(interrupted.Seconds>=4&&resumed.Seconds>=4,"The interrupted or resumed part was truncated.");
             Require(sources.Count==1&&sources.Single().Gaps>=1,"Source loss created a second independent input or was never observed.");
             Require(!RecordingRecovery.Pending().Any(),"Successful exports left an unfinished recovery journal.");
-            await Command(node,peer,new(Id(),"disableReplay",replaySession));
             Require(!node.Snapshot.ReplayEnabled&&!node.Snapshot.Recording&&sources.Single().Disposed,"Releasing the final consumer left its NDI input active.");
             stop.Cancel();await Task.WhenAll(producers).WaitAsync(TimeSpan.FromSeconds(5));
             node.Dispose();await node.DisposalCompletion.WaitAsync(TimeSpan.FromSeconds(15));
@@ -167,6 +174,7 @@ static class RecordingIntegrationTests
             Program.Write("recording-integration-tests.json",new{Pass=true,Encoder="libx264 validation injection",OptInRequired=true,NativeNdi=true,
                 ReceiverOwnsPaths=true,SharedEncoderStartsBeforeInterruption=encoderStartsBeforeInterruption,ReplaySavedDuringRecording=true,
                 RecordingLongerThanReplayWindow=true,LogicalSessionSurvivesSourceLoss=true,SourceCount=sources.Count,SourceGaps=sources.Single().Gaps,
+                PermissionRevocationFinalizesReplayAndRecording=true,IncomingSessionsBlockedDuringPreparation=true,
                 SourceFrames=sources.Single().Frames,SourceAudioPackets=sources.Single().AudioPackets,ProducerFrames=Interlocked.Read(ref offered),ProducerSkipped=Interlocked.Read(ref skipped),
                 AtomicMp4Delivery=true,Media=media,ElapsedSeconds=timer.Elapsed.TotalSeconds,ProcessCpuSeconds=(process.TotalProcessorTime-initialCpu).TotalSeconds,
                 WorkingSetBytes=process.WorkingSet64,Artifacts=artifacts,DesktopCaptured=false,OsAudioDevicesOpened=false,HardwareEncoderTested=false,PhysicalTwoComputerLanTested=false});

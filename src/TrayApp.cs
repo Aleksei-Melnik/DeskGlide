@@ -86,6 +86,7 @@ sealed partial class TrayApp:ApplicationContext
             controller?.ReturnLocal();settings.Save();
             await FinishRecordingBeforeUpdate();
         },()=>ExitThread());
+        updater.Changed+=()=>{if(!updater.Busy&&!closing)recordingUpdatePending=false;};
         updateWait=ThreadPool.RegisterWaitForSingleObject(updateEvent,(_,_)=>{if(!closing)try{dispatcher.BeginInvoke(async()=>await updater.InstallHere(true));}catch(InvalidOperationException){}},null,Timeout.Infinite,false);
         kvmWait=ThreadPool.RegisterWaitForSingleObject(kvmEvent,(_,_)=>{if(!closing)try{dispatcher.BeginInvoke(OpenKvm);}catch(InvalidOperationException){}},null,Timeout.Infinite,false);
         saveWait=ThreadPool.RegisterWaitForSingleObject(saveEvent,(_,_)=>{if(!closing)try{dispatcher.BeginInvoke(SaveReplay);}catch(InvalidOperationException){}},null,Timeout.Infinite,false);
