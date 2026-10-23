@@ -52,29 +52,21 @@ static class ScreenshotBarLayout
 {
     internal static ScreenshotBarPositions Place(Rectangle selection,Rectangle screen,Size tools,Size actions,int gap)
     {
-        // Drawing tools follow the right edge, export actions the bottom edge.
-        // Flip at monitor boundaries, then separate the bars even for full-screen
-        // and tiny selections where they have to sit inside the frozen image.
+        // Keep one L-shaped cluster at the selection's bottom-right corner.
+        // When outside space runs out, tuck the same edge inward; never flip
+        // one panel to the opposite side of a full-screen selection.
         int tx=selection.Right+gap;
-        if(tx+tools.Width>screen.Right)tx=selection.Left-tools.Width-gap;
+        if(tx+tools.Width>screen.Right)tx=selection.Right-tools.Width;
         tx=Math.Clamp(tx,screen.Left,screen.Right-tools.Width);
         int ty=Math.Clamp(selection.Bottom-tools.Height,screen.Top,screen.Bottom-tools.Height);
         int ax=Math.Clamp(selection.Right-actions.Width,screen.Left,screen.Right-actions.Width);
         int ay=selection.Bottom+gap;
-        if(ay+actions.Height>screen.Bottom)ay=selection.Top-actions.Height-gap;
+        if(ay+actions.Height>screen.Bottom)ay=selection.Bottom-actions.Height;
         ay=Math.Clamp(ay,screen.Top,screen.Bottom-actions.Height);
-        var toolsRect=new Rectangle(tx,ty,tools.Width,tools.Height);
-        if(toolsRect.IntersectsWith(new(ax,ay,actions.Width,actions.Height)))
+        if(new Rectangle(tx,ty,tools.Width,tools.Height).IntersectsWith(new(ax,ay,actions.Width,actions.Height)))
         {
-            if(toolsRect.Left-gap-actions.Width>=screen.Left)ax=toolsRect.Left-gap-actions.Width;
-            else if(toolsRect.Right+gap+actions.Width<=screen.Right)ax=toolsRect.Right+gap;
-            else
-            {
-                // The compact bars together fit vertically on a small monitor.
-                ay=screen.Bottom-actions.Height;
-                ty=Math.Min(ty,ay-gap-tools.Height);
-                ty=Math.Max(screen.Top,ty);
-            }
+            ty=ay-gap-tools.Height;
+            if(ty<screen.Top){ty=screen.Top;ay=Math.Min(screen.Bottom-actions.Height,ty+tools.Height+gap);}
         }
         return new(new(tx,ty),new(ax,ay));
     }

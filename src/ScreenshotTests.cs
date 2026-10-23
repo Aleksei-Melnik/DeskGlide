@@ -164,6 +164,11 @@ static class ScreenshotTests
             {
                 var toolSize=screen.Height<400?new Size(52,196):new Size(28,220);var actionSize=new Size(100,28);
                 var place=ScreenshotBarLayout.Place(selection,screen,toolSize,actionSize,7);
+                if(selection==screen)
+                {
+                    Require(place.Actions.X+actionSize.Width==screen.Right&&place.Actions.Y+actionSize.Height==screen.Bottom,"Full-screen export controls escaped the bottom-right corner.");
+                    Require(place.Tools.X+toolSize.Width==screen.Right&&place.Tools.Y+toolSize.Height<place.Actions.Y,"Full-screen drawing tools were scattered away from the bottom-right controls.");
+                }
                 var toolsRect=new Rectangle(place.Tools,toolSize);var actionsRect=new Rectangle(place.Actions,actionSize);
                 Require(screen.Contains(toolsRect)&&screen.Contains(actionsRect)&&!toolsRect.IntersectsWith(actionsRect),"Compact screenshot bars overlap or escape a monitor edge.");
             }
