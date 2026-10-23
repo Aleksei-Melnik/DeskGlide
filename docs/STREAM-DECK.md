@@ -16,15 +16,12 @@ Plugin 1.0.0.0 was submitted to Elgato Marketplace under Yami (@yami) on October
 Until approval, install the current plugin package from DeskGlide or GitHub.
 Version 1.0.1 adds monitor switching and revised minimal key artwork; it is newer
 than the original pending Marketplace submission.
-Version 1.1 adds the independent Video Recording button. It needs a DeskGlide
-version that includes Settings → Video recording; older apps show Unavailable.
 
 ## Buttons
 
 | Action | Behavior |
 | --- | --- |
 | Save Replay | Saves new buffered footage since the previous save. Shows buffered time and a fill meter. |
-| Video Recording | Starts/stops an independent recording using the selected DeskGlide PC's recording settings. Shows Recording, Starting, Saving or Error. |
 | Open KVM | Opens the computer chooser, or a selected connected computer/server. Runs on the local controller PC. |
 | Switch Monitor | Moves the cursor and control to the center of the selected monitor in your layout. Works with mouse edge transitions locked. |
 | Lock Mouse Transitions | Toggles movement across monitor edges. Turning it off returns control to the controller PC. |
@@ -39,18 +36,9 @@ snapshots. Off, stalled and disconnected recording does not keep counting indefi
 **Saved** appears only after DeskGlide confirms delivery to the selected folder.
 An offline PC or failed command shows a warning. Commands are never automatically resent after a disconnect.
 
-For **Video Recording**, set the encoding computer, folder, codec and shortcut in
-**DeskGlide → Settings → Video recording** first. A red recording indicator means
-a recording is active; the next press stops and saves it. The button stays busy
-while starting or exporting. Its profile is independent of Instant replay, and
-both can run together. The Stream Deck action selects which DeskGlide app receives
-the command; that app's settings select the encoding computer and destination.
-No per-button folder path is sent. Long operations can take up to ten minutes to
-confirm. After an uncertain result, check the displayed status before pressing again.
-
 ## Two PCs / two Stream Decks
 
-Install the plugin on each PC that has a Stream Deck. For recording, replay, streaming and mouse-transition buttons,
+Install the plugin on each PC that has a Stream Deck. For replay, streaming and mouse-transition buttons,
 choose **This PC** or **Paired controller PC** in the action settings. The second option uses DeskGlide's
 existing authenticated KVM connection. Pair the computers in DeskGlide first, and update both copies.
 It does not send passwords or pairing codes to Stream Deck.
@@ -81,10 +69,3 @@ Support: [GitHub issues](https://github.com/Aleksei-Melnik/DeskGlide/issues).
 выберите **Связанный управляющий ПК**. Компьютеры должны быть подключены друг к другу в DeskGlide.
 «Сохранено» означает, что файл доставлен в выбранную папку; «Копирую» — что он пока находится
 в локальной очереди доставки. Повторное нажатие после отключения связи не повторяется автоматически.
-
-Кнопка **Video Recording** начинает и останавливает самостоятельную видеозапись.
-Сначала настройте компьютер записи, папку и формат в **DeskGlide → Настройки → Видеозапись**.
-Красный индикатор показывает активную запись; следующее нажатие завершает и сохраняет её.
-Во время запуска и сохранения дождитесь подтверждения. Повтор и видеозапись могут работать
-одновременно. Выбор «Этот ПК» или «Связанный управляющий ПК» определяет приложение, которое
-получит команду; компьютер кодирования и папка берутся из его настроек DeskGlide.

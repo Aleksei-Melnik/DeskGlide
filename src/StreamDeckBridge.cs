@@ -9,7 +9,7 @@ sealed record DeckPeer(string Id,string Name,string Version,bool Compatible);
 sealed record DeckMonitor(string Id,string Name,int Width,int Height,bool Active);
 sealed record DeckState(string Version,string Name,string Role,bool ReplayEnabled,double BufferedSeconds,int DurationSeconds,
     bool Streaming,bool Seamless,string? ReplayError,bool Saving,string SaveState,long SaveRevision,DeckPeer[] Peers,
-    DeckMonitor[]? Monitors=null,bool BufferAdvancing=false,bool Recording=false,bool RecordingBusy=false,string? RecordingError=null,string? RecordingStatus=null,bool RecordingSupported=false);
+    DeckMonitor[]? Monitors=null,bool BufferAdvancing=false);
 sealed record DeckSnapshot(DeckState Local,DeckState? Host=null);
 sealed record DeckRequest(string Id,string Command,string Target="local",string Peer="",string Monitor="");
 sealed record DeckReply(string Id,bool Ok,string Code="",string Message="",DeckSnapshot? State=null);
@@ -19,11 +19,10 @@ static class DeckProtocol
     public const int MaxLine=8192;
     internal static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
     public static bool Valid(DeckRequest r)=>Guid.TryParseExact(r.Id,"N",out _)&&r.Target is "local" or "host"&&
-        r.Command is "status" or "saveReplay" or "openKvm" or "switchMonitor" or "toggleEdges" or "toggleReplay" or "toggleStreaming" or "toggleRecording"&&
+        r.Command is "status" or "saveReplay" or "openKvm" or "switchMonitor" or "toggleEdges" or "toggleReplay" or "toggleStreaming"&&
         (r.Peer==""||Guid.TryParseExact(r.Peer,"N",out _))&&(r.Command=="openKvm"||r.Peer=="")&&
         r.Monitor!=null&&(r.Command=="switchMonitor"?r.Monitor.Length is >0 and <=256&&!r.Monitor.Any(char.IsControl):r.Monitor=="");
     public static bool RemoteAllowed(DeckRequest r)=>Valid(r)&&r.Command is not "openKvm";
-    internal static TimeSpan Timeout(string command)=>TimeSpan.FromSeconds(command is "saveReplay" or "toggleRecording"?600:8);
     public static async Task<string?> ReadLine(Stream stream,CancellationToken token)
     {
         using var buffer=new MemoryStream();byte[] one=new byte[1];

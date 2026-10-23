@@ -7,7 +7,7 @@ namespace SdrCapture;
 static class StreamDeckTests
 {
     internal static DeckSnapshot Fixture()=>new(new("0.7.20","Test PC","Host",true,120,300,true,true,null,false,"idle",0,[new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","Test Server","0.7.20",true)],
-        [new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1","Test Server · DISPLAY1",1920,1080,false),new("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|DISPLAY1","Test PC · DISPLAY1",2560,1440,true)],RecordingSupported:true));
+        [new("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1","Test Server · DISPLAY1",1920,1080,false),new("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|DISPLAY1","Test PC · DISPLAY1",2560,1440,true)]));
     public static void Run()=>RunAsync().GetAwaiter().GetResult();
     static async Task RunAsync()
     {
@@ -36,17 +36,7 @@ static class StreamDeckTests
         var status=new DeckRequest(Guid.NewGuid().ToString("N"),"status");await Send(status);Require((await Reply(status.Id)).Ok,"Pending save blocked status/other commands");
         await Send(save);Require((await Reply(save.Id)).Code=="duplicate","Duplicate save was executed");Require(executions==2,"Duplicate command dispatched");
         saving.SetResult(new(save.Id,true,State:Fixture()));Require((await Reply(save.Id)).Ok,"Save reply missing");
-        foreach(string command in new[]{"status","saveReplay","openKvm","toggleEdges","toggleReplay","toggleStreaming","toggleRecording"})Require(DeckProtocol.Valid(new(Guid.NewGuid().ToString("N"),command)),"Valid command rejected");
-        var record=new DeckRequest(Guid.NewGuid().ToString("N"),"toggleRecording","host");
-        Require(DeckProtocol.RemoteAllowed(record)&&!DeckProtocol.Valid(record with{Peer="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})&&!DeckProtocol.Valid(record with{Monitor="folder"}),"Recording control accepted an action-specific peer/path selector or rejected the configured controller.");
-        Require(DeckProtocol.Timeout("toggleRecording").TotalSeconds>=600&&DeckProtocol.Timeout("status").TotalSeconds<=8,"Recording export/preflight inherited the short status command deadline.");
-        var legacy=JsonSerializer.Deserialize<DeckState>("{\"version\":\"0.7.37\",\"name\":\"Legacy PC\",\"role\":\"Host\",\"replayEnabled\":false,\"bufferedSeconds\":0,\"durationSeconds\":300,\"streaming\":false,\"seamless\":true,\"saving\":false,\"saveState\":\"idle\",\"saveRevision\":0,\"peers\":[]}",DeckProtocol.Json)!;
-        Require(!legacy.RecordingSupported&&!legacy.Recording&&!legacy.RecordingBusy&&legacy.RecordingError==null,"An older controller's missing recording fields advertised recording support.");
-        var active=Fixture() with{Local=Fixture().Local with{Recording=true,RecordingBusy=true,RecordingStatus="Finalizing recording…"}};
-        var roundtrip=JsonSerializer.Deserialize<DeckSnapshot>(JsonSerializer.Serialize(active,DeckProtocol.Json),DeckProtocol.Json)!;
-        Require(roundtrip.Local is{Recording:true,RecordingBusy:true,RecordingSupported:true,RecordingStatus:"Finalizing recording…"},"Recording status did not roundtrip through the private IPC DTO.");
-        await Send(record);Require((await Reply(record.Id)).Ok,"The private bridge did not dispatch recording control.");
-        await Send(record);Require((await Reply(record.Id)).Code=="duplicate","A duplicate recording toggle was dispatched twice.");
+        foreach(string command in new[]{"status","saveReplay","openKvm","toggleEdges","toggleReplay","toggleStreaming"})Require(DeckProtocol.Valid(new(Guid.NewGuid().ToString("N"),command)),"Valid command rejected");
         Require(!DeckProtocol.Valid(new("bad","status")),"Bad id accepted");Require(!DeckProtocol.Valid(new(save.Id,"exec")),"Arbitrary command accepted");
         Require(!DeckProtocol.RemoteAllowed(new(save.Id,"openKvm","host")),"Remote UI request accepted");
         Require(!DeckProtocol.Valid(new(save.Id,"status","other")),"Arbitrary target accepted");
@@ -63,7 +53,7 @@ static class StreamDeckTests
         Require(JsonDocument.Parse((await DeckProtocol.ReadLine(next,token))!).RootElement.GetProperty("type").GetString()=="status","Malformed client killed listener");
         server.Dispose();server.Dispose();
         Require(!File.Exists(discovery)&&!File.Exists(discovery+".tmp"),"Discovery writer retained files after shutdown");
-        Program.Write("streamdeck-tests.json",new{Pass=true,DirectPluginInstallation=true,ConcurrentSaveAndStatus=true,DuplicateSuppressed=true,CommandsWhitelisted=true,RecordingControl=true,RecordingStatusAndLegacyRoundtrip=true,LongRecordingDeadline=true,BoundedInput=true,LocalNamedPipeRoundtrip=true,LiveInputInjected=false});
+        Program.Write("streamdeck-tests.json",new{Pass=true,DirectPluginInstallation=true,ConcurrentSaveAndStatus=true,DuplicateSuppressed=true,CommandsWhitelisted=true,BoundedInput=true,LocalNamedPipeRoundtrip=true,LiveInputInjected=false});
         Directory.Delete(folder);
     }
     static void Require(bool condition,string error){if(!condition)throw new Exception(error);}
@@ -87,9 +77,8 @@ static class StreamDeckTests
         Require((await clientDeck.Execute(request)).Code=="duplicate"&&calls==1,"Paired command was repeated");
         Require((await clientDeck.Execute(new(Guid.NewGuid().ToString("N"),"openKvm","host"))).Code=="unsupported"&&calls==1,"Remote UI command executed");
         var monitorResult=await clientDeck.Execute(new(Guid.NewGuid().ToString("N"),"switchMonitor","host",Monitor:"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1")).WaitAsync(token);Require(monitorResult.Ok&&monitorResult.State?.Local.Monitors?.Length==2&&calls==2,"Paired monitor selection did not roundtrip");
-        var recordResult=await clientDeck.Execute(new(Guid.NewGuid().ToString("N"),"toggleRecording","host")).WaitAsync(token);Require(recordResult.Ok&&recordResult.State?.Local.RecordingSupported==true&&calls==3,"Paired recording command/status did not roundtrip.");
         var pending=clientDeck.Execute(new(Guid.NewGuid().ToString("N"),"toggleStreaming","host"));
-        while(calls<4)await Task.Delay(20,token);
+        while(calls<3)await Task.Delay(20,token);
         host.Dispose();Require(!(await pending.WaitAsync(token)).Ok,"Disconnected command reported success");
         Program.Write("streamdeck-network-tests.json",new{Pass=true,TlsPairedRoundtrip=true,CapabilityNegotiated=true,DuplicateSuppressed=true,RemoteUiDenied=true,DisconnectFailsPendingCommand=true,ReplayFixtureOnly=true});
     }
@@ -97,10 +86,9 @@ static class StreamDeckTests
     // recorder, capture, network KVM, clipboard, hotkeys or input hooks are started.
     public static void FixtureServer(string descriptor,string transcript)
     {
-        var state=Fixture();StreamDeckBridge? server=null;using var owned=server=new StreamDeckBridge(r=>
+        var state=Fixture();using var server=new StreamDeckBridge(r=>
         {
             File.AppendAllText(transcript,JsonSerializer.Serialize(r,DeckProtocol.Json)+"\n");
-            if(r.Command=="toggleRecording"){state=state with{Local=state.Local with{Recording=!state.Local.Recording,RecordingStatus=state.Local.Recording?"Recording stopped.":"Recording on this PC."}};server!.Publish(state);}
             return Task.FromResult(new DeckReply(r.Id,true,State:state));
         },descriptor,"DeskGlide.StreamDeck.Fixture."+Guid.NewGuid().ToString("N"));server.Publish(state);
         Thread.Sleep(TimeSpan.FromSeconds(90));

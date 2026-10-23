@@ -29,8 +29,6 @@ test('official SDK -> Windows pipe -> DeskGlide reply; disconnect and reconnect'
     event('willAppear', 'save-replay', 'save');
     event('willAppear', 'open-kvm', 'kvm', { peer: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' });
     event('willAppear', 'switch-monitor', 'monitor', { monitor: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1' });
-    event('willAppear', 'recording', 'record');
-    event('willAppear', 'recording', 'record-host', { target: 'host' });
     await until(() => messages.some(m => m.event === 'setTitle' && m.context === 'save' && m.payload.title === '2:00'), 'live buffer title');
     event('keyDown', 'save-replay', 'save');
     event('keyDown', 'open-kvm', 'kvm', { peer: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' });
@@ -38,16 +36,6 @@ test('official SDK -> Windows pipe -> DeskGlide reply; disconnect and reconnect'
     await until(async () => { try { const lines = (await readFile(transcript, 'utf8')).trim().split('\n').map(x => JSON.parse(x)); return lines.some(r => r.command === 'saveReplay') && lines.some(r => r.command === 'openKvm' && r.peer === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'); } catch { return false; } }, 'typed commands');
     await until(() => messages.some(m => m.event === 'showOk' && m.context === 'kvm'), 'acknowledged action');
     await until(async () => { const lines = (await readFile(transcript, 'utf8')).trim().split('\n').map(x => JSON.parse(x)); return lines.some(r => r.command === 'switchMonitor' && r.monitor === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|DISPLAY1'); }, 'monitor command without hotkey emulation');
-    await until(() => messages.some(m => m.event === 'setTitle' && m.context === 'record' && m.payload.title === 'Record'), 'independent recording action ready');
-    event('keyDown', 'recording', 'record');event('keyDown', 'recording', 'record');
-    await until(() => messages.some(m => m.event === 'setTitle' && m.context === 'record' && m.payload.title === 'Recording'), 'recording start acknowledged');
-    event('keyDown', 'recording', 'record');
-    await until(async () => { const lines = (await readFile(transcript, 'utf8')).trim().split('\n').map(x => JSON.parse(x)); return lines.filter(r => r.command === 'toggleRecording').length === 2; }, 'separate start and stop commands');
-    assert.equal((await readFile(transcript, 'utf8')).trim().split('\n').map(x => JSON.parse(x)).filter(r => r.command === 'toggleRecording').length, 2, 'Repeated keydown while busy must not immediately stop the new recording');
-    const recordingCount = (await readFile(transcript, 'utf8')).trim().split('\n').length;
-    event('keyDown', 'recording', 'record-host', { target: 'host' });
-    await until(() => messages.some(m => m.event === 'showAlert' && m.context === 'record-host'), 'disconnected recording host feedback');
-    assert.equal((await readFile(transcript, 'utf8')).trim().split('\n').length, recordingCount, 'Offline host recording must not fall back to local recording');
     server.kill(); await new Promise(r => server.once('exit', r));
     await until(() => messages.some(m => m.event === 'setTitle' && m.context === 'save' && m.payload.title === 'Offline'), 'disconnect feedback');
     const before = (await readFile(transcript, 'utf8')).trim().split('\n').length;

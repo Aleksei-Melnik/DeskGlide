@@ -276,5 +276,3 @@ fixtures do not substitute for game-load, remote-network or hardware benchmarks.
 
 See `LICENSE` and `THIRD-PARTY-NOTICES.md` for dependency terms. NDI and VB-CABLE
 remain their vendors' products. FFmpeg binaries are not redistributed in releases.
-
-Recording and paired encoding-PC setup: [recording guide](docs/RECORDING.md).

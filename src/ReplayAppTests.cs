@@ -5,6 +5,7 @@ static class ReplayAppTests
     static void Require(bool value,string message){if(!value)throw new Exception(message);}
     public static void Run()
     {
+        PreservePendingRecordingBuffers();
         var timeline=new ReplayAppTimeline();
         Require(timeline.Resolve(0,600)=="Desktop","Empty activity did not use Desktop.");
         timeline.Observe("Counter-Strike 2",10);timeline.Observe("Desktop",590);
@@ -29,6 +30,34 @@ static class ReplayAppTests
             string safe=ReplayAppContext.SafeName(name);Require(!safe.Contains('/')&&!safe.Contains('\\')&&!safe.Contains(':')&&safe.Length<=80&&safe!="CON"&&safe!="LPT1.txt","Unsafe application folder name accepted.");
         }
         Program.Write("replay-app-tests.json",new{Pass=true,ClipIntervalSelectsFolder=true,AltTabToDesktopRetainsGameClip=true,NewDesktopFootageSeparate=true,
-            OrdinaryAppsRecognized=true,NoGroupingRespected=true,UnsafeNamesSanitized=true,NoLiveProfileChanges=true});
+            OrdinaryAppsRecognized=true,NoGroupingRespected=true,UnsafeNamesSanitized=true,NoLiveProfileChanges=true,PendingNewerRecordingsPreserved=true});
+    }
+    static void PreservePendingRecordingBuffers()
+    {
+        string root=Path.Combine(Path.GetTempPath(),"DeskGlide-RollbackTest-"+Guid.NewGuid().ToString("N"));
+        string? previous=Environment.GetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT");
+        try
+        {
+            string pending=Path.Combine(root,"buffer",Guid.NewGuid().ToString("N")),stale=Path.Combine(root,"buffer",Guid.NewGuid().ToString("N"));
+            string Fixture(string folder)
+            {
+                string session=Path.Combine(folder,Guid.NewGuid().ToString("N"));Directory.CreateDirectory(session);
+                File.WriteAllText(Path.Combine(session,"seg-000.mkv"),"recording payload");File.WriteAllText(Path.Combine(session,"chunks.csv"),"segment index");
+                return session;
+            }
+            string protectedSession=Fixture(pending),staleSession=Fixture(stale);
+            string journal=Path.Combine(pending,"recording-"+Guid.NewGuid().ToString("N")+".json");File.WriteAllText(journal,"pending newer-version journal");
+            Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",root);
+            using var recorder=new ReplayRecorder(new(){Enabled=false},true,null,null,startEncoder:false);
+            Require(File.Exists(journal)&&File.Exists(Path.Combine(protectedSession,"seg-000.mkv"))&&File.ReadAllText(Path.Combine(protectedSession,"seg-000.mkv"))=="recording payload"&&File.Exists(Path.Combine(protectedSession,"chunks.csv")),"Rollback cleanup deleted fragments belonging to a pending newer recording.");
+            Require(!Directory.Exists(staleSession),"Rollback protection disabled ordinary stale replay cleanup.");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",previous);
+            string resolved=Path.GetFullPath(root),prefix=Path.GetFullPath(Path.GetTempPath())+"DeskGlide-RollbackTest-";
+            if(!resolved.StartsWith(prefix,StringComparison.OrdinalIgnoreCase))throw new IOException("Invalid rollback test directory.");
+            if(Directory.Exists(resolved))Directory.Delete(resolved,true);
+        }
     }
 }

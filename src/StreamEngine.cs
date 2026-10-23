@@ -15,7 +15,6 @@ public sealed class StreamEngine:IDisposable
     Task? captureTask,sendTask;
     int restartVersion;
     int disposed;
-    long lastCapturePoll;
     public string Status {get;private set;}="Остановлено";
     public string CaptureStatus {get;private set;}="Подготовка";
     public string? Error {get;private set;}
@@ -45,7 +44,6 @@ public sealed class StreamEngine:IDisposable
     internal Action<CaptureObservation>? CaptureObserved;
     internal bool BlockingReadbackForTest;
     public volatile bool NdiEnabled=true;
-    public volatile int NdiFrameRate=60;
     public volatile int NdiAudioVolume=50;
     public volatile string NdiAudioDevice="";
     public string NdiAudioStatus {get;private set;}="Silent";
@@ -61,8 +59,6 @@ public sealed class StreamEngine:IDisposable
     public void Update(CaptureOptions value)=>Volatile.Write(ref options,value);
     public void RequestCaptureRestart()=>Interlocked.Increment(ref restartVersion);
     internal static int RecordingCaptureRate(int requested)=>Math.Min(240,requested*2);
-    internal static bool CaptureIsActive(long now,long lastPoll,long frequency,bool recovering)=>
-        !recovering&&lastPoll>0&&now>=lastPoll&&now-lastPoll<=frequency*3;
     void CaptureLoop()
     {
         Thread.CurrentThread.Priority=ThreadPriority.AboveNormal;
@@ -76,7 +72,7 @@ public sealed class StreamEngine:IDisposable
         {
             while(!stop.IsCancellationRequested)
             {
-                int requested=Math.Max(NdiEnabled?(NdiFrameRate==120?120:60):1,ReplayEnabled?ReplayFrameRate:1);
+                int requested=Math.Max(NdiEnabled?60:1,ReplayEnabled?ReplayFrameRate:1);
                 // An integer acquisition/output ratio avoids the recurring
                 // short/long motion steps caused by resampling 72/144 Hz to
                 // 60/120 FPS. Two polls per recording interval also provide
@@ -120,9 +116,6 @@ public sealed class StreamEngine:IDisposable
                     capture.FrameWaitMilliseconds=ReplayEnabled?(uint)Math.Clamp(1000/CaptureRate,1,8):0;
                     long begin=Stopwatch.GetTimestamp();
                     var fresh=capture.Next();
-                    // No changed desktop image is still a healthy capture
-                    // poll. A native call that never returns stops this pulse.
-                    Volatile.Write(ref lastCapturePoll,Stopwatch.GetTimestamp());
                     CaptureMs=Stopwatch.GetElapsedTime(begin).TotalMilliseconds;
                     WhiteNits=capture.WhiteNits;
                     GpuReadbackDrops=capture.ReadbackDrops;
@@ -171,8 +164,6 @@ public sealed class StreamEngine:IDisposable
             long reportAt=Stopwatch.GetTimestamp(),reportFrames=0;
             while(!stop.IsCancellationRequested)
             {
-                int outputRate=NdiFrameRate==120?120:60;
-                pacing.SetRate(outputRate);
                 MissedSlots+=pacing.Wait(stop.Token);
                 if(stop.IsCancellationRequested) break;
                 var fresh=Interlocked.Exchange(ref pending,null);
@@ -203,7 +194,7 @@ public sealed class StreamEngine:IDisposable
                 }
                 if(current==null){Status="Ожидание первого SDR-кадра";continue;}
                 long begin=Stopwatch.GetTimestamp();
-                sender.Send(current,outputRate,CaptureIsActive(begin,Volatile.Read(ref lastCapturePoll),Stopwatch.Frequency,CaptureStatus=="Восстановление захвата"));
+                sender.Send(current);
                 SendMs=Stopwatch.GetElapsedTime(begin).TotalMilliseconds;MaxSendMs=Math.Max(MaxSendMs,SendMs);
                 NdiAudioStatus=sender.AudioStatus;
                 Frames++;

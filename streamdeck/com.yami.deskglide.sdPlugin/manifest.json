@@ -5,8 +5,8 @@
   "Category": "DeskGlide",
   "CategoryIcon": "imgs/category",
   "Author": "Yami",
-  "Description": "Save instant replays, start and stop video recordings, open remote computers and control mouse transitions with live DeskGlide status.",
-  "Version": "1.1.0.0",
+  "Description": "Save instant replays, open remote computers and control mouse transitions with live DeskGlide status.",
+  "Version": "1.0.1.0",
   "CodePath": "bin/plugin.js",
   "Icon": "imgs/plugin",
   "URL": "https://github.com/Aleksei-Melnik/DeskGlide",
@@ -43,29 +43,6 @@
         },
         {
           "Image": "imgs/save-replay",
-          "TitleAlignment": "bottom",
-          "FontSize": 10
-        }
-      ]
-    },
-    {
-      "UUID": "com.yami.deskglide.recording",
-      "Name": "Video Recording",
-      "Tooltip": "Video Recording",
-      "Icon": "imgs/recording-list",
-      "Controllers": [
-        "Keypad"
-      ],
-      "DisableAutomaticStates": true,
-      "SupportedInMultiActions": false,
-      "States": [
-        {
-          "Image": "imgs/recording",
-          "TitleAlignment": "bottom",
-          "FontSize": 10
-        },
-        {
-          "Image": "imgs/recording",
           "TitleAlignment": "bottom",
           "FontSize": 10
         }

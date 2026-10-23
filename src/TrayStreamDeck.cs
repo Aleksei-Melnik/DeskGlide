@@ -15,10 +15,9 @@ sealed partial class TrayApp
         deckBridge=new(ExecuteDeck);PublishDeckState();
     }
     DeckState DeckLocalState()=>new(Updates.VersionText,Environment.MachineName,settings.Kvm.Role,settings.Replay.Enabled,
-        Math.Round(ReplayBufferedSeconds,2),settings.Replay.BufferSeconds,engine.NdiEnabled,controller?.Seamless??false,
-        ReplayProblem,savingReplay,deckSaveState,deckSaveRevision,(kvm?.Peers??[]).Select(p=>new DeckPeer(p.Id,p.Name,p.Version,p.DeckProtocol>=1)).ToArray(),
-        settings.Kvm.Role=="Host"?(controller?.Monitors??[]).Select(m=>new DeckMonitor(m.Key,m.Name,m.Width,m.Height,m.Key==controller?.ActiveMonitorKey)).ToArray():[],ReplayAdvancing,
-        Recording:RecordingRunning,RecordingBusy:recordingBusy,RecordingError:recordingError??recordings.Error??(remoteRecordingPeer==null?null:recordingStates.GetValueOrDefault(remoteRecordingPeer)?.Error),RecordingStatus:recordingStatus,RecordingSupported:true);
+        Math.Round(replay.DisplayBufferedSeconds,2),settings.Replay.BufferSeconds,engine.NdiEnabled,controller?.Seamless??false,
+        replay.Error,savingReplay,deckSaveState,deckSaveRevision,(kvm?.Peers??[]).Select(p=>new DeckPeer(p.Id,p.Name,p.Version,p.DeckProtocol>=1)).ToArray(),
+        settings.Kvm.Role=="Host"?(controller?.Monitors??[]).Select(m=>new DeckMonitor(m.Key,m.Name,m.Width,m.Height,m.Key==controller?.ActiveMonitorKey)).ToArray():[],replay.BufferAdvancing);
     void PublishDeckState()
     {
         if(closing)return;
@@ -59,9 +58,8 @@ sealed partial class TrayApp
                     {
                         case "status":break;
                         case "saveReplay":await SaveDeckReplay();break;
-                        case "toggleRecording":await ToggleRecordingAsync();break;
                         case "toggleReplay":ApplyReplay(settings.Replay with{Enabled=!settings.Replay.Enabled});break;
-                        case "toggleStreaming":settings.SendOnLaunch=!settings.SendOnLaunch;settings.Save();UpdateRecordingCaptureDemand();break;
+                        case "toggleStreaming":settings.SendOnLaunch=!settings.SendOnLaunch;settings.Save();engine.NdiEnabled=settings.SendOnLaunch;break;
                         case "toggleEdges":
                             if(settings.Kvm.Role!="Host"||controller==null)throw new InvalidOperationException("Set up this PC as a KVM controller first.");
                             controller.Seamless=!controller.Seamless;settings.Kvm.Seamless=controller.Seamless;
@@ -97,12 +95,6 @@ sealed partial class TrayApp
         try
         {
             ReplayAppContext.Capture();notifications.Enqueue(UiStrings.F("Saving the last {0}…",ReplayTime.Format(settings.Replay.BufferSeconds)));
-            if(settings.Replay.EncodingComputer.Length>0)
-            {
-                await SaveRemoteReplay();deckSaveState="saved";deckSaveRevision++;
-                if(settings.Replay.SaveSoundEnabled)saveSound.Play(settings.Replay.SaveSoundVolume);
-                return;
-            }
             var result=await replay.SaveAsync();
             // Delivery may finish before the export continuation returns to the UI.
             if(deliveredDeckSaves.Remove(result.LocalPath)){deckSaveState="saved";deckSaveRevision++;}

@@ -22,20 +22,14 @@ class DeskAction extends SingletonAction {
   async onKeyDown(ev) {
     const entry = this.visible.get(ev.action.id);
     if (!entry || entry.busy) return;
-    if (this.kind === 'recording' && stateFor(bridge.snapshot, entry.settings)?.recordingBusy) return;
-    entry.failedAt = undefined;
     entry.busy = true; await this.renderAll();
     try {
       const settings = entry.settings;
-      const current = stateFor(bridge.snapshot, settings);
-      if (this.kind === 'recording' && !current) throw new Error(settings.language === 'ru' ? 'Выбранный ПК отключён. Команда записи не отправлена.' : 'The selected PC is disconnected. No recording command was sent.');
-      if (this.kind === 'recording' && current && !current.recordingSupported) throw new Error(settings.language === 'ru' ? 'Обновите DeskGlide на выбранном ПК для управления видеозаписью.' : 'Update DeskGlide on the selected PC to use Video Recording.');
       const reply = await bridge.request(actions[this.kind].command, this.kind === 'open-kvm' ? 'local' : settings.target ?? 'local', this.kind === 'open-kvm' ? settings.peer ?? '' : '', this.kind === 'switch-monitor' ? settings.monitor ?? '' : '');
       if (!reply.ok) throw new Error(reply.message || reply.code);
       if (this.kind !== 'save-replay') await ev.action.showOk();
       else if (stateFor(reply.state, settings)?.saveState === 'saved') { entry.savedUntil = Date.now() + 6000; await ev.action.showOk(); }
     } catch (e) {
-      if (this.kind === 'recording') entry.failedAt = Date.now();
       streamDeck.logger.warn(`${this.kind}: ${e.message}`); await ev.action.showAlert();
       streamDeck.ui.sendToPropertyInspector({ type: 'error', message: e.message }).catch(() => {});
     } finally { entry.busy = false; entry.last = null; await this.renderAll(); }
@@ -47,12 +41,11 @@ class DeskAction extends SingletonAction {
     this.renderAgain = false;
     for (const entry of this.visible.values()) {
       const current = stateFor(bridge.snapshot, entry.settings);
-      if (entry.failedAt && bridge.receivedAt > entry.failedAt) entry.failedAt = undefined;
       if (entry.revision !== undefined && current?.saveRevision > entry.revision && this.kind === 'save-replay') {
         entry.savedUntil = Date.now() + 6000; entry.action.showOk().catch(() => {});
       }
       if (current) entry.revision = current.saveRevision; else entry.revision = undefined;
-      const view = describe(this.kind, bridge.snapshot, entry.settings, entry.busy, entry.savedUntil > Date.now(), (Date.now() - (bridge.receivedAt ?? Date.now())) / 1000, !!entry.failedAt);
+      const view = describe(this.kind, bridge.snapshot, entry.settings, entry.busy, entry.savedUntil > Date.now(), (Date.now() - (bridge.receivedAt ?? Date.now())) / 1000);
       const signature = JSON.stringify(view); if (entry.last === signature) continue; entry.last = signature;
       try {
         await entry.action.setState(view.state);
