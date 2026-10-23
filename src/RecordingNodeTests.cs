@@ -66,12 +66,13 @@ static class RecordingNodeTests
             Require((await lifecycle.Handle(first,new(Id(),"startRecording",logical,sourceName,new(),"Remote game"))).Ok,"Recording lifecycle fixture could not start.");
             sources.Single().SetAvailable(true);
             await Wait(()=>coordinators[0].HasRecording,3,"A live source did not open a continuous lease.");
-            string journal=RecordingRecovery.Pending().Single();var metadata=JsonSerializer.Deserialize<RecordingJournal>(File.ReadAllText(journal))!;
+            string journal=RecordingRecovery.Pending().Single();RecordingJournal metadata=null!;
+            await Wait(()=>{metadata=ReadJournal(journal);return true;},3,"The active recording journal could not be read.");
             Require(metadata.Options.Folder==prefs.Profile.Folder&&metadata.Options.Microphone==""&&metadata.Options.ExtraAudio==""&&metadata.Options.GameAudio=="ndi:"+sourceName&&metadata.Options.AudioMode=="Mixed"&&metadata.App=="Remote game","Continuous journal did not use receiver-owned paths and the incoming NDI audio source.");
             Require(metadata.Id!=logical,"Internal segment lease replaced the logical recording session ID.");
             Require((await lifecycle.Handle(first,new(Id(),"disableReplay",lifecycleReplay))).Ok&&coordinators[0].HasRecording&&lifecycle.Snapshot.Recording&&!lifecycle.Snapshot.ReplayEnabled&&!sources.Single().Disposed,"Disabling replay interrupted an open continuous lease.");
             sources.Single().SetAvailable(false);
-            await Wait(()=>JsonSerializer.Deserialize<RecordingJournal>(File.ReadAllText(journal))?.End!=null,3,"Source loss did not seal the interrupted recording.");
+            await Wait(()=>ReadJournal(journal).End!=null,3,"Source loss did not seal the interrupted recording.");
             await Wait(()=>RecordingRecovery.Pending().Contains(journal)&&lifecycle.Snapshot.Recording,3,"Source loss discarded the logical session or its journal.");
             Require(lifecycle.Snapshot.RecordingSession==logical&&lifecycle.Snapshot.OutputFps==0,"Source loss reported an unrelated recording or continued encoded output.");
             sources.Single().SetAvailable(true);
@@ -116,8 +117,21 @@ static class RecordingNodeTests
             if(Directory.Exists(root))Directory.Delete(root,true);
         }
     }
+    static RecordingJournal ReadJournal(string path)
+    {
+        using var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+        return JsonSerializer.Deserialize<RecordingJournal>(stream)??throw new InvalidOperationException("The active recording journal was empty.");
+    }
     static async Task Wait(Func<bool> condition,int seconds,string message)
-    {var watch=Stopwatch.StartNew();while(!condition()&&watch.Elapsed.TotalSeconds<seconds)await Task.Delay(20);Require(condition(),message);}
+    {
+        var watch=Stopwatch.StartNew();IOException? readError=null;
+        while(true)
+        {
+            try{if(condition())return;}catch(IOException error){readError=error;}
+            if(watch.Elapsed.TotalSeconds>=seconds)throw new InvalidOperationException(message,readError);
+            await Task.Delay(20);
+        }
+    }
     sealed class FixtureSource(string name,Action<bool> availability):IRecordingNodeSource
     {
         public bool Disposed{get;private set;}
