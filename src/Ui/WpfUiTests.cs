@@ -49,7 +49,11 @@ static class WpfUiTests
     {for(int i=0;i<M.VisualTreeHelper.GetChildrenCount(root);i++){var child=M.VisualTreeHelper.GetChild(root,i);yield return child;foreach(var nested in Children(child))yield return nested;}}
     static void Invoke(C.Button button)
     {
-        var root=W.Window.GetWindow(button);var centre=button.TranslatePoint(new(button.ActualWidth/2,button.ActualHeight/2),(W.UIElement)root.Content);
+        var root=W.Window.GetWindow(button);
+        // Navigation grows with feature pages; scroll the requested control
+        // into its actual viewport before checking that it can receive a click.
+        button.BringIntoView();root.UpdateLayout();Pump();
+        var centre=button.TranslatePoint(new(button.ActualWidth/2,button.ActualHeight/2),(W.UIElement)root.Content);
         var hit=((W.UIElement)root.Content).InputHitTest(centre) as W.DependencyObject;
         bool reached=false;while(hit!=null){if(hit==button){reached=true;break;}hit=M.VisualTreeHelper.GetParent(hit);}
         Require(reached,"Button covered by another hit-test surface: "+button.Tag);
