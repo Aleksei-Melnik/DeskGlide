@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 
 namespace SdrCapture;
 
-sealed class ReplayChunk(string path,double start,double end,long bytes,int generation,string codec,int fps)
+sealed class ReplayChunk(string path,double start,double end,long bytes,int generation,string codec,int fps,int width=0,int height=0)
 {
     public string Path=path;
     public double Start=start,End=end;
@@ -17,10 +17,11 @@ sealed class ReplayChunk(string path,double start,double end,long bytes,int gene
     public int Generation=generation;
     public string Codec=codec;
     public int Fps=fps;
+    public int Width=width,Height=height;
 }
 public sealed record ReplayResult(string LocalPath,string Destination,double Seconds,string Message);
 
-public sealed class ReplayRecorder:IDisposable
+public sealed partial class ReplayRecorder:IDisposable
 {
     readonly CancellationTokenSource stop=new();
     readonly object chunksGate=new();
@@ -87,28 +88,30 @@ public sealed class ReplayRecorder:IDisposable
         options=value with {};this.syntheticAudio=syntheticAudio;this.testWindowSeconds=testWindowSeconds;
         runFolder=Path.Combine(ReplayTools.Root,"buffer",Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(runFolder);
+        runOwnership=new FileStream(Path.Combine(runFolder,"active.lock"),FileMode.CreateNew,FileAccess.ReadWrite,FileShare.None);
         CleanOldBuffers();
         incoming=new(ConvertFrame,e=>{Error=e.Message;Log.Write("Recording frame conversion: "+e.Message);});
         worker=startEncoder?Task.Run(Run):Task.CompletedTask;
     }
     void CleanOldBuffers()
     {
-        // Only our GUID-named buffer/session folders, never saved clips or arbitrary paths.
         string bufferRoot=Path.GetFullPath(Path.Combine(ReplayTools.Root,"buffer"))+Path.DirectorySeparatorChar;
         foreach(string old in Directory.GetDirectories(bufferRoot))
         {
-            if(old==runFolder||!Guid.TryParseExact(Path.GetFileName(old),"N",out _)||(File.GetAttributes(old)&FileAttributes.ReparsePoint)!=0)continue;
-            if(!Path.GetFullPath(old).StartsWith(bufferRoot,StringComparison.OrdinalIgnoreCase))continue;
+            if(old==runFolder||!Guid.TryParseExact(Path.GetFileName(old),"N",out _)||(File.GetAttributes(old)&FileAttributes.ReparsePoint)!=0||!Path.GetFullPath(old).StartsWith(bufferRoot,StringComparison.OrdinalIgnoreCase))continue;
+            // A journal protects user recordings across crashes. A live lock
+            // protects another independent encoder instance in this process too.
+            if(Directory.EnumerateFiles(old,"recording-*.json").Any())continue;
             try
             {
+                using(var owner=new FileStream(Path.Combine(old,"active.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None))
                 foreach(string session in Directory.GetDirectories(old))
                 {
                     if(!Guid.TryParseExact(Path.GetFileName(session),"N",out _)||(File.GetAttributes(session)&FileAttributes.ReparsePoint)!=0)continue;
-                    foreach(string file in Directory.GetFiles(session))
-                        if(Regex.IsMatch(Path.GetFileName(file),@"^(seg-\d+\.mkv|chunks\.csv)$"))TryDelete(file);
+                    foreach(string file in Directory.GetFiles(session))if(Regex.IsMatch(Path.GetFileName(file),@"^(seg-\d+\.mkv|chunks\.csv)$"))TryDelete(file);
                     if(!Directory.EnumerateFileSystemEntries(session).Any())Directory.Delete(session,false);
                 }
-                if(!Directory.EnumerateFileSystemEntries(old).Any())Directory.Delete(old,false);
+                TryDelete(Path.Combine(old,"active.lock"));if(!Directory.EnumerateFileSystemEntries(old).Any())Directory.Delete(old,false);
             }
             catch(IOException){}catch(UnauthorizedAccessException){}
         }
@@ -174,7 +177,7 @@ public sealed class ReplayRecorder:IDisposable
     {
         value.Validate();var old=Volatile.Read(ref options);Volatile.Write(ref options,value with {});
         if(!value.Enabled){incoming.Clear();lock(framesGate){foreach(var frame in frames)frame.Dispose();frames.Clear();}}
-        if(old.Enabled!=value.Enabled||old.Quality!=value.Quality||old.Codec!=value.Codec||old.AudioMode!=value.AudioMode||old.Fps!=value.Fps||old.Width!=value.Width||old.Height!=value.Height||old.Microphone!=value.Microphone||old.GameAudio!=value.GameAudio||old.ExtraAudio!=value.ExtraAudio||old.Silent!=value.Silent)Interlocked.Increment(ref version);
+        if(old.Enabled!=value.Enabled||!RecordingCapabilities.EncodingEquivalent(old,value))Interlocked.Increment(ref version);
     }
     async Task Run()
     {
@@ -206,7 +209,7 @@ public sealed class ReplayRecorder:IDisposable
                 await RecordingTools.EnsureAsync(message=>Status=message,stop.Token);
                 // Setup may outlive a settings change. Re-read on the next pass.
                 if(!Volatile.Read(ref options).Enabled||Volatile.Read(ref version)!=currentVersion)continue;
-                Status=UiStrings.T("Checking GPU recording support…");
+                Status=UiStrings.T(config.Encoder=="CPU"?"Checking CPU x264 recording support…":"Checking GPU recording support…");
                 var encoder=validationEncoder??await RecordingEncoders.SelectAsync(config,Width,Height,stop.Token,inputWidth,inputHeight);
                 if(!Volatile.Read(ref options).Enabled||Volatile.Read(ref version)!=currentVersion)continue;
                 using var captureAudio=new ReplayAudio(config,syntheticAudio,200);audio=captureAudio;
@@ -231,6 +234,7 @@ public sealed class ReplayRecorder:IDisposable
         using var sessionStop=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
         var token=sessionStop.Token;
         double epoch=0,lastVideo=Now;int parsed=-1;
+        int ending=0,videoEnded=0;long writtenVideoFrames=0;
         var started=new TaskCompletionSource<double>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var videoEncoder=config.IsSilent&&inputWidth==Width&&inputHeight==Height?null:new RecordingVideoEncoder(videoName,inputWidth,inputHeight,Width,Height,config.Fps,encoder,token);
         var args=new List<string>{"-hide_banner","-loglevel","warning","-nostdin","-y"};
@@ -280,7 +284,7 @@ public sealed class ReplayRecorder:IDisposable
                     string path=Path.Combine(folder,match.Groups[1].Value);
                     double start=double.Parse(match.Groups[3].Value,CultureInfo.InvariantCulture),end=double.Parse(match.Groups[4].Value,CultureInfo.InvariantCulture);
                     if(end<=start||!File.Exists(path))continue;
-                    lock(chunksGate)chunks.Add(new ReplayChunk(path,epoch+start,epoch+end,new FileInfo(path).Length,currentVersion,config.Codec,config.Fps));
+                    AddChunk(new ReplayChunk(path,epoch+start,epoch+end,new FileInfo(path).Length,currentVersion,config.Codec,config.Fps,Width,Height));
                     parsed=index;
                 }
             }
@@ -304,6 +308,7 @@ public sealed class ReplayRecorder:IDisposable
                 var anchorWait=Stopwatch.StartNew();
                 while(true)
                 {
+                    if(Volatile.Read(ref ending)!=0||Volatile.Read(ref version)!=currentVersion)return;
                     using var anchor=GetFrame();
                     if(anchor!=null&&anchor.CapturedAt>=AudioReadyTicks){SessionEpochTicks=anchor.CapturedAt;break;}
                     // A static/silent desktop need not publish another image.
@@ -322,11 +327,12 @@ public sealed class ReplayRecorder:IDisposable
                 // is independent of the longer local/network audio wait.
                 double playout=Math.Max(2.0/config.Fps,.10);
                 long frameIndex=0,previousCapture=-1;
-                while(!token.IsCancellationRequested&&Volatile.Read(ref version)==currentVersion)
+                while(!token.IsCancellationRequested&&Volatile.Read(ref ending)==0&&Volatile.Read(ref version)==currentVersion)
                 {
                     double due=epoch+frameIndex/(double)config.Fps;
                     pacing.WaitUntil((long)((due+playout)*Stopwatch.Frequency),token);
                     token.ThrowIfCancellationRequested();
+                    if(Volatile.Read(ref ending)!=0||Volatile.Read(ref version)!=currentVersion)break;
                     MaxWriterLateMs=Math.Max(MaxWriterLateMs,(Now-due)*1000);
                     if(Now-epoch>5&&Now-due>1)throw new IOException(UiStrings.F("{0} cannot keep up with {1} FPS. Lower recording resolution or frame rate.",encoder.Label,config.Fps));
                     // Match distinct pictures through short DWM/render timing
@@ -342,10 +348,10 @@ public sealed class ReplayRecorder:IDisposable
                     long written=Stopwatch.GetTimestamp();
                     writer.Write(data[..(inputWidth*inputHeight*3/2)],token);
                     MaxPipeWriteMs=Math.Max(MaxPipeWriteMs,Stopwatch.GetElapsedTime(written).TotalMilliseconds);
-                    frameIndex++;EncodedFrames++;lastVideo=Now;Volatile.Write(ref liveUpdated,lastVideo);Volatile.Write(ref liveEnd,epoch+frameIndex/(double)config.Fps);
+                    frameIndex++;Interlocked.Exchange(ref writtenVideoFrames,frameIndex);EncodedFrames++;lastVideo=Now;Volatile.Write(ref liveUpdated,lastVideo);Volatile.Write(ref liveEnd,epoch+frameIndex/(double)config.Fps);
                 }
             }
-            finally{videoPipe.Dispose();}
+            finally{Volatile.Write(ref videoEnded,1);started.TrySetCanceled();videoPipe.Dispose();}
         },CancellationToken.None,TaskCreationOptions.LongRunning,TaskScheduler.Default);
         var audioTask=Task.Factory.StartNew(()=>
         {
@@ -357,11 +363,26 @@ public sealed class ReplayRecorder:IDisposable
                 audioPipe.WaitForConnectionAsync(token).GetAwaiter().GetResult();
                 double origin=started.Task.WaitAsync(token).GetAwaiter().GetResult();long sampleOrigin=(long)(origin*48000);
                 long frameIndex=0;byte[] pcm=new byte[800*6*4];
-                while(!token.IsCancellationRequested&&Volatile.Read(ref version)==currentVersion)
+                while(!token.IsCancellationRequested)
                 {
+                    bool finishing=Volatile.Read(ref ending)!=0||Volatile.Read(ref version)!=currentVersion||Volatile.Read(ref videoEnded)!=0;
+                    if(finishing)
+                    {
+                        if(Volatile.Read(ref videoEnded)==0){token.WaitHandle.WaitOne(1);continue;}
+                        // Audio is written in 800-sample blocks at 60 Hz even
+                        // for 120-FPS video. Round an odd final video frame up to
+                        // one last audio block, never drop the delayed tail.
+                        long finalBlocks=(Interlocked.Read(ref writtenVideoFrames)*60+config.Fps-1)/config.Fps;
+                        if(frameIndex>=finalBlocks)break;
+                    }
                     // Give WASAPI packets time to arrive, without delaying NDI or changing A/V timestamps.
                     pacing.WaitUntil((long)((origin+(frameIndex+1)/60.0+ReplayAudio.WaitSeconds(config))*Stopwatch.Frequency),token);
                     token.ThrowIfCancellationRequested();
+                    if(Volatile.Read(ref ending)!=0||Volatile.Read(ref version)!=currentVersion||Volatile.Read(ref videoEnded)!=0)
+                    {
+                        if(Volatile.Read(ref videoEnded)==0)continue;
+                        if(frameIndex>=(Interlocked.Read(ref writtenVideoFrames)*60+config.Fps-1)/config.Fps)break;
+                    }
                     captureAudio.Read(sampleOrigin+frameIndex*800,pcm);
                     writer.Write(pcm,pcm.Length,token);frameIndex++;
                 }
@@ -387,9 +408,22 @@ public sealed class ReplayRecorder:IDisposable
         catch(Exception e){failure=e;}
         finally
         {
+            Volatile.Write(ref ending,1);
+            var writers=Task.WhenAll(videoTask,audioTask);
+            // A profile/source transition ends video first. Its audio writer
+            // can be 500 ms behind; let it reach the same CFR endpoint before
+            // closing pipes. A failed/hung encoder still has a hard deadline.
+            if(!token.IsCancellationRequested&&failure==null)
+            {
+                try{await writers.WaitAsync(TimeSpan.FromSeconds(1));}
+                catch(TimeoutException){Log.Write("Recording audio tail drain exceeded 1000 ms; cancelling media writers.");}
+                catch{}
+            }
             sessionStop.Cancel();videoPipe.Dispose();audioPipe.Dispose();
-            try{await Task.WhenAll(videoTask,audioTask);}catch{}
             videoEncoder?.Dispose();
+            try{await writers.WaitAsync(TimeSpan.FromSeconds(1));}
+            catch(TimeoutException){failure??=new IOException("Recording media writers did not stop after cancellation.");stop.Cancel();}
+            catch{}
             using var timeout=new CancellationTokenSource(3500);
             try{await process.WaitForExitAsync(timeout.Token);}catch{try{process.Kill(true);}catch{}}
             await stderr;await stdout;Scan();Volatile.Write(ref liveEnd,0);
@@ -416,10 +450,9 @@ public sealed class ReplayRecorder:IDisposable
     {
         if(!await saveGate.WaitAsync(0))throw new InvalidOperationException("Предыдущий повтор ещё сохраняется.");
         ReplayChunk[] selected=[];
-        string? listPath=null,partialPath=null;
         try
         {
-            var config=Volatile.Read(ref options);double pressed=Now;double deadline=pressed+5;
+            var config=Volatile.Read(ref options);double pressed=Now;double deadline=pressed+Math.Max(5,config.KeyframeSeconds+3);
             while(Now<deadline&&!stop.IsCancellationRequested)
             {
                 lock(chunksGate)if(chunks.Count>0&&chunks[^1].End>=pressed)break;
@@ -434,47 +467,13 @@ public sealed class ReplayRecorder:IDisposable
                 if(selected.Length==0)throw new InvalidOperationException("Буфер ещё пуст. Подождите несколько секунд после включения записи.");
                 foreach(var chunk in selected)chunk.Pins++;
             }
-            string exports=Path.Combine(ReplayTools.Root,"saved");Directory.CreateDirectory(exports);
-            string name=$"Replay-{DateTime.Now:yyyy-MM-dd-HH-mm-ss}-{Guid.NewGuid().ToString("N")[..6]}.mp4";
-            string output=Path.Combine(exports,name),partial=output+".partial";partialPath=partial;
-            listPath=output+".ffconcat";
-            // AAC preroll can give a chunk a negative container start time.
-            // Anchor concat to video time zero so it cannot shift the frame grid.
-            File.WriteAllLines(listPath,selected.SelectMany(c=>new[]{"file '"+c.Path.Replace("\\","/").Replace("'","'\\''")+"'","inpoint 0","duration "+ReplayTools.Number(c.End-c.Start)}));
-            double offset=0;
-            foreach(var chunk in selected)
-            {
-                if(wantedStart>=chunk.End)offset+=chunk.End-chunk.Start;
-                else{offset+=Math.Max(0,wantedStart-chunk.Start);break;}
-            }
-            // Snap both sides to the same frame grid. MP4 edit lists retain the
-            // keyframe preroll for decoding but hide already exported frames.
-            int fps=selected[0].Fps;
-            offset=ReplaySaveTime.Boundary(offset,fps);
-            double end=selected.Sum(c=>c.End-c.Start)-Math.Max(0,selected[^1].End-pressed);
-            end=ReplaySaveTime.Boundary(end,fps);
-            double duration=end-offset;
-            if(duration<1.0/fps-.001)throw new InvalidOperationException("Буфер ещё пуст. Подождите несколько секунд после включения записи.");
-            using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(180,selected.Sum(c=>c.Bytes)/(16.0*1024*1024)+60)));
-            var exportArgs=new List<string>{"-hide_banner","-loglevel","error","-nostdin","-y","-ss",ReplayTools.Number(ReplaySaveTime.Packet(offset)),"-f","concat","-safe","0","-i",listPath,"-t",ReplayTools.Number(ReplaySaveTime.Packet(end)-ReplaySaveTime.Packet(offset)-.001),"-map","0","-c","copy","-avoid_negative_ts","disabled","-use_editlist","1","-movflags","+faststart"};
-            if(selected[0].Codec=="HEVC")exportArgs.AddRange(["-tag:v","hvc1"]);
-            if(config.IsSilent)exportArgs.Add("-an");
-            exportArgs.AddRange(["-f","mp4",partial]);
-            await ReplayTools.RunAsync(ReplayTools.Ffmpeg,exportArgs,timeout.Token);
-            if(new FileInfo(partial).Length<1024)throw new IOException("Пустой файл повтора.");
-            File.Move(partial,output);
-            appFolder??=ReplayAppContext.ForInterval(selected[0].Start+offset,selected[0].Start+end);
-            string destination=ReplayAppContext.Destination(config,appFolder,name);
-            File.WriteAllText(output+".delivery.tmp",JsonSerializer.Serialize(new DeliveryJob(output,destination,duration)));
-            File.Move(output+".delivery.tmp",output+".delivery.json");
-            lock(chunksGate)savedUntil=selected[^1].End-(selected.Sum(c=>c.End-c.Start)-end);
-            return new ReplayResult(output,destination,duration,"Повтор готов; сохранение в выбранную папку.");
+            var exported=await ReplayClipExporter.ExportAsync(selected,config,wantedStart,pressed,appFolder,"Replay");
+            lock(chunksGate)savedUntil=exported.SourceEnd;
+            return exported.Result;
         }
         finally
         {
             lock(chunksGate)foreach(var chunk in selected)chunk.Pins--;
-            if(listPath!=null)TryDelete(listPath);
-            if(partialPath!=null)TryDelete(partialPath);
             saveGate.Release();
         }
     }
@@ -500,6 +499,7 @@ public sealed class ReplayRecorder:IDisposable
         lock(framesGate){foreach(var frame in frames)frame.Dispose();frames.Clear();}
         framePool.Dispose();
         // Completed clips and delivery jobs are never part of ring cleanup.
-        if(worker.IsCompleted)lock(chunksGate)foreach(var chunk in chunks.Where(c=>c.Pins==0))TryDelete(chunk.Path);
+        if(worker.IsCompleted&&!Directory.EnumerateFiles(runFolder,"recording-*.json").Any())lock(chunksGate)foreach(var chunk in chunks.Where(c=>c.Pins==0))TryDelete(chunk.Path);
+        runOwnership.Dispose();
     }
 }

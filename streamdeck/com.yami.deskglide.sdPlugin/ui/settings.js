@@ -20,7 +20,7 @@ function send(event, payload, extra = {}) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ event, context, action: actionId, ...(payload === undefined ? {} : { payload }), ...extra }));
 }
 function update() {
-  const ru = language === 'ru', kvm = actionId?.endsWith('.open-kvm'), monitor = actionId?.endsWith('.switch-monitor');
+  const ru = language === 'ru', kvm = actionId?.endsWith('.open-kvm'), monitor = actionId?.endsWith('.switch-monitor'), recording = actionId?.endsWith('.recording');
   el('targetRow').hidden = kvm; el('targetLabel').textContent = ru ? 'Выполнять на' : 'Run on';
   el('target').options[0].text = ru ? 'Этот ПК' : 'This PC'; el('target').options[1].text = ru ? 'Связанный управляющий ПК' : 'Paired controller PC';
   el('target').value = settings.target ?? 'local'; el('peerRow').hidden = !kvm;
@@ -34,8 +34,11 @@ function update() {
   const details = !state ? (ru ? 'Запустите DeskGlide. Для удалённого управления сначала подключите компьютеры.' : 'Start DeskGlide. Pair your computers first for remote control.')
     : kvm && state.role !== 'Host' ? (ru ? 'Окно KVM открывается на управляющем ПК.' : 'Open KVM is available on the controller PC.')
     : monitor ? (ru ? 'Курсор переходит в центр выбранного монитора. Работает и при заблокированных переходах.' : 'Move the cursor to this monitor. Works with edge switching locked.')
+    : recording && !state.recordingSupported ? (ru ? 'Обновите DeskGlide на выбранном ПК для управления видеозаписью.' : 'Update DeskGlide on the selected PC to use Video Recording.')
+    : recording ? (ru ? 'Начинает или останавливает отдельную видеозапись. Компьютер записи, папка и формат берутся из настроек «Видеозапись» в DeskGlide на выбранном ПК.' : 'Starts or stops an independent video recording. The encoding computer, folder and format come from Settings → Video recording in DeskGlide on the selected PC.')
     : settings.target === 'host' ? (ru ? 'Команды отправляются на связанный управляющий ПК.' : 'Commands go to your paired controller PC.') : '';
   el('details').textContent = details; el('details').hidden = !details;
+  if (recording) el('error').textContent = state?.recordingError ?? '';
   el('help').textContent = ru ? 'Инструкция ↗' : 'Setup guide ↗';
 }
 function options(id, values, selected = '', offline) {

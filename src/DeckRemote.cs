@@ -28,7 +28,7 @@ sealed class DeckRemote:IDisposable
         try
         {
             await service.SendControl(host.Id,new(){Type="deck-request",Id=request.Id,Text=JsonSerializer.Serialize(request,DeckProtocol.Json)});
-            return await done.Task.WaitAsync(TimeSpan.FromSeconds(request.Command=="saveReplay"?600:8),stop.Token);
+            return await done.Task.WaitAsync(DeckProtocol.Timeout(request.Command),stop.Token);
         }
         catch(TimeoutException){return new(request.Id,false,"unknown","No confirmation received. The command is not retried automatically.");}
         catch(Exception e){return new(request.Id,false,"offline",e.Message);}

@@ -6,7 +6,7 @@ using C=System.Windows.Controls;
 
 namespace SdrCapture.Ui;
 
-sealed class SettingsWindow:ShellWindow
+sealed partial class SettingsWindow:ShellWindow
 {
     internal sealed record Choice(string Id,string Label){public override string ToString()=>Label;}
     readonly Settings initial;
@@ -31,23 +31,27 @@ sealed class SettingsWindow:ShellWindow
     readonly C.ScrollViewer scroll=new(){VerticalScrollBarVisibility=C.ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=C.ScrollBarVisibility.Disabled,Padding=new(28,22,28,24)};
     readonly C.TextBlock error=Kit.Text("",12,"#FF83AB"),audioStatus=Kit.Text("Loading audio devices…",12,"#B0A9BC");
     readonly C.TextBox state=new(){IsReadOnly=true,AcceptsReturn=true,Height=320,VerticalScrollBarVisibility=C.ScrollBarVisibility.Auto,FontFamily=new("Consolas"),TextWrapping=W.TextWrapping.Wrap};
-    readonly ShortcutBox replayKey,kvmKey,edgeKey;
+    readonly ShortcutBox replayKey,kvmKey,edgeKey,recordingKey;
     readonly MonitorCanvas monitors;
     DiscordDevices.Endpoint[] endpoints=[];
     bool loadingAudio,replacingAudio,loadingState;
     public bool Accepted {get;private set;}
     public Settings ResultSettings {get;private set;}
     public ConfigurationProfile? ImportedProfile {get;private set;}
+    public bool ToggleRecordingAfterSave {get;private set;}
+    public string RecordingSourceDevice=>Id("display");
     public bool StartWithWindows=>toggles["startup"].IsChecked==true;
     internal int SelectedPage {get;private set;}
     internal string AudioStatus=>audioStatus.Text;
     internal C.ComboBox AudioChoice(string id)=>choices[id];
     internal C.Slider SliderControl(string id)=>sliders[id];
-    public SettingsWindow(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action? openUpdates=null,int startPage=0,Func<Task<DiscordDevices.Endpoint[]>>? discoverAudio=null,Func<StatusSection[]>? overview=null,Func<int>? deckClients=null):base("Settings",1120,820)
+    public SettingsWindow(Settings value,KvmService? service=null,bool autorun=false,Func<string>? diagnostics=null,Action? openUpdates=null,int startPage=0,Func<Task<DiscordDevices.Endpoint[]>>? discoverAudio=null,Func<StatusSection[]>? overview=null,Func<int>? deckClients=null,Func<string,ReplayOptions,CancellationToken,Task<IReadOnlyList<RecordingCapability>>>? recordingCapabilities=null):base("Settings",1120,820)
     {
         AnimateOnReveal=true;
         initial=value.Copy();ResultSettings=value.Copy();this.service=service;this.diagnostics=diagnostics;this.overview=overview;this.deckClients=deckClients;this.openUpdates=openUpdates;discover=discoverAudio??SettingsAudioDiscovery.Load;
+        this.recordingCapabilities=recordingCapabilities;
         replayKey=new(value.Replay.HotkeyModifiers,value.Replay.HotkeyKey);kvmKey=new(value.Kvm.OpenHotkeyModifiers,value.Kvm.OpenHotkeyKey);edgeKey=new(value.Kvm.ToggleHotkeyModifiers,value.Kvm.ToggleHotkeyKey);
+        recordingKey=new(value.Recording.Profile.HotkeyModifiers,value.Recording.Profile.HotkeyKey);
         var peers=new[]{new KvmPeerInfo(value.Kvm.Id,Environment.MachineName,KvmScreen.Local())}.Concat(service?.Peers??[]).ToArray();
         monitors=new(value.Kvm,KvmLayout.Merge(value.Kvm,peers),peers);
         var root=new C.Grid{Background=Kit.Brush("#8808090F")};root.RowDefinitions.Add(new(){Height=W.GridLength.Auto});root.RowDefinitions.Add(new());root.RowDefinitions.Add(new(){Height=W.GridLength.Auto});
@@ -60,7 +64,7 @@ sealed class SettingsWindow:ShellWindow
             var label=Kit.Text(title,13);label.FontWeight=W.FontWeights.SemiBold;var sub=Kit.Text(subtitle,11,"#B0A9BC");sub.Margin=new(0,4,0,0);
             var button=Kit.Button(title,()=>SelectPage(page));button.Content=Kit.Stack(label,sub);button.Style=(W.Style)FindResource("Nav");links[page]=button;nav.Children.Add(button);
         }
-        Group("CAPTURE & REPLAY");Link(0,"Screen streaming","Video and audio output");Link(8,"Virtual devices","Receive a screen on this PC");Link(1,"Instant replay","Save your recent gameplay");Link(2,"Recording audio","Choose sources and tracks");Link(11,"Screenshots","Selection and drawing");
+        Group("CAPTURE & REPLAY");Link(0,"Screen streaming","Video and audio output");Link(8,"Virtual devices","Receive a screen on this PC");Link(1,"Instant replay","Save your recent gameplay");Link(12,"Video recording","Start and stop a full recording");Link(2,"Recording audio","Choose sources and tracks");Link(11,"Screenshots","Selection and drawing");
         Group("YOUR COMPUTERS");Link(3,"KVM & pairing","Connect and control");Link(4,"Monitor layout","Arrange it like your desk");
         Group("APPLICATION");Link(10,"Stream Deck","Plugin and connection");Link(9,"General","Language, startup and power");Link(5,"Updates","Every PC, one place");Link(7,"Backup & restore","Keep your setup safe");Link(6,"Status","Capture and connections");
         var sidebar=new C.Border{Background=Kit.Brush("#AA0E0D16"),BorderBrush=Kit.Brush("#302B3E"),BorderThickness=new(0,0,1,0),Child=new C.ScrollViewer{Content=nav,VerticalScrollBarVisibility=C.ScrollBarVisibility.Auto,HorizontalScrollBarVisibility=C.ScrollBarVisibility.Disabled}};middle.Children.Add(sidebar);
@@ -70,7 +74,8 @@ sealed class SettingsWindow:ShellWindow
         var save=Kit.Button("Save changes",Save,true);save.IsDefault=true;
         var actions=Kit.Actions(cancel,save);C.Grid.SetColumn(actions,1);footer.Children.Add(actions);
         var bar=new C.Border{BorderBrush=Kit.Brush("#302B3E"),BorderThickness=new(0,1,0,0),Child=footer};C.Grid.SetRow(bar,2);root.Children.Add(bar);Content=root;
-        BuildStream(value,autorun);BuildReplay(value);BuildAudio(value);BuildKvm(value);BuildMonitors();BuildUpdates(value);BuildProfile();BuildDiagnostics();BuildDiscord(value);BuildGeneral(value,autorun);BuildStreamDeck();BuildScreenshots(value);
+        BuildStream(value,autorun);BuildReplay(value);BuildAudio(value);BuildKvm(value);BuildMonitors();BuildUpdates(value);BuildProfile();BuildDiagnostics();BuildDiscord(value);BuildGeneral(value,autorun);BuildStreamDeck();BuildScreenshots(value);BuildRecording(value);
+        TrackRecordingPeers();
         choices["role"].SelectionChanged+=(_,_)=>ReceiverVisibility();ReceiverVisibility();
         SelectPage(startPage,false);
         Loaded+=async(_,_)=>{await RefreshAudio();};Closed+=(_,_)=>{soundPreview.Dispose();lifetime.Cancel();lifetime.Dispose();if(!Accepted)UiStrings.Shared.Language=initial.Language;};
@@ -230,31 +235,12 @@ sealed class SettingsWindow:ShellWindow
             {
                 var progress=new Progress<string>(message=>{if(!IsClosed)setupStatus.Text=message;});
                 await RecordingTools.EnsureAsync(((IProgress<string>)progress).Report,lifetime.Token,true);
-                if(!IsClosed){setupStatus.Text=UiStrings.T("Recording tools are ready.");setupCard.Visibility=W.Visibility.Collapsed;}
+                if(!IsClosed){setupStatus.Text=UiStrings.T("Recording tools are ready.");setupCard.Visibility=W.Visibility.Collapsed;foreach(var editor in recordingEditors.Values)InvalidateRecordingCapabilities(editor);}
             }
             catch(OperationCanceledException) when(lifetime.IsCancellationRequested){}
         }));
         var main=Section(page,"Instant replay");Row(main,"Replay buffer",Toggle("replay","Record in the background",v.Replay.Enabled));Row(main,"Duration",ReplayDuration(v.Replay.BufferSeconds));Row(main,"Save shortcut",replayKey);
-        var encoding=Section(page,"Recording quality","GPU encoding is selected automatically: NVIDIA NVENC, AMD AMF or Intel Quick Sync. Codec and resolution support depend on your graphics card and driver.");Row(encoding,"Codec",Choose("codec",Options("HEVC","H264","AV1"),v.Replay.Codec));Row(encoding,"Quality",Choose("quality",Options("Ultra","High","Medium","Low"),v.Replay.Quality));Row(encoding,"Frame rate",Choose("fps",[new("60","60 FPS"),new("120","120 FPS")],v.Replay.Fps.ToString()));
-        Row(encoding,"Resolution",Choose("resolution",[new("0","Monitor resolution"),new("1280","1280 × 720 · 720p"),new("1920","1920 × 1080 · 1080p"),new("2560","2560 × 1440 · 1440p"),new("3840","3840 × 2160 · 4K")],v.Replay.Width.ToString()));
-        encoding.Children.Add(Kit.Text("NVIDIA: variable bitrate up to the shown limit. AMD and Intel use quality targets instead. High is recommended; Ultra creates larger files. Quality does not change FPS.",12,"#B0A9BC"));
-        void RefreshQuality()
-        {
-            string selected=Id("quality");
-            int width=int.Parse(Id("resolution")),height=width switch{1280=>720,1920=>1080,2560=>1440,3840=>2160,_=>0};
-            if(width==0&&availableDisplays.FirstOrDefault(d=>d.Device==Id("display")) is {} display){width=display.Width;height=display.Height;}
-            int fps=int.Parse(Id("fps"));
-            choices["quality"].ItemsSource=new[]{("Ultra","maximum detail"),("High","recommended"),("Medium","smaller files"),("Low","minimum size")}.Select(level=>
-            {
-                string label=width>0?UiStrings.F("{0} ({1} · NVIDIA ≤{2} Mbps)",UiStrings.T(level.Item1),UiStrings.T(level.Item2),RecordingEncoders.MaximumBitrate(level.Item1,width,height,fps)):
-                    UiStrings.F("{0} ({1})",UiStrings.T(level.Item1),UiStrings.T(level.Item2));
-                return new Choice(level.Item1,label);
-            }).ToArray();
-            Select(choices["quality"],selected);
-        }
-        foreach(string name in new[]{"display","resolution","fps"})choices[name].SelectionChanged+=(_,_)=>RefreshQuality();
-        System.ComponentModel.PropertyChangedEventHandler qualityLanguage=(_,_)=>RefreshQuality();UiStrings.Shared.PropertyChanged+=qualityLanguage;Closed+=(_,_)=>UiStrings.Shared.PropertyChanged-=qualityLanguage;
-        RefreshQuality();
+        BuildEncodingProfile(page,v.Replay,"",v.Replay.EncodingComputer,1);
         var storage=Section(page,"Save location","Clips are grouped by game automatically. Local and network folders work.");
         var path=Input("folder",v.Replay.Folder);var pathRow=new C.Grid();pathRow.ColumnDefinitions.Add(new());pathRow.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});pathRow.Children.Add(path);var browse=Kit.Button("Browse…",()=>{var picker=new Microsoft.Win32.OpenFolderDialog{Title=UiStrings.T("Choose a recording folder"),InitialDirectory=path.Text};if(picker.ShowDialog(this)==true)path.Text=picker.FolderName;});browse.Margin=new(8,0,0,0);C.Grid.SetColumn(browse,1);pathRow.Children.Add(browse);Row(storage,"Folder",pathRow);
         var notification=Section(page,"Save notification","A soft two-note chime plays after the clip reaches your save folder.");
@@ -364,9 +350,9 @@ sealed class SettingsWindow:ShellWindow
         var result=initial.Copy();result.SendOnLaunch=On("ndi");result.Device=Id("display");result.CaptureCursor=On("cursor");result.PreventIdleSleep=On("awake");result.NdiAudioDevice=Id("ndiAudio");result.NdiAudioVolume=(int)sliders["ndiVolume"].Value;
         result.Language=Id("language");
         result.Screenshots=result.Screenshots with{Enabled=On("screenshots"),Folder=texts["screenshotFolder"].Text.Trim()};
-        int width=int.Parse(Id("resolution"),CultureInfo.InvariantCulture);int height=width switch{1280=>720,1920=>1080,2560=>1440,3840=>2160,_=>0};
         int duration=(int)sliders["replayDuration"].Value*60;
-        result.Replay=result.Replay with{Enabled=On("replay"),Minutes=(duration+59)/60,DurationSeconds=duration,SaveSoundEnabled=On("saveSound"),SaveSoundVolume=(int)sliders["saveSoundVolume"].Value,Codec=Id("codec"),Quality=Id("quality"),Fps=int.Parse(Id("fps")),Width=width,Height=height,Folder=texts["folder"].Text.Trim(),GroupByApp=true,Silent=false,AudioMode=Id("audioMode"),GameAudio=Id("game"),Microphone=Id("mic"),ExtraAudio=Id("extra"),HotkeyModifiers=replayKey.Modifiers,HotkeyKey=replayKey.Key};
+        result.Replay=CollectEncodingProfile("",result.Replay) with{Enabled=On("replay"),Minutes=(duration+59)/60,DurationSeconds=duration,SaveSoundEnabled=On("saveSound"),SaveSoundVolume=(int)sliders["saveSoundVolume"].Value,Folder=texts["folder"].Text.Trim(),GroupByApp=true,Silent=false,AudioMode=Id("audioMode"),GameAudio=Id("game"),Microphone=Id("mic"),ExtraAudio=Id("extra"),HotkeyModifiers=replayKey.Modifiers,HotkeyKey=replayKey.Key};
+        CollectRecording(result);
         result.Kvm=result.Kvm with{Role=Id("role"),Host=texts["host"].Text.Trim(),PairingCode=texts["pairing"].Text.Trim(),Port=int.Parse(texts["port"].Text,CultureInfo.InvariantCulture),Seamless=On("seamless"),BlockScreenCorners=On("blockCorners"),AdministratorInput=On("administratorInput"),ClipboardText=On("clipboardText"),ClipboardFiles=On("clipboardFiles"),AllowView=On("allowView"),RemoteViewOnly=On("remoteOnly"),AudioDevice=Id("remoteAudio"),OpenHotkeyModifiers=kvmKey.Modifiers,OpenHotkeyKey=kvmKey.Key,ToggleHotkeyModifiers=edgeKey.Modifiers,ToggleHotkeyKey=edgeKey.Key,Layout=monitors.Result,RemoteOnlyPeers=monitors.RemoteOnlyPeers,ExcludedMonitors=monitors.ExcludedMonitors};
         result.Updates=new(){CheckOnStartup=On("checkUpdates"),AllowFromHost=On("remoteUpdates")};
         result.Discord=result.Discord with{Enabled=On("discord")&&result.Kvm.Role!="Host",CameraName=texts["cameraName"].Text.Trim(),Source=texts["source"].Text.Trim(),AudioMode=Id("discordMode"),AudioDevice=Id("discordOutput"),CaptureDevice=Id("discordInput"),Volume=(int)sliders["discordVolume"].Value};
@@ -374,12 +360,13 @@ sealed class SettingsWindow:ShellWindow
     }
     static void Validate(Settings result)
     {
-        result.Replay.Validate();result.Kvm.Validate();result.Discord.Validate();result.Screenshots.Validate();
+        result.Replay.Validate();result.Recording.Validate();result.Kvm.Validate();result.Discord.Validate();result.Screenshots.Validate();
         if(result.Replay.HotkeyModifiers==0||result.Replay.HotkeyKey==0)throw new ArgumentException("Choose a key and Ctrl, Alt or Shift for saving replays.");
         if(new[]{(result.Kvm.OpenHotkeyModifiers,result.Kvm.OpenHotkeyKey),(result.Kvm.ToggleHotkeyModifiers,result.Kvm.ToggleHotkeyKey)}.Contains((result.Replay.HotkeyModifiers,result.Replay.HotkeyKey)))throw new ArgumentException("The replay and KVM shortcuts must be different.");
         if(result.Kvm.Layout.Any(m=>m.Hotkey>0&&(int)result.Replay.HotkeyKey==(int)Keys.F1+m.Hotkey-1)&&result.Replay.HotkeyModifiers==3)throw new ArgumentException("The replay shortcut is also assigned to a monitor.");
+        ValidateRecordingShortcut(result);
     }
-    void Save(){try{ResultSettings=Collect();Accepted=true;Close();}catch(Exception e){error.Text=e.Message;}}
+    void Save(){try{ResultSettings=Collect();Accepted=true;Close();}catch(Exception e){error.Text=UiStrings.T(e.Message);}}
     void ExportProfile()
     {
         try{var profile=ConfigurationBackup.Capture(Collect(),StartWithWindows,Log.Folder);var dialog=new Microsoft.Win32.SaveFileDialog{Filter="DeskGlide profile|*.scprofile",FileName=Environment.MachineName+"-DeskGlide.scprofile",DefaultExt=".scprofile"};if(dialog.ShowDialog(this)!=true)return;var password=PasswordWindow.Ask(this,true);if(password==null)return;File.WriteAllBytes(dialog.FileName,ConfigurationBackup.Encode(profile,password));Kit.Notify(this,"Profile saved. Keep the password safe; you need it to restore this backup.");}catch(Exception e){error.Text=e.Message;}
@@ -423,8 +410,8 @@ sealed class SettingsWindow:ShellWindow
             try
             {
                 var standard=new List<Choice>{new("","Silent — no audio"),new("default:capture","Default Windows microphone"),new("default:render","Default Windows playback")};standard.AddRange(result.Select(e=>new Choice(e.Id,$"{(e.Flow==DataFlow.Capture?"Input":"Output")}: {e.Name}")));
-                foreach(var key in new[]{"ndiAudio","game","mic","remoteAudio"})Replace(key,standard);
-                Replace("extra",standard.Concat((service?.Peers??[]).Select(p=>new Choice("kvm:"+p.Id,p.Name+" · KVM audio"))));
+                foreach(var key in new[]{"ndiAudio","game","mic","remoteAudio","recordingGame","recordingMic"})Replace(key,standard);
+                foreach(var key in new[]{"extra","recordingExtra"})Replace(key,standard.Concat((service?.Peers??[]).Select(p=>new Choice("kvm:"+p.Id,p.Name+" · KVM audio"))));
                 Replace("discordOutput",result.Where(e=>e.Flow==DataFlow.Render).OrderByDescending(DiscordDevices.IsCable).Select(e=>new Choice(e.Id,e.Name)).Prepend(new Choice("","Silent — no audio")));
                 Replace("discordInput",result.Where(e=>e.Flow==DataFlow.Capture).Select(e=>new Choice(e.Id,e.Name)).Prepend(new Choice("","Choose a recording input…")));
             }finally{replacingAudio=false;}

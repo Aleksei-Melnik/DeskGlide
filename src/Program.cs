@@ -16,6 +16,19 @@ internal static class Program
             if(args.Contains("--kvm-input-tests")){KvmInputTests.Run();return 0;}
             if(args.Contains("--screenshot-warm-capture-test")){ScreenshotTests.WarmCapture();return 0;}
             if(args.Contains("--screenshot-latency-test")){ScreenshotTests.Latency();return 0;}
+            if(args.Contains("--recording-session-media-tests")){RecordingSessionTests.Media();return 0;}
+            if(args.Contains("--recording-node-tests")){RecordingNodeTests.Run();return 0;}
+            if(args.Contains("--recording-settings-data-tests")){Ui.WpfUiTests.RecordingData();return 0;}
+            if(args.Contains("--recording-ndi-tests")){RecordingNdiTests.Run();return 0;}
+            if(args.Contains("--recording-ndi-loopback")){RecordingNdiTests.Loopback();return 0;}
+            if(args.Contains("--recording-performance-tests")){RecordingPerformanceTests.Run();return 0;}
+            if(args.Contains("--recording-routing-tests")){RecordingRoutingTests.Run();return 0;}
+            if(args.Contains("--recording-integration-tests")){RecordingIntegrationTests.Run();return 0;}
+            if(args.Contains("--recording-audio-tail-tests")){RecordingIntegrationTests.AudioTail();return 0;}
+            if(args.Contains("--recording-cpu-tests")){RecordingCapabilityTests.CpuMedia();return 0;}
+            if(args.Contains("--recording-session-tests")){RecordingSessionTests.Run();return 0;}
+            if(args.Contains("--recording-capability-tests")){RecordingCapabilityTests.Run();return 0;}
+            if(args.Contains("--recording-remote-tests")){RecordingRemoteTests.Run();return 0;}
             if(args.Contains("--screenshot-tests")){ScreenshotTests.Run();return 0;}
             if(args.Contains("--screenshot-ui-tests")){ScreenshotTests.Ui();return 0;}
             if(args.Contains("--screenshot-capture-test")){ScreenshotTests.Capture();return 0;}

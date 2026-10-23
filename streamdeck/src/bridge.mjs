@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { createConnection } from 'node:net';
 import { randomUUID } from 'node:crypto';
 
+export const requestTimeout = command => ['saveReplay', 'toggleRecording'].includes(command) ? 600000 : 12000;
+
 export class Bridge extends EventEmitter {
   constructor(descriptor = join(process.env.LOCALAPPDATA ?? '', 'SdrCapture', 'streamdeck-bridge.json')) {
     super(); this.descriptor = descriptor; this.pending = new Map(); this.snapshot = null; this.stopped = false;
@@ -53,7 +55,7 @@ export class Bridge extends EventEmitter {
     if (this.pending.size >= 8) return Promise.reject(new Error('Too many pending commands.'));
     const id = randomUUID().replaceAll('-', '');
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('No confirmation received. The command was not retried.')); }, command === 'saveReplay' ? 600000 : 12000);
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('No confirmation received. The command was not retried.')); }, requestTimeout(command));
       this.pending.set(id, { resolve, reject, timer });
       this.socket.write(JSON.stringify({ id, command, target, peer, monitor }) + '\n');
     });
@@ -64,6 +66,8 @@ export function validSnapshot(value) {
   return value && validState(value.local) && (!value.host || validState(value.host));
 }
 function validState(value) {
-  return typeof value.name === 'string' && typeof value.version === 'string' && typeof value.replayEnabled === 'boolean'
-    && Number.isFinite(value.bufferedSeconds) && Number.isFinite(value.durationSeconds) && Array.isArray(value.peers);
+  return value && typeof value.name === 'string' && typeof value.version === 'string' && typeof value.replayEnabled === 'boolean'
+    && Number.isFinite(value.bufferedSeconds) && Number.isFinite(value.durationSeconds) && Array.isArray(value.peers)
+    && ['recording', 'recordingBusy', 'recordingSupported'].every(key => value[key] === undefined || typeof value[key] === 'boolean')
+    && ['recordingError', 'recordingStatus'].every(key => value[key] == null || typeof value[key] === 'string' && value[key].length <= 4096);
 }

@@ -1,3 +1,16 @@
+DeskGlide 0.7.38
+
+- Added independent ordinary recording with Start/Stop, a configurable shortcut, output folder, audio and encoding profile. It can run with Instant Replay; equal profiles share an encoder and a single desktop capture. Active sessions protect their segments from other recorders, and failed exports retain recovery journals.
+- Added a paired encoding-PC choice for recording and replay. The gaming PC supplies the existing SDR NDI stream at 60/120 FPS; the receiving PC encodes and owns its folders. Control uses bounded, authenticated recording commands with request/session IDs, status reconciliation and receiver opt-in. Source interruptions produce separate recoverable parts rather than silently recording a frozen source indefinitely.
+- Added explicit CPU x264 H.264 encoding alongside GPU NVENC/AMF/Quick Sync. GPU mode never silently falls back to CPU. Actual profile probes populate supported codec choices; bitrate, Quality/VBR/CBR, encoder presets and keyframe interval are configurable. Status includes source/encoding timing, drops/repeats and clearly scoped CPU/GPU/network metrics.
+- Added the Stream Deck Recording action with recording/finalizing/error feedback. Update the included plugin to 1.1.0. Existing replay, monitor and KVM actions remain available.
+- Kept screenshot tools and Copy/Save at the selection's bottom-right, including full-screen crops and monitor edges. Controls tuck inside when there is insufficient outside space instead of flipping to the top/left.
+
+Validation: real software-encoded SDR files in Quality/VBR/CBR, concurrent replay/ordinary recording, failed-export recovery, bounded paired TLS commands, synthetic NDI A/V loopback, screenshot geometry and existing regressions. Hardware profile probes on the local RTX 5070 cover H.264/HEVC/AV1. Physical two-PC/RTX 3080 and hour-long game benchmarks remain unverified; this release does not claim zero FPS impact or parity with NVIDIA App.
+
+Update through **Updates → Update all PCs**, then update the Stream Deck plugin from settings. The existing update signing key, settings and pairing are retained. Configure receiver opt-in and its folders before selecting remote encoding. No Windows restart is needed.
+
+Previous release: 0.7.37
 DeskGlide 0.7.37
 
 - Restored Ctrl+Z for screenshot annotations, including when a toolbar button has focus. Text entry retains Windows text undo. Removed the selection-hint banner. Drawing tools now sit vertically at the right of the selection; Copy, Save, More and Close sit below it. Compact sizing and edge/full-screen placement are retained.

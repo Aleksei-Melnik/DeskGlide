@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Buffers;
 using System.Reflection;
+using System.Diagnostics;
 
 namespace SdrCapture;
 
@@ -139,11 +140,26 @@ public sealed class VideoBuffer:IDisposable
     public void Dispose(){if(Interlocked.Exchange(ref disposed,1)==0&&Interlocked.Decrement(ref storage.References)==0)pool.Return(storage.Data);}
 }
 
+sealed class NdiSenderClock(long frequency,long qpcOrigin,long utcOrigin)
+{
+    readonly object gate=new();long lastVideo;
+    public long Video(long qpc)=>utcOrigin+(long)Math.Round(((decimal)qpc-qpcOrigin)*10_000_000/frequency);
+    public long Audio(long sample)=>utcOrigin+(long)Math.Round(((decimal)sample*frequency/48000-qpcOrigin)*10_000_000/frequency);
+    public long Present(long capturedAt,long now,int fps)
+    {
+        // Fresh gameplay uses the actual acquisition time. A deliberately
+        // held desktop image needs a current presentation time to let a new
+        // recording join its live audio, instead of waiting for desktop motion.
+        long selected=capturedAt>0&&capturedAt<=now&&now-capturedAt<=frequency*2m/fps?capturedAt:now;
+        lock(gate){lastVideo=Math.Max(lastVideo+1,Video(selected));return lastVideo;}
+    }
+}
+
 sealed class NdiSender:IDisposable
 {
     IntPtr handle;
-    readonly long utcOrigin=DateTime.UtcNow.Ticks-DateTime.UnixEpoch.Ticks;
-    readonly long sampleOrigin=AudioTimeline.Position();
+    readonly NdiSenderClock clock=new(Stopwatch.Frequency,Stopwatch.GetTimestamp(),DateTime.UtcNow.Ticks-DateTime.UnixEpoch.Ticks);
+    static readonly byte[] readyMetadata="<deskglide capture=\"ready\"/>\0"u8.ToArray(),lostMetadata="<deskglide capture=\"recovering\"/>\0"u8.ToArray();
     readonly NdiAudioOutput? audio;
     float[] planar=[];
     public string AudioStatus=>audio?.Status??"Silent";
@@ -164,19 +180,22 @@ sealed class NdiSender:IDisposable
         if(audioSource!=null)audio=new NdiAudioOutput(this,audioSource,volume??(()=>100));
     }
     public int Connections=>NdiNative.NDIlib_send_get_no_connections(handle,0);
-    public unsafe void Send(VideoBuffer buffer)
+    public unsafe void Send(VideoBuffer buffer,int fps=60,bool sourceActive=true)
     {
+        if(fps is not (60 or 120))throw new ArgumentOutOfRangeException(nameof(fps),"NDI output rate must be 60 or 120 FPS.");
         fixed(byte* data=buffer.Data)
+        fixed(byte* metadata=sourceActive?readyMetadata:lostMetadata)
         {
             var frame=new NdiNative.Video{Width=buffer.Width,Height=buffer.Height,FourCC=0x59565955,
-                RateN=60,RateD=1,Aspect=(float)buffer.Width/buffer.Height,Format=1,Timecode=long.MaxValue,
-                Data=(IntPtr)data,Stride=buffer.Width*2};
+                RateN=fps,RateD=1,Aspect=(float)buffer.Width/buffer.Height,Format=1,
+                Timecode=clock.Present(buffer.CapturedAt,Stopwatch.GetTimestamp(),fps),
+                Data=(IntPtr)data,Stride=buffer.Width*2,Metadata=(IntPtr)metadata};
             // Synchronous call owns the pinned input only until return. Sender thread is independent
             // from capture, and capture owns one replaceable pending frame, never a growing FIFO.
             NdiNative.NDIlib_send_send_video_v2(handle,ref frame);
         }
     }
-    public long AudioTimecode(long position)=>utcOrigin+(long)Math.Round((position-sampleOrigin)*(10000000.0/48000));
+    public long AudioTimecode(long position)=>clock.Audio(position);
     public unsafe void SendAudio(ReadOnlySpan<float> stereo,long samplePosition,float volume=1)
     {
         int samples=stereo.Length/2;if(samples==0)return;volume=float.IsFinite(volume)?Math.Clamp(volume,0,1):0;
@@ -189,5 +208,6 @@ sealed class NdiSender:IDisposable
             NdiNative.NDIlib_send_send_audio_v2(handle,ref frame);
         }
     }
-    public void Dispose(){audio?.Dispose();if(handle!=IntPtr.Zero){NdiNative.NDIlib_send_destroy(handle);handle=IntPtr.Zero;}}
+    int disposed;
+    public void Dispose(){if(Interlocked.Exchange(ref disposed,1)!=0)return;audio?.Dispose();if(handle!=IntPtr.Zero){NdiNative.NDIlib_send_destroy(handle);handle=IntPtr.Zero;}}
 }

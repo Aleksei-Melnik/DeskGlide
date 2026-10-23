@@ -9,6 +9,27 @@ namespace SdrCapture.Ui;
 static class WpfUiTests
 {
     static void Require(bool condition,string message){if(!condition)throw new Exception(message);}
+    public static void RecordingData()
+    {
+        var profile=new ReplayOptions{Width=1920,Height=1080,Fps=120,RateControl="CBR",BitrateMbps=32,KeyframeSeconds=3,EncoderPreset="Quality"};
+        var supported=new RecordingCapability("H264","h264_nvenc","NVIDIA NVENC",2560,1440,1920,1080,120,"High","CBR",32,3,"Quality");
+        RecordingCapability[] wrong=[supported with{Fps=60},supported with{Width=2560},supported with{Height=1440},supported with{SourceWidth=3840},supported with{SourceHeight=2160},supported with{Quality="Low"},supported with{RateControl="VBR"},supported with{BitrateMbps=64},supported with{KeyframeSeconds=2},supported with{EncoderPreset="Performance"},supported with{Codec="invented"}];
+        foreach(var other in wrong)Require(SettingsWindow.SupportedRecordingCodecs([other],profile,2560,1440).Length==0,"The codec chooser advertised a probe from another or invalid format.");
+        var actual=SettingsWindow.SupportedRecordingCodecs([supported,supported,supported with{Codec="HEVC"},supported with{Codec="AV1",Fps=60}],profile,2560,1440);
+        Require(actual.Select(c=>c.Id).SequenceEqual(new[]{"H264","HEVC"}),"Codec choices invented AV1 support or repeated successful encoders.");
+        Require(SettingsWindow.SupportedRecordingCodecs([],profile,2560,1440).Length==0,"The UI invented GPU support when no probe succeeded.");
+        var cpu=supported with{Backend="CPU",Encoder="libx264"};
+        Require(SettingsWindow.SupportedRecordingCodecs([cpu],profile,2560,1440).Length==0&&SettingsWindow.SupportedRecordingCodecs([supported],profile with{Encoder="CPU",Codec="H264"},2560,1440).Length==0,"The UI mixed hardware and CPU capability probes.");
+        Require(SettingsWindow.SupportedRecordingCodecs([cpu,cpu with{Codec="HEVC"}],profile with{Encoder="CPU",Codec="H264"},2560,1440).Select(c=>c.Id).SequenceEqual(new[]{"H264"}),"CPU chooser invented HEVC support or omitted a tested x264 profile.");
+        Require(SettingsWindow.ParseRecordingResolution("1920")== (1920,1080)&&SettingsWindow.ParseRecordingResolution("1920x1200")== (1920,1200)&&SettingsWindow.RecordingResolutionId(1920,1200)=="1920x1200","Editing recording settings changed a saved nonstandard resolution.");
+        Require(SettingsWindow.RecordingNumber(" 0 ","Bitrate limit (Mbps)",0,1000)==0&&SettingsWindow.RecordingNumber("1000","Bitrate limit (Mbps)",0,1000)==1000,"Bitrate parsing lost automatic mode or its boundary.");
+        foreach(string invalid in new[]{"-1","1001","1.5","NaN","","9999999999999999999999"})
+        {bool rejected=false;try{SettingsWindow.RecordingNumber(invalid,"Bitrate limit (Mbps)",0,1000);}catch(ArgumentException){rejected=true;}Require(rejected,"Invalid bitrate input was accepted: "+invalid);}
+        var legacy=System.Text.Json.JsonSerializer.Deserialize<Settings>("{\"Replay\":{\"Codec\":\"H264\"}}")!;
+        Require(legacy.Recording.Computer==""&&!legacy.Recording.AllowRemoteEncoding&&legacy.Recording.Profile.HotkeyKey==(uint)Keys.F9&&legacy.Recording.Profile.RateControl=="Quality","Older settings lost the independent recording defaults.");
+        var copy=legacy.Copy();copy.Recording.Profile.Codec="AV1";Require(legacy.Replay.Codec=="H264"&&legacy.Recording.Profile.Codec=="HEVC","Editing recording preferences changed replay or the saved settings object.");
+        Program.Write("recording-settings-data-tests.json",new{Pass=true,OnlyMatchingGpuProfiles=true,BackendSpecificCpuChoices=true,NoInventedSupport=true,CustomResolutionPreserved=true,NumericValidation=true,LegacySettings=true,IndependentProfiles=true});
+    }
     static void Pump(){var frame=new System.Windows.Threading.DispatcherFrame();System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(()=>frame.Continue=false,System.Windows.Threading.DispatcherPriority.ApplicationIdle);System.Windows.Threading.Dispatcher.PushFrame(frame);}
     internal static void Render(W.Window window,string path)
     {
@@ -123,9 +144,61 @@ static class WpfUiTests
         var handle=new System.Windows.Interop.WindowInteropHelper(window).Handle;
         Require((GetWindowLongPtr(handle,-16).ToInt64()&0x00040000)!=0,"Native resize style is missing from the remote viewer");
     }
+    static void RecordingControls()
+    {
+        const string peer="f705575bd7894976a55dcc16ce76a6bd";
+        var screen=Screen.PrimaryScreen??Screen.AllScreens.First();var source=screen.Bounds;
+        var settings=new Settings{Device=screen.DeviceName,Replay=new(){EncodingComputer=peer},Recording=new(){Computer=peer,Profile=new(){Enabled=true,Codec="AV1",HotkeyKey=(uint)Keys.F9,Width=1920,Height=1200}}};
+        int calls=0;ReplayOptions? requested=null;
+        var first=new TaskCompletionSource<IReadOnlyList<RecordingCapability>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stale=new TaskCompletionSource<IReadOnlyList<RecordingCapability>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        RecordingCapability Capability(ReplayOptions profile,string codec)=>new(codec,profile.Encoder=="CPU"?"libx264":codec.ToLowerInvariant()+"_nvenc",profile.Encoder=="CPU"?"CPU x264":"NVIDIA NVENC",source.Width,source.Height,profile.Width==0?source.Width:profile.Width,profile.Height==0?source.Height:profile.Height,profile.Fps,profile.Quality,profile.RateControl,profile.BitrateMbps,profile.KeyframeSeconds,profile.EncoderPreset,profile.Encoder);
+        Task<IReadOnlyList<RecordingCapability>> Discover(string computer,ReplayOptions profile,CancellationToken token)
+        {
+            Require(computer==peer,"GPU check did not target the selected paired computer.");requested=profile with{};calls++;
+            return calls switch{1=>first.Task,2=>stale.Task,3=>Task.FromResult<IReadOnlyList<RecordingCapability>>([]),_=>Task.FromResult<IReadOnlyList<RecordingCapability>>([Capability(profile,"H264")])};
+        }
+        void Wait(Task task){var timeout=Stopwatch.StartNew();while(!task.IsCompleted&&timeout.ElapsedMilliseconds<3000){Pump();Thread.Sleep(5);}Require(task.IsCompleted,"Recording settings did not finish a bounded async GPU check.");task.GetAwaiter().GetResult();}
+        C.TextBox Field(SettingsWindow window,string label)=>(Children((W.DependencyObject)window.Content).OfType<C.TextBlock>().Single(t=>t.Text==label).Parent as C.Grid)!.Children.OfType<C.TextBox>().Single();
+        var form=new SettingsWindow(settings,discoverAudio:()=>Task.FromResult<DiscordDevices.Endpoint[]>([]),recordingCapabilities:Discover){Opacity=0,ShowInTaskbar=false};
+        Require(calls==0,"Settings construction started a hardware encode.");form.Reveal();Pump();Require(calls==0,"Opening the streaming page started unrelated GPU checks.");
+        form.SelectPage(12,false);Pump();var codec=form.AudioChoice("recordingCodec");
+        Require(!codec.IsEnabled&&codec.Items.Count==0&&form.Collect().Recording.Profile.Codec=="AV1","An unverified codec was advertised or the saved profile was lost.");
+        Require(form.AudioChoice("recordingEncodingComputer").Items.Cast<SettingsWindow.Choice>().Any(c=>c.Id==peer)&&form.Collect().Replay.EncodingComputer==peer,"A saved offline encoding computer disappeared.");
+        Task checking=form.RefreshRecordingCapabilities("recording");Require(calls==1&&!codec.IsEnabled&&!checking.IsCompleted,"GPU discovery blocked the UI or enabled unverified codec choices.");
+        first.SetResult([Capability(requested!,"H264")]);Wait(checking);
+        Require(codec.IsEnabled&&codec.Items.Cast<SettingsWindow.Choice>().Select(c=>c.Id).SequenceEqual(new[]{"H264"})&&form.Collect().Recording.Profile.Codec=="AV1","Unsupported AV1 was advertised or silently replaced after a GPU check.");
+        codec.SelectedItem=codec.Items[0];Field(form,"Bitrate limit (Mbps)").Text="32";Field(form,"Keyframe interval (s)").Text="4";
+        form.AudioChoice("recordingRateControl").SelectedItem=form.AudioChoice("recordingRateControl").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="CBR");
+        form.AudioChoice("recordingPreset").SelectedItem=form.AudioChoice("recordingPreset").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="Quality");
+        var collected=form.Collect();Require(collected.Recording.Profile is{Codec:"H264",RateControl:"CBR",BitrateMbps:32,KeyframeSeconds:4,EncoderPreset:"Quality",Width:1920,Height:1200}&&collected.Replay.RateControl=="Quality"&&collected.Replay.BitrateMbps==0&&collected.Recording.Profile.HotkeyKey==(uint)Keys.F9,"Recording edits altered replay or lost the saved custom format/default shortcut.");
+        checking=form.RefreshRecordingCapabilities("recording");Require(calls==2,"A second explicit GPU check was skipped.");
+        form.AudioChoice("recordingFps").SelectedItem=form.AudioChoice("recordingFps").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="120");Wait(checking);
+        stale.SetResult([Capability(requested!,"AV1")]);Pump();Require(codec.Items.Count==0&&!codec.IsEnabled&&calls==2,"A stale GPU check repopulated another profile or combo edits started an encode.");
+        Wait(form.RefreshRecordingCapabilities("recording"));Require(codec.Items.Count==0&&!codec.IsEnabled&&form.Collect().Recording.Profile.Codec=="H264","A failed hardware profile invented codec support or lost saved settings.");
+        Wait(form.RefreshRecordingCapabilities("recording"));Require(codec.IsEnabled&&codec.Items.Count==1,"A supported GPU profile did not restore codec selection.");
+        form.AudioChoice("recordingEncoder").SelectedItem=form.AudioChoice("recordingEncoder").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="CPU");
+        Require(!codec.IsEnabled&&codec.Items.Count==0&&form.Collect().Recording.Profile is{Encoder:"CPU",Codec:"H264"}&&form.Collect().Replay.Encoder=="GPU","Selecting CPU retained an incompatible codec, unverified probe, or changed replay's backend.");
+        Wait(form.RefreshRecordingCapabilities("recording"));Require(requested!.Encoder=="CPU"&&codec.IsEnabled&&codec.Items.Count==1,"CPU capability request did not reach the selected recording computer.");
+        form.AudioChoice("encoder").SelectedItem=form.AudioChoice("encoder").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="CPU");
+        Require(form.Collect().Replay is{Encoder:"CPU",Codec:"H264"}&&form.Collect().Recording.Profile.Encoder=="CPU","Replay and ordinary recording could not select CPU encoding independently.");
+        var mode=form.AudioChoice("recordingAudioMode");mode.SelectedItem=mode.Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="Silent");
+        Require(!form.AudioChoice("recordingGame").IsEnabled&&!form.AudioChoice("recordingMic").IsEnabled&&!form.AudioChoice("recordingExtra").IsEnabled&&form.Collect().Recording.Profile.AudioMode=="Silent"&&form.Collect().Replay.AudioMode=="Mixed","Silent recording audio changed replay or left recording source controls enabled.");
+        mode.SelectedItem=mode.Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="Separate");
+        form.AudioChoice("recordingMic").SelectedItem=form.AudioChoice("recordingMic").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="");
+        form.AudioChoice("recordingExtra").SelectedItem=form.AudioChoice("recordingExtra").Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="default:capture");
+        Require(form.AudioChoice("recordingGame").IsEnabled&&form.Collect().Recording.Profile is{AudioMode:"Separate",Microphone:"",GameAudio:"default:render",ExtraAudio:"default:capture"}&&form.Collect().Replay.Microphone=="default:capture","Recording audio choices did not save independently from replay.");
+        var permission=Children((W.DependencyObject)form.Content).OfType<C.CheckBox>().Single(c=>c.Content is C.TextBlock {Text:"Allow paired PCs to encode on this PC"});permission.IsChecked=true;
+        Require(form.Collect().Recording.AllowRemoteEncoding,"Receiver opt-in was not saved.");
+        UiStrings.Shared.Language="ru";Pump();Require(Children((W.DependencyObject)form.Content).OfType<C.TextBlock>().Any(t=>t.Text=="Видеозапись"),"The recording page did not switch to Russian.");UiStrings.Shared.Language="en";Pump();
+        var toggle=ActionButton(form,"Apply and start/stop recording");toggle.BringIntoView();Pump();Invoke(toggle);
+        Require(form.Accepted&&form.IsClosed&&form.ToggleRecordingAfterSave&&form.ResultSettings.Recording.Profile.Fps==120&&settings.Recording.Profile.Fps==60,"Start/stop did not apply settings atomically or modified saved settings before acceptance.");
+        Program.Write("recording-settings-ui-tests.json",new{Pass=true,IndependentProfiles=true,IndependentRecordingAudio=true,CpuReplayAndRecordingChoices=true,BackendSpecificProbes=true,OfflinePeerRetained=true,ExplicitAsyncGpuChecks=true,OnlySupportedCodecs=true,UnsupportedSavedCodecRetained=true,StaleProbeIgnored=true,ReceiverOptIn=true,ApplyAndToggle=true,RussianPage=true});
+    }
     static void RunTests()
     {
         UiStrings.Shared.Language="en";
+        RecordingData();RecordingControls();
         string folder=Path.Combine(AppContext.BaseDirectory,"wpf-preview");Directory.CreateDirectory(folder);
         var appearanceSettings=new SettingsWindow(new(){Device=Screen.PrimaryScreen?.DeviceName??"DISPLAY1"},discoverAudio:()=>Task.FromResult<DiscordDevices.Endpoint[]>([])){ShowInTaskbar=false};SmoothAppearance(appearanceSettings);
         var appearanceKvm=new KvmWindow(()=>null,()=>false,_=>{},()=>{},_=>{},_=>{}){ShowInTaskbar=false};SmoothAppearance(appearanceKvm);
@@ -142,13 +215,13 @@ static class WpfUiTests
         }
         var noAnimation=new ShellWindow("Motion disabled",420,240){Content=new C.Grid(),AnimateOnReveal=false,ShowInTaskbar=false};noAnimation.Reveal();Pump();var instantFrame=(C.Border)noAnimation.Template.FindName("WindowFrame",noAnimation);Require(instantFrame.Opacity==1&&!instantFrame.HasAnimatedProperties,"Disabling window motion did not show it immediately");noAnimation.Close();
         var pending=new TaskCompletionSource<DiscordDevices.Endpoint[]>(TaskCreationOptions.RunContinuationsAsynchronously);int calls=0;
-        var settings=new Settings{Device=Screen.PrimaryScreen?.DeviceName??"DISPLAY1",NdiAudioDevice="saved",Replay=new(){GameAudio="game",Microphone="mic",ExtraAudio="extra"},Discord=new(){AudioDevice="cable",CaptureDevice="input"}};
+        var settings=new Settings{Device=Screen.PrimaryScreen?.DeviceName??"DISPLAY1",NdiAudioDevice="saved",Replay=new(){GameAudio="game",Microphone="mic",ExtraAudio="extra"},Recording=new(){Profile=new(){HotkeyKey=(uint)Keys.F9,GameAudio="recording-game",Microphone="recording-mic",ExtraAudio="recording-extra"}},Discord=new(){AudioDevice="cable",CaptureDevice="input"}};
         var watch=Stopwatch.StartNew();
         var form=new SettingsWindow(settings,discoverAudio:()=>{calls++;return pending.Task;}){Opacity=0,ShowInTaskbar=false};
         Require(calls==0,"WPF constructor called audio discovery");form.Reveal();Pump();long opening=watch.ElapsedMilliseconds;
         bool responding=false;form.Dispatcher.BeginInvoke(()=>responding=true);Pump();Require(form.IsVisible&&responding&&calls==1&&!pending.Task.IsCompleted,"WPF settings blocked by device discovery");
         ChromeWorks(form);Invoke(ActionButton(form,"Minimize window"));Require(form.WindowState==W.WindowState.Minimized,"Custom minimize failed");form.Reveal();Pump();Require(form.WindowState==W.WindowState.Normal,"Custom minimize could not restore");
-        var before=form.Collect();Require(before.NdiAudioDevice=="saved"&&before.Replay.GameAudio=="game"&&before.Discord.CaptureDevice=="input","WPF loading lost device selection");
+        var before=form.Collect();Require(before.NdiAudioDevice=="saved"&&before.Replay.GameAudio=="game"&&before.Discord.CaptureDevice=="input"&&before.Recording.Profile.GameAudio=="recording-game"&&before.Recording.Profile.Microphone=="recording-mic","WPF loading lost device selection");
         var quality=form.AudioChoice("quality");string qualityId=((SettingsWindow.Choice)quality.SelectedItem).Id;
         void Pick(string name,string id)=>form.AudioChoice(name).SelectedItem=form.AudioChoice(name).Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id==id);
         Pick("resolution","2560");Pick("fps","120");
@@ -158,9 +231,9 @@ static class WpfUiTests
         UiStrings.Shared.Language="ru";Require(quality.Items.Cast<SettingsWindow.Choice>().Single(c=>c.Id=="High").Label.Contains("23 Мбит/с")&&form.Collect().Replay.Quality==qualityId,"Quality label did not translate or lost selection");UiStrings.Shared.Language="en";
         Pick("resolution",before.Replay.Width.ToString());Pick("fps",before.Replay.Fps.ToString());
         var audioChoice=form.AudioChoice("ndiAudio");Require(audioChoice.ActualWidth>150&&audioChoice.IsVisible,"Audio selector is hidden or covered by refresh button");
-        form.AudioChoice("game").SelectedIndex=0;form.Reveal();Require(calls==1,"WPF repeated activation restarted discovery");
+        form.AudioChoice("game").SelectedIndex=0;form.AudioChoice("recordingGame").SelectedIndex=0;form.Reveal();Require(calls==1,"WPF repeated activation restarted discovery");
         pending.SetResult([new("mic",NAudio.CoreAudioApi.DataFlow.Capture,"Microphone","Microphone")]);watch.Restart();while(form.AudioStatus!="Audio devices are up to date."&&watch.ElapsedMilliseconds<3000){Pump();Thread.Sleep(5);}
-        Require(form.AudioStatus=="Audio devices are up to date.","WPF devices did not populate");var after=form.Collect();Require(after.Replay.GameAudio==""&&after.Replay.Microphone=="mic"&&after.NdiAudioDevice=="saved"&&after.Discord.CaptureDevice=="input","WPF discovery replaced edits or missing devices");
+        Require(form.AudioStatus=="Audio devices are up to date.","WPF devices did not populate");var after=form.Collect();Require(after.Replay.GameAudio==""&&after.Replay.Microphone=="mic"&&after.NdiAudioDevice=="saved"&&after.Discord.CaptureDevice=="input"&&after.Recording.Profile is{GameAudio:"",Microphone:"recording-mic",ExtraAudio:"recording-extra"},"WPF discovery replaced edits or missing devices");
         form.SelectPage(11,false);Pump();
         var screenshotText=Children((W.DependencyObject)form.Content).OfType<C.TextBlock>().Select(t=>t.Text).ToArray();
         Require(screenshotText.Any(t=>t=="Use PrintScreen for screenshots")&&!screenshotText.Any(t=>t=="HDR colors"||t=="Editor shortcuts"||t.Contains("Ctrl+")),"Screenshot settings still expose removed technical/shortcut cards.");
@@ -215,8 +288,8 @@ static class WpfUiTests
         {
             var preview=new SettingsWindow(new(){Device=Screen.PrimaryScreen?.DeviceName??"DISPLAY1",Kvm=new(){Role=role,Host="GAMING-PC"}},discoverAudio:()=>Task.FromResult<DiscordDevices.Endpoint[]>([new("game",NAudio.CoreAudioApi.DataFlow.Render,"Game speakers","Speakers"),new("mic",NAudio.CoreAudioApi.DataFlow.Capture,"Microphone","Microphone")]),overview:()=>[new("Screen streaming",("State","On"),("Output","2560 × 1440"),("Delivery rate","60.0 FPS")),new("Instant replay",("State","On"),("Buffered","5 / 5 min")),new("KVM & pairing",("Connected computers","STREAM-PC, SERVER"))],deckClients:()=>role=="Host"?1:0){Opacity=0,ShowInTaskbar=false};preview.Reveal();Pump();
             Require(preview.ResizeMode==W.ResizeMode.CanMinimize,"WPF settings resizable");preview.SelectPage(8,false);Require(role!="Host"||preview.SelectedPage==0,"Receiver page shown on host");
-            for(int i=0;i<12;i++){preview.SelectPage(i,false);Render(preview,Path.Combine(folder,$"{role}-{i}.png"));}
-            UiStrings.Shared.Language="ru";Pump();preview.SelectPage(0,false);Render(preview,Path.Combine(folder,$"{role}-ru.png"));foreach(int id in new[]{3,10,11}){preview.SelectPage(id,false);Render(preview,Path.Combine(folder,$"{role}-ru-{id}.png"));}preview.Close();UiStrings.Shared.Language="en";
+            for(int i=0;i<13;i++){preview.SelectPage(i,false);Render(preview,Path.Combine(folder,$"{role}-{i}.png"));}
+            UiStrings.Shared.Language="ru";Pump();preview.SelectPage(0,false);Render(preview,Path.Combine(folder,$"{role}-ru.png"));foreach(int id in new[]{3,10,11,12}){preview.SelectPage(id,false);Render(preview,Path.Combine(folder,$"{role}-ru-{id}.png"));}preview.Close();UiStrings.Shared.Language="en";
         }
         var options=new KvmOptions();var peer=new KvmPeerInfo(Guid.NewGuid().ToString("N"),"STREAM-PC",[new("LEFT",0,0,1920,1080,true),new("RIGHT",1920,0,1080,1920,false)],"0.8.0",1);var server=new KvmPeerInfo(Guid.NewGuid().ToString("N"),"SERVER",[new("DISPLAY",0,0,1920,1080,true)],"0.8.0",1,true);
         var layout=new List<MonitorPlacement>{new(){Peer=options.Id,Name="GAMING-PC",Device="LOCAL",X=0,Y=0,Width=2560,Height=1440,Hotkey=1},new(){Peer=peer.Id,Name="STREAM-PC",Device="LEFT",X=-1920,Y=180,Width=1920,Height=1080,Hotkey=2},new(){Peer=peer.Id,Name="STREAM-PC",Device="RIGHT",X=2560,Y=-240,Width=1080,Height=1920,Hotkey=3}};

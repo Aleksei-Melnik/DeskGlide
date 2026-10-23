@@ -1,8 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { actions, describe, keyImage, stateFor, bufferSeconds } from '../src/presentation.mjs';
+import { validSnapshot, requestTimeout } from '../src/bridge.mjs';
 const local = { name: 'Gaming', version: '0.7.20', role: 'Host', replayEnabled: true, bufferedSeconds: 120, durationSeconds: 300,
   streaming: true, seamless: true, saveRevision: 0, saveState: 'idle', peers: [{ id: 'peer', name: 'Server' }], monitors: [{ id: 'left', name: 'Left', active: false }, { id: 'main', name: 'Main', active: true }] };
+
+test('independent recording action exposes actual start, recording, saving and error states', () => {
+  assert.equal(actions.recording?.command, 'toggleRecording');
+  const ready = { ...local, recordingSupported: true, recording: false, recordingBusy: false };
+  assert.equal(describe('recording', { local: ready })?.label, 'Record');
+  assert.equal(describe('recording', { local: { ...ready, recording: true } })?.mode, 'recording');
+  assert.equal(describe('recording', { local: { ...ready, recording: true, recordingBusy: true } })?.label, 'Saving');
+  assert.equal(describe('recording', { local: { ...ready, recordingBusy: true } })?.label, 'Starting');
+  assert.equal(describe('recording', { local: { ...ready, recordingError: 'encoder failed' } })?.mode, 'error');
+  assert.equal(describe('recording', { local: { ...ready, recording: true } }, { language: 'ru' })?.label, 'Запись');
+});
+
+test('recording never advertises an older app or a disconnected configured host', () => {
+  assert.equal(describe('recording', { local })?.label, 'Unavailable');
+  assert.equal(describe('recording', { local: { ...local, recordingSupported: true, recording: true } }, { target: 'host' })?.label, 'Offline');
+  const host = { ...local, name: 'Controller', recordingSupported: true, recording: true };
+  assert.equal(describe('recording', { local, host }, { target: 'host' })?.mode, 'recording');
+  const idle = keyImage('recording', describe('recording', { local: { ...host, recording: false } }));
+  assert.notEqual(idle, keyImage('recording', describe('recording', { local: host })));
+});
+
+test('recording IPC accepts backward-compatible snapshots and rejects malformed recording fields', () => {
+  assert.ok(validSnapshot({ local }));
+  assert.ok(validSnapshot({ local: { ...local, recordingSupported: true, recording: true, recordingBusy: false, recordingError: null } }));
+  for (const bad of [{ recording: 'yes' }, { recordingBusy: 1 }, { recordingSupported: 'true' }, { recordingError: {} }, { recordingStatus: 'x'.repeat(4097) }])
+    assert.equal(validSnapshot({ local: { ...local, ...bad } }), false);
+  assert.equal(requestTimeout('toggleRecording'), 600000);
+  assert.equal(requestTimeout('saveReplay'), 600000);
+  assert.equal(requestTimeout('status'), 12000);
+});
 test('buffer meter and actual delivered feedback remain distinct', () => {
   const s = { local };
   assert.equal(describe('save-replay', s).label, '2:00'); assert.equal(describe('save-replay', s).fill, .4);

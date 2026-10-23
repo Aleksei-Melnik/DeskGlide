@@ -14,18 +14,56 @@ static class RecordingEncoders
     }
     internal static RecordingEncoder[] Candidates(ReplayOptions options,int width,int height)
     {
+        if(options.Encoder=="CPU")
+        {
+            if(options.Codec!="H264")throw new ArgumentException("CPU x264 encoding requires the H.264 codec.");
+            return [Cpu(options,width,height)];
+        }
+        if(options.Encoder!="GPU")throw new ArgumentException("Unknown recording encoder backend.");
         string codec=options.Codec switch{"H264"=>"h264","HEVC"=>"hevc","AV1"=>"av1",_=>throw new ArgumentException("Unknown recording codec.")};
         int cq=QualityTarget(options.Quality);
-        int maxRate=MaximumBitrate(options.Quality,width,height,options.Fps);
-        string[] common=["-g",(options.Fps*2).ToString(),"-bf","0","-pix_fmt","nv12"];
-        var nvidia=new List<string>{"-c:v",codec+"_nvenc","-preset","p4","-tune","hq","-rc","vbr","-cq",cq.ToString(),"-b:v","0","-maxrate",$"{maxRate}M","-bufsize",$"{maxRate*2}M","-rc-lookahead","0"};
+        int maxRate=options.BitrateMbps==0?MaximumBitrate(options.Quality,width,height,options.Fps):options.BitrateMbps;
+        string[] common=["-g",(options.Fps*options.KeyframeSeconds).ToString(),"-bf","0","-pix_fmt","nv12"];
+        string nvidiaPreset=options.EncoderPreset switch{"Performance"=>"p2","Quality"=>"p6",_=>"p4"};
+        string amdPreset=options.EncoderPreset switch{"Performance"=>"speed","Quality"=>"quality",_=>"balanced"};
+        // Keep the previously shipped veryfast preset for the Balanced default.
+        string intelPreset=options.EncoderPreset=="Quality"?"medium":"veryfast";
+        var nvidia=new List<string>{"-c:v",codec+"_nvenc","-preset",nvidiaPreset,"-tune","hq"};
+        if(options.RateControl=="Quality")nvidia.AddRange(["-rc","vbr","-cq",cq.ToString(),"-b:v","0","-maxrate",$"{maxRate}M","-bufsize",$"{maxRate*2}M"]);
+        else{nvidia.AddRange(["-rc",options.RateControl=="CBR"?"cbr":"vbr"]);nvidia.AddRange(BitrateArguments(options,maxRate));}
+        nvidia.AddRange(["-rc-lookahead","0"]);
         // Preserve the working NVIDIA path, including its AV1 decoder limit.
         if(options.Codec=="AV1")nvidia.AddRange(["-level","6.2","-tier","1"]);
         nvidia.AddRange(common);
         int amdQp=options.Codec=="AV1"?cq*4:cq;
-        var amd=new List<string>{"-c:v",codec+"_amf","-usage","transcoding","-quality","balanced","-rc","cqp","-qp_i",amdQp.ToString(),"-qp_p",amdQp.ToString()};amd.AddRange(common);
-        var intel=new List<string>{"-c:v",codec+"_qsv","-preset","veryfast","-global_quality",cq.ToString()};intel.AddRange(common);
+        var amd=new List<string>{"-c:v",codec+"_amf","-usage","transcoding","-quality",amdPreset};
+        if(options.RateControl=="Quality")amd.AddRange(["-rc","cqp","-qp_i",amdQp.ToString(),"-qp_p",amdQp.ToString()]);
+        else{amd.AddRange(["-rc",options.RateControl=="CBR"?"cbr":"vbr_peak"]);amd.AddRange(BitrateArguments(options,maxRate));}
+        amd.AddRange(common);
+        var intel=new List<string>{"-c:v",codec+"_qsv","-preset",intelPreset};
+        if(options.RateControl=="Quality")intel.AddRange(["-global_quality",cq.ToString()]);
+        else intel.AddRange(BitrateArguments(options,maxRate));
+        intel.AddRange(common);
         return [new(codec+"_nvenc","NVIDIA NVENC",nvidia.ToArray()),new(codec+"_amf","AMD AMF",amd.ToArray()),new(codec+"_qsv","Intel Quick Sync",intel.ToArray())];
+    }
+    static RecordingEncoder Cpu(ReplayOptions options,int width,int height)
+    {
+        int maximum=options.BitrateMbps==0?MaximumBitrate(options.Quality,width,height,options.Fps):options.BitrateMbps;
+        string preset=options.EncoderPreset switch{"Performance"=>"ultrafast","Quality"=>"medium",_=>"veryfast"};
+        var args=new List<string>{"-c:v","libx264","-preset",preset,"-tune","zerolatency","-threads",Math.Clamp(Environment.ProcessorCount/2,1,16).ToString(),
+            "-g",(options.Fps*options.KeyframeSeconds).ToString(),"-keyint_min",(options.Fps*options.KeyframeSeconds).ToString(),"-sc_threshold","0","-bf","0","-pix_fmt","yuv420p"};
+        if(options.RateControl=="Quality")args.AddRange(["-crf",QualityTarget(options.Quality).ToString(),"-maxrate",$"{maximum}M","-bufsize",$"{maximum*2}M"]);
+        else args.AddRange(BitrateArguments(options,maximum));
+        if(options.RateControl=="CBR")args.AddRange(["-x264-params","nal-hrd=cbr:force-cfr=1"]);
+        return new("libx264","CPU x264",args.ToArray(),GpuScale:false);
+    }
+    static string[] BitrateArguments(ReplayOptions options,int maximum)
+    {
+        // QSV infers VBR when the target differs from the maximum, CBR when equal.
+        string target=ReplayTools.Number(options.RateControl=="CBR"?maximum:maximum*.75);
+        return options.RateControl=="CBR"
+            ?["-b:v",target+"M","-minrate",$"{maximum}M","-maxrate",$"{maximum}M","-bufsize",$"{maximum*2}M"]
+            :["-b:v",target+"M","-maxrate",$"{maximum}M","-bufsize",$"{maximum*2}M"];
     }
     internal static string[] ProbeArguments(RecordingEncoder encoder,int width,int height,int fps,int sourceWidth=0,int sourceHeight=0)
     {
@@ -41,8 +79,10 @@ static class RecordingEncoders
     }
     public static async Task<RecordingEncoder> SelectAsync(ReplayOptions options,int width,int height,CancellationToken token,int sourceWidth=0,int sourceHeight=0)
     {
+        options=options with{};
+        options.Validate();
         if(sourceWidth==0){sourceWidth=width;sourceHeight=height;}
-        string key=$"{ReplayTools.Ffmpeg}|{File.GetLastWriteTimeUtc(ReplayTools.Ffmpeg).Ticks}|{options.Codec}|{options.Quality}|{sourceWidth}x{sourceHeight}>{width}x{height}|{options.Fps}";
+        string key=CacheKey(options,width,height,sourceWidth,sourceHeight);
         await gate.WaitAsync(token);
         try
         {
@@ -63,9 +103,12 @@ static class RecordingEncoders
                 catch(IOException e){Log.Write("Recording encoder unavailable: "+encoder.Name+" · "+e.Message);return false;}
             },token);
             if(found!=null){cache[key]=(found,default,null);return found;}
-            string error=UiStrings.F("No GPU encoder supports {0} at {1} × {2}, {3} FPS. Try H.264, lower the resolution or frame rate, and update your graphics driver.",options.Codec,width,height,options.Fps);
+            string error=options.Encoder=="CPU"?UiStrings.F("CPU x264 could not encode {0} × {1}, {2} FPS with this profile. Check the recording tools or reduce the resolution and frame rate.",width,height,options.Fps):
+                UiStrings.F("No GPU encoder supports {0} at {1} × {2}, {3} FPS. Try H.264, lower the resolution or frame rate, and update your graphics driver.",options.Codec,width,height,options.Fps);
             cache[key]=(null,DateTimeOffset.UtcNow.AddSeconds(30),error);throw new IOException(error);
         }
         finally{gate.Release();}
     }
+    internal static string CacheKey(ReplayOptions options,int width,int height,int sourceWidth,int sourceHeight)
+        =>$"{ReplayTools.Ffmpeg}|{File.GetLastWriteTimeUtc(ReplayTools.Ffmpeg).Ticks}|{options.Encoder}|{sourceWidth}x{sourceHeight}>{width}x{height}|{options.Fps}|"+string.Join('|',Candidates(options,width,height).SelectMany(e=>e.Arguments));
 }

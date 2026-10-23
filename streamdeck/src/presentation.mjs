@@ -2,7 +2,7 @@ export { actions, keyImage } from './icons.mjs';
 export const uuid = 'com.yami.deskglide';
 export const translate = (english, ru) => ru ? ({
   Offline: 'Нет связи', Ready: 'Готово', Saving: 'Сохраняю', Queued: 'Копирую', Saved: 'Сохранено', Error: 'Ошибка',
-  Replay: 'Повтор', Off: 'Выкл', Locked: 'Блок', Unlocked: 'Открыто', Stream: 'Экран', Monitor: 'Монитор', Choose: 'Выберите', Unavailable: 'Недоступно'
+  Replay: 'Повтор', Off: 'Выкл', Locked: 'Блок', Unlocked: 'Открыто', Stream: 'Экран', Monitor: 'Монитор', Choose: 'Выберите', Unavailable: 'Недоступно', Record: 'Записать', Recording: 'Запись', Starting: 'Запуск'
 }[english] ?? english) : english;
 export function stateFor(snapshot, settings = {}) { return settings.target === 'host' ? snapshot?.host : snapshot?.local; }
 export function bufferSeconds(state, elapsed = 0) {
@@ -12,11 +12,17 @@ export function bufferSeconds(state, elapsed = 0) {
   const advance = state.replayEnabled && state.bufferAdvancing && !state.replayError && seconds > 0 ? Math.min(1.25, Math.max(0, elapsed)) : 0;
   return Math.min(Math.max(0, state.durationSeconds), seconds + advance);
 }
-export function describe(kind, snapshot, settings = {}, busy = false, saved = false, elapsed = 0) {
+export function describe(kind, snapshot, settings = {}, busy = false, saved = false, elapsed = 0, commandError = false) {
   const state = stateFor(snapshot, settings), ru = settings.language === 'ru', t = x => translate(x, ru);
-  const view = (label, mode = 'ready', fill = 0) => ({ label, mode, fill, state: ['on', 'locked', 'saved', 'active'].includes(mode) ? 1 : 0 });
+  const view = (label, mode = 'ready', fill = 0) => ({ label, mode, fill, state: ['on', 'locked', 'saved', 'active', 'recording', 'saving'].includes(mode) ? 1 : 0 });
   if (!state) return view(t('Offline'), 'offline');
   switch (kind) {
+    case 'recording': {
+      if (state.recordingSupported !== true) return view(t('Unavailable'), 'offline');
+      if (state.recordingBusy || busy) return view(t(state.recording ? 'Saving' : 'Starting'), state.recording ? 'saving' : 'busy');
+      if (state.recordingError || commandError) return view(t('Error'), 'error');
+      return view(t(state.recording ? 'Recording' : 'Record'), state.recording ? 'recording' : 'ready');
+    }
     case 'save-replay': {
       const seconds = bufferSeconds(state, elapsed), fill = seconds / Math.max(1, state.durationSeconds);
       if (state.saving || busy) return view(t('Saving'), 'busy', fill);

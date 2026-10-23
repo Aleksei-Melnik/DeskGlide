@@ -20,7 +20,8 @@ sealed class KvmService:IDisposable,IKvmInputTransport
     public event Action<string>? Disconnected;
     public event Action<string>? Notification;
     public KvmPeerInfo[] Peers=>controls.Values.Select(w=>w.Peer).ToArray();
-    public string? ActiveAudioPeer {get;set;}
+    string[] activeAudioPeers=[];
+    public string? ActiveAudioPeer {get=>Volatile.Read(ref activeAudioPeers).FirstOrDefault();set=>Volatile.Write(ref activeAudioPeers,value==null?[]:[value]);}
     public KvmService(KvmOptions value)
     {
         value.Validate();options=value.Copy();
@@ -92,7 +93,7 @@ sealed class KvmService:IDisposable,IKvmInputTransport
             catch(OperationCanceledException){}
         });
         if(wire.Channel=="control"){Status="Подключений: "+controls.Count;PeersChanged?.Invoke();}
-        if(wire.Channel=="audio"&&options.Role=="Host"){KvmAudioBus.Remove(wire.Peer.Id);wire.Post(new(){Type="audio-subscribe",Flags=wire.Peer.Id==ActiveAudioPeer?1:0});}
+        if(wire.Channel=="audio"&&options.Role=="Host"){KvmAudioBus.Remove(wire.Peer.Id);wire.Post(new(){Type="audio-subscribe",Flags=Volatile.Read(ref activeAudioPeers).Contains(wire.Peer.Id)?1:0});}
         using var audioSender=wire.Channel=="audio"&&options.Role=="Client"?new KvmAudioSender(options.AudioDevice,wire):null;
         using var videoSender=wire.Channel=="video"&&options.Role=="Client"?new KvmVideoSession(wire,options.AllowView):null;
         try
@@ -146,6 +147,11 @@ sealed class KvmService:IDisposable,IKvmInputTransport
                     if(wire.Channel=="control"&&Guid.TryParseExact(message.Id,"N",out _)&&message.Text.Length<=1024&&message.Version.Length<=32&&message.UpdateTarget.Length<=32)Received?.Invoke(wire.Peer.Id,message);
                     continue;
                 }
+                if(message.Type.StartsWith("recording-"))
+                {
+                    if(RecordingProtocol.Envelope(wire.Channel,message))Received?.Invoke(wire.Peer.Id,message);
+                    continue;
+                }
                 if(message.Type=="clipboard-text"&&!options.ClipboardText)continue;
                 if(message.Type.StartsWith("file-")&&!options.ClipboardFiles)continue;
                 if(message.Type=="clipboard-text"&&message.Text.Length>262144)throw new IOException("Clipboard too large.");
@@ -187,14 +193,19 @@ sealed class KvmService:IDisposable,IKvmInputTransport
     }
     public void SelectAudio(string? peer)
     {
-        ActiveAudioPeer=peer;
-        foreach(var pair in audio)pair.Value.Post(new(){Type="audio-subscribe",Flags=pair.Key==peer?1:0});
+        SelectAudioPeers(peer==null?[]:[peer]);
+    }
+    public void SelectAudioPeers(IEnumerable<string> peers)
+    {
+        var selected=peers.Where(p=>Guid.TryParseExact(p,"N",out _)).Distinct().Take(16).ToArray();
+        Volatile.Write(ref activeAudioPeers,selected);
+        foreach(var pair in audio)pair.Value.Post(new(){Type="audio-subscribe",Flags=selected.Contains(pair.Key)?1:0});
     }
     public void RefreshScreens()
     {
         var screens=KvmScreen.Local();
         foreach(var connection in controls.Values)connection.Post(new(){Type="screens",Screens=screens,RemoteViewOnly=options.RemoteViewOnly});
-        SelectAudio(ActiveAudioPeer);
+        SelectAudioPeers(Volatile.Read(ref activeAudioPeers));
     }
     public void Dispose()
     {

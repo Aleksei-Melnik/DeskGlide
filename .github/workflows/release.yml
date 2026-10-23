@@ -59,7 +59,7 @@ jobs:
         env:
           RELEASE_FOLDER: ${{ steps.package.outputs.folder }}
         run: |
-          foreach($flag in @('--monitor-layout-tests', '--kvm-input-tests','--screenshot-tests','--screenshot-ui-tests','--screenshot-render-performance-test','--update-tests','--streamdeck-tests','--recording-cadence-tests','--recording-frame-queue-tests','--recording-duplicate-tests','--gpu-readback-tests','--replay-app-tests','--recording-sdr-tests')) {
+          foreach($flag in @('--install-recording-tools','--recording-audio-tail-tests','--recording-session-tests','--recording-capability-tests','--recording-routing-tests','--recording-performance-tests','--recording-remote-tests','--recording-node-tests','--recording-ndi-tests','--recording-settings-data-tests','--recording-session-media-tests','--recording-cpu-tests','--monitor-layout-tests', '--kvm-input-tests','--screenshot-tests','--screenshot-ui-tests','--screenshot-render-performance-test','--update-tests','--streamdeck-tests','--recording-cadence-tests','--recording-frame-queue-tests','--recording-duplicate-tests','--gpu-readback-tests','--replay-app-tests','--recording-sdr-tests')) {
             $p=Start-Process (Join-Path $env:RELEASE_FOLDER 'DeskGlide.exe') -ArgumentList $flag -PassThru -Wait -WindowStyle Hidden
             if($p.ExitCode -ne 0){throw "Packaged app failed $flag"}
           }

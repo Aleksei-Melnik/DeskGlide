@@ -7,12 +7,12 @@ await build({ entryPoints: ['src/plugin.mjs'], outfile: `${root}/bin/plugin.js`,
   banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" } });
 const manifest = {
   $schema: 'https://schemas.elgato.com/streamdeck/plugins/manifest.json', UUID: uuid, Name: 'DeskGlide', Category: 'DeskGlide',
-  CategoryIcon: 'imgs/category', Author: 'Yami', Description: 'Save instant replays, open remote computers and control mouse transitions with live DeskGlide status.',
-  Version: '1.0.1.0', CodePath: 'bin/plugin.js', Icon: 'imgs/plugin', URL: 'https://github.com/Aleksei-Melnik/DeskGlide',
+  CategoryIcon: 'imgs/category', Author: 'Yami', Description: 'Save instant replays, start and stop video recordings, open remote computers and control mouse transitions with live DeskGlide status.',
+  Version: '1.1.0.0', CodePath: 'bin/plugin.js', Icon: 'imgs/plugin', URL: 'https://github.com/Aleksei-Melnik/DeskGlide',
   SDKVersion: 3, Nodejs: { Version: '24' }, Software: { MinimumVersion: '7.1' }, OS: [{ Platform: 'windows', MinimumVersion: '10' }],
   PropertyInspectorPath: 'ui/settings.html', Actions: Object.entries(actions).map(([kind, value]) => ({
     UUID: `${uuid}.${kind}`, Name: value.name, Tooltip: value.name, Icon: `imgs/${kind}-list`, Controllers: ['Keypad'],
-    DisableAutomaticStates: true, SupportedInMultiActions: kind !== 'save-replay',
+    DisableAutomaticStates: true, SupportedInMultiActions: !['save-replay', 'recording'].includes(kind),
     States: [0, 1].map(() => ({ Image: `imgs/${kind}`, TitleAlignment: 'bottom', FontSize: 10 }))
   }))
 };
