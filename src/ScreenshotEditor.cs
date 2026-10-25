@@ -74,8 +74,9 @@ sealed class ScreenshotEditor:Form
     readonly ScreenshotDocument document;
     readonly ScreenshotOptions options;
     readonly Action<string> saved;
-    readonly FlowLayoutPanel tools=new(){BackColor=Color.FromArgb(24,22,34),Padding=new(4),FlowDirection=FlowDirection.TopDown,WrapContents=true};
-    readonly FlowLayoutPanel actions=new(){BackColor=Color.FromArgb(24,22,34),Padding=new(4),WrapContents=false};
+    // Stop the canvas cross/resize cursor from propagating into buttons and gaps.
+    readonly FlowLayoutPanel tools=new(){Cursor=Cursors.Default,BackColor=Color.FromArgb(24,22,34),Padding=new(4),FlowDirection=FlowDirection.TopDown,WrapContents=true};
+    readonly FlowLayoutPanel actions=new(){Cursor=Cursors.Default,BackColor=Color.FromArgb(24,22,34),Padding=new(4),WrapContents=false};
     readonly Color barColor=Color.FromArgb(24,22,34);
     readonly ToolTip tips=new();
     readonly ContextMenuStrip more=new();

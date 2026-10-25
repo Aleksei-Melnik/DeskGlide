@@ -1,3 +1,12 @@
+DeskGlide 0.7.42
+
+- Fixed the screenshot editor keeping a crosshair or resize cursor over its buttons. Both toolbars, including the spaces between buttons, now use the normal arrow pointer.
+- Preserved the canvas crosshair, selection move and edge/corner resize cursors.
+
+Update through **Updates → Update all PCs**. The existing signing key, pairing and Stream Deck plugin are retained. No Windows restart is needed.
+
+Previous release: 0.7.41
+
 DeskGlide 0.7.41
 
 - Fixed the KVM computer selector appearing behind ordinary desktop windows when opened through the tray, shortcut or Stream Deck. The selector is raised without staying permanently on top. A foreground fullscreen window keeps its focus and remains above a selector opened in the background.

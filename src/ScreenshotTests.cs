@@ -99,6 +99,7 @@ static class ScreenshotTests
             GpuColors();
             Latency();
             RenderDamage(800,500);
+            PointerCursors();
             Require(!settings.Copy().Screenshots.Enabled&&settings.Copy().Screenshots.Folder==folder,"Settings copy lost screenshot preferences.");
             Require(JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!.Screenshots==settings.Screenshots,"Screenshot settings failed round trip.");
             bool rejected=false;try{new ScreenshotOptions{Folder="relative"}.Validate();}catch(ArgumentException){rejected=true;}Require(rejected,"Relative destination accepted.");
@@ -187,9 +188,40 @@ static class ScreenshotTests
                     Require(!editor.Visible,"Diagnostic editor stole focus.");
                 }
             }
-            Program.Write("screenshot-tests.json",new{Pass=true,IsolatedWorkerRoundTrip=true,WorkerErrorAndCancellation=true,BoundedPixelProtocol=true,SdrRoundTrip=true,HdrWhiteLevels=new[]{80,200,480},HighlightAndNonfiniteChecks=true,MixedDisplays=true,AllRotations=true,CropAndAnnotations=true,FlattenedRedaction=true,UndoRedo=true,AtomicSave=true,LegacyPreferences=true,OffscreenEditorPreviews=previews,GlobalKeysRegistered=false,DesktopCaptured=false,ClipboardWritten=false,InteractivePrintScreenTest=false});
+            Program.Write("screenshot-tests.json",new{Pass=true,IsolatedWorkerRoundTrip=true,WorkerErrorAndCancellation=true,BoundedPixelProtocol=true,SdrRoundTrip=true,HdrWhiteLevels=new[]{80,200,480},HighlightAndNonfiniteChecks=true,MixedDisplays=true,AllRotations=true,CropAndAnnotations=true,FlattenedRedaction=true,UndoRedo=true,AtomicSave=true,LegacyPreferences=true,ToolbarArrowCursor=true,CanvasToolAndResizeCursors=true,OffscreenEditorPreviews=previews,GlobalKeysRegistered=false,DesktopCaptured=false,ClipboardWritten=false,InteractivePrintScreenTest=false});
         }
         finally{SynchronizationContext.SetSynchronizationContext(previousContext);if(Directory.Exists(folder))Directory.Delete(folder,true);}
+    }
+    static void PointerCursors()
+    {
+        using var frame=new ScreenshotFrame([Sdr(new(0,0,1000,700),(_,_)=>Color.DarkSlateBlue)]);
+        using var editor=new ScreenshotEditor(frame,new(),_=>{}){SyntheticPointer=true};
+        editor.TestDrag(new(100,100),new(600,450));
+        var bars=editor.Controls.OfType<FlowLayoutPanel>().ToArray();
+        Require(bars.Length==2&&bars.All(bar=>bar.Controls.Count>0),"Screenshot cursor test did not find both toolbars.");
+        foreach(int dpi in new[]{96,144})
+        foreach(var tool in new[]{ScreenshotTool.Select,ScreenshotTool.Pen,ScreenshotTool.Text})
+        {
+            editor.TestDpi(dpi);editor.TestTool(tool);
+            foreach(var (point,expected) in new (Point,Cursor)[]{
+                (new(100,100),Cursors.SizeNWSE),(new(600,100),Cursors.SizeNESW),
+                (new(600,450),Cursors.SizeNWSE),(new(100,450),Cursors.SizeNESW),
+                (new(350,100),Cursors.SizeNS),(new(600,275),Cursors.SizeWE),
+                (new(350,450),Cursors.SizeNS),(new(100,275),Cursors.SizeWE),
+                (new(350,275),tool==ScreenshotTool.Select?Cursors.SizeAll:Cursors.Cross),
+                (new(50,50),Cursors.Cross)})
+            {
+                editor.TestPointerMove(point);
+                Require(editor.Cursor==expected,$"Canvas cursor changed for {tool} at {point} ({dpi} DPI).");
+                foreach(var bar in bars)
+                {
+                    Require(bar.Cursor==Cursors.Default,$"Screenshot toolbar padding inherited the {editor.Cursor} canvas cursor.");
+                    foreach(Control button in bar.Controls)
+                        Require(button.Cursor==Cursors.Default,$"Screenshot button {button.Tag} inherited the {editor.Cursor} canvas cursor.");
+                }
+            }
+        }
+        Require(!editor.Visible,"Screenshot cursor test activated the editor.");
     }
     internal static void Capture()
     {
