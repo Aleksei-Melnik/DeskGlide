@@ -30,9 +30,19 @@ jobs:
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: '11.25.0'
+      - name: Detect preinstalled .NET 10 SDK
+        id: dotnet_sdk
+        shell: pwsh
+        run: |
+          $deskGlideSdkInstalled=$false
+          if(Get-Command dotnet -ErrorAction SilentlyContinue){
+            $deskGlideSdkInstalled=@(dotnet --list-sdks | Where-Object {$_ -match '^10\.0\.\d+\s'}).Count -gt 0
+          }
+          "installed=$($deskGlideSdkInstalled.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        if: steps.dotnet_sdk.outputs.installed != 'true'
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402'
       - name: Build and sign
         id: package
         shell: pwsh

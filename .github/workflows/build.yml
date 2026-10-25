@@ -16,9 +16,19 @@ jobs:
       - name: Build and validate Stream Deck plugin
         shell: pwsh
         run: ./scripts/Build-StreamDeck.ps1
+      - name: Detect preinstalled .NET 10 SDK
+        id: dotnet_sdk
+        shell: pwsh
+        run: |
+          $deskGlideSdkInstalled=$false
+          if(Get-Command dotnet -ErrorAction SilentlyContinue){
+            $deskGlideSdkInstalled=@(dotnet --list-sdks | Where-Object {$_ -match '^10\.0\.\d+\s'}).Count -gt 0
+          }
+          "installed=$($deskGlideSdkInstalled.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
       - uses: actions/setup-dotnet@v6
+        if: steps.dotnet_sdk.outputs.installed != 'true'
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '10.0.402'
       - name: Build
         shell: pwsh
         run: ./Build.ps1
