@@ -1,3 +1,13 @@
+DeskGlide 0.7.43
+
+- Kept screenshot drawing tools and Copy/Save together at the bottom-right corner of the selection. At screen edges, both panels move inside as a group, including full-screen selections; tools no longer jump left while export actions jump to the top.
+- Multi-monitor selections use the monitor nearest their bottom-right corner for the controls.
+- Removed the three-dot button. Additional commands remain available by right-clicking either toolbar or its buttons.
+
+Update through **Updates → Update all PCs**. The existing signing key, pairing and Stream Deck plugin are retained. No Windows restart is needed.
+
+Previous release: 0.7.42
+
 DeskGlide 0.7.42
 
 - Fixed the screenshot editor keeping a crosshair or resize cursor over its buttons. Both toolbars, including the spaces between buttons, now use the normal arrow pointer.

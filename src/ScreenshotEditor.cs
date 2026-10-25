@@ -117,7 +117,7 @@ sealed class ScreenshotEditor:Form
     int S(int value)=>(int)Math.Round(value*scale);
     ScreenshotButton Action(FlowLayoutPanel row,string glyph,string label,System.Action action)
     {
-        var button=new ScreenshotButton(glyph){Size=new(S(22),S(22)),Margin=new(1),TabStop=true,ForeColor=Color.FromArgb(237,233,245),BackColor=barColor,AccessibleName=UiStrings.T(label),Tag=glyph};
+        var button=new ScreenshotButton(glyph){Size=new(S(22),S(22)),Margin=new(1),TabStop=true,ForeColor=Color.FromArgb(237,233,245),BackColor=barColor,AccessibleName=UiStrings.T(label),Tag=glyph,ContextMenuStrip=more};
         button.Click+=(_,_)=>Run(action);tips.SetToolTip(button,UiStrings.T(label));row.Controls.Add(button);return button;
     }
     void BuildToolbar()
@@ -130,10 +130,9 @@ sealed class ScreenshotEditor:Form
         colorButton=Action(tools,"Color","Choose annotation color",()=>{CommitText();using var dialog=new ColorDialog{Color=ink,FullOpen=true};if(ShowDialog(dialog)==DialogResult.OK){ink=dialog.Color;colorButton!.Ink=ink;colorButton.Invalidate();}});colorButton.Ink=ink;
         undoButton=Action(tools,"Undo","Undo",()=>{CommitText();document.Undo();RefreshActions();});
         Action(actions,"Copy","Copy",Copy);Action(actions,"Save","Save PNG",()=>Save(false));
-        var extra=Action(actions,"More","More tools",()=>{});
-        extra.Click+=(_,_)=>{menuActive=true;more.Show(extra,new Point(extra.Width,0));};
         Action(actions,"Close","Close",Close);
-        TrayMenuStyle.Apply(more);more.Closed+=(_,_)=>
+        tools.ContextMenuStrip=actions.ContextMenuStrip=more;
+        TrayMenuStyle.Apply(more);more.Opening+=(_,_)=>menuActive=true;more.Closed+=(_,_)=>
         {
             menuActive=false;
             if(!IsDisposed&&!Disposing&&IsHandleCreated)BeginInvoke(()=>{if(!IsDisposed&&!dialogActive&&!ContainsFocus)Close();});
@@ -182,8 +181,8 @@ sealed class ScreenshotEditor:Form
     void PositionToolbar()
     {
         var r=document.Selection;bool selected=r.Width>0&&r.Height>0;tools.Visible=actions.Visible=selected;if(!selected)return;
-        var center=new Point(frame.Bounds.X+r.Left+r.Width/2,frame.Bounds.Y+r.Top+r.Height/2);
-        var screen=Screen.FromPoint(center).Bounds;screen.Offset(-frame.Bounds.X,-frame.Bounds.Y);
+        var corner=new Point(frame.Bounds.X+r.Right-1,frame.Bounds.Y+r.Bottom-1);
+        var screen=Screen.FromPoint(corner).Bounds;screen.Offset(-frame.Bounds.X,-frame.Bounds.Y);
         screen=Rectangle.Intersect(screen,new(Point.Empty,frame.Bounds.Size));
         int cell=S(22)+2,padding=2*S(2),gap=S(5);
         actions.Size=new(actions.Controls.Count*cell+padding,cell+padding);
@@ -383,6 +382,7 @@ sealed class ScreenshotEditor:Form
     {
         var area=new Rectangle(Point.Empty,frame.Bounds.Size);
         if(!area.Contains(tools.Bounds)||!area.Contains(actions.Bounds)||tools.Bounds.IntersectsWith(actions.Bounds))throw new Exception("Screenshot bars are outside the desktop or overlap.");
+        if(tools.Right!=actions.Right||tools.Bottom+S(5)!=actions.Top)throw new Exception("Screenshot bars are not grouped at the same bottom-right corner.");
         foreach(var bar in new[]{tools,actions})foreach(Control child in bar.Controls)
             if(!bar.ClientRectangle.Contains(child.Bounds))throw new Exception("Screenshot action clipped by toolbar: "+child.AccessibleName);
     }

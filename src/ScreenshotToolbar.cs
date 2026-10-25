@@ -52,30 +52,13 @@ static class ScreenshotBarLayout
 {
     internal static ScreenshotBarPositions Place(Rectangle selection,Rectangle screen,Size tools,Size actions,int gap)
     {
-        // Drawing tools follow the right edge, export actions the bottom edge.
-        // Flip at monitor boundaries, then separate the bars even for full-screen
-        // and tiny selections where they have to sit inside the frozen image.
-        int tx=selection.Right+gap;
-        if(tx+tools.Width>screen.Right)tx=selection.Left-tools.Width-gap;
-        tx=Math.Clamp(tx,screen.Left,screen.Right-tools.Width);
-        int ty=Math.Clamp(selection.Bottom-tools.Height,screen.Top,screen.Bottom-tools.Height);
-        int ax=Math.Clamp(selection.Right-actions.Width,screen.Left,screen.Right-actions.Width);
-        int ay=selection.Bottom+gap;
-        if(ay+actions.Height>screen.Bottom)ay=selection.Top-actions.Height-gap;
-        ay=Math.Clamp(ay,screen.Top,screen.Bottom-actions.Height);
-        var toolsRect=new Rectangle(tx,ty,tools.Width,tools.Height);
-        if(toolsRect.IntersectsWith(new(ax,ay,actions.Width,actions.Height)))
-        {
-            if(toolsRect.Left-gap-actions.Width>=screen.Left)ax=toolsRect.Left-gap-actions.Width;
-            else if(toolsRect.Right+gap+actions.Width<=screen.Right)ax=toolsRect.Right+gap;
-            else
-            {
-                // The compact bars together fit vertically on a small monitor.
-                ay=screen.Bottom-actions.Height;
-                ty=Math.Min(ty,ay-gap-tools.Height);
-                ty=Math.Max(screen.Top,ty);
-            }
-        }
-        return new(new(tx,ty),new(ax,ay));
+        // Move both bars as one bottom-right cluster. At a monitor boundary,
+        // slide the cluster inside instead of flipping each bar independently.
+        int width=Math.Max(tools.Width,actions.Width),height=tools.Height+gap+actions.Height;
+        int marginX=Math.Min(gap,Math.Max(0,(screen.Width-width)/2));
+        int marginY=Math.Min(gap,Math.Max(0,(screen.Height-height)/2));
+        int right=Math.Clamp(selection.Right+gap+tools.Width,screen.Left+marginX+width,screen.Right-marginX);
+        int bottom=Math.Clamp(selection.Bottom+gap+actions.Height,screen.Top+marginY+height,screen.Bottom-marginY);
+        return new(new(right-tools.Width,bottom-actions.Height-gap-tools.Height),new(right-actions.Width,bottom-actions.Height));
     }
 }

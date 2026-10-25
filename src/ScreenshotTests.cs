@@ -99,7 +99,6 @@ static class ScreenshotTests
             GpuColors();
             Latency();
             RenderDamage(800,500);
-            PointerCursors();
             Require(!settings.Copy().Screenshots.Enabled&&settings.Copy().Screenshots.Folder==folder,"Settings copy lost screenshot preferences.");
             Require(JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(settings))!.Screenshots==settings.Screenshots,"Screenshot settings failed round trip.");
             bool rejected=false;try{new ScreenshotOptions{Folder="relative"}.Validate();}catch(ArgumentException){rejected=true;}Require(rejected,"Relative destination accepted.");
@@ -167,9 +166,13 @@ static class ScreenshotTests
                 var place=ScreenshotBarLayout.Place(selection,screen,toolSize,actionSize,7);
                 var toolsRect=new Rectangle(place.Tools,toolSize);var actionsRect=new Rectangle(place.Actions,actionSize);
                 Require(screen.Contains(toolsRect)&&screen.Contains(actionsRect)&&!toolsRect.IntersectsWith(actionsRect),"Compact screenshot bars overlap or escape a monitor edge.");
+                Require(toolsRect.Right==actionsRect.Right&&toolsRect.Bottom+7==actionsRect.Top,"Screenshot controls split across different selection corners.");
+                if(selection==screen)
+                    Require(actionsRect.Right>=screen.Right-7&&actionsRect.Bottom>=screen.Bottom-7,"Full-screen screenshot controls moved away from the bottom-right corner.");
             }
             var normal=ScreenshotBarLayout.Place(new(100,100,700,400),new(0,0,1600,900),new(28,220),new(100,28),5);
             Require(normal.Tools.X==805&&normal.Actions.Y==505,"Screenshot controls are not right/below the selection.");
+            PointerCursors();
             using(var frame=new ScreenshotFrame([Sdr(new(0,0,1600,900),(x,y)=>Color.FromArgb(15+x/40,20+y/30,42+(x+y)/60))]))
             {
                 using(var g=Graphics.FromImage(frame.Preview))
@@ -188,7 +191,7 @@ static class ScreenshotTests
                     Require(!editor.Visible,"Diagnostic editor stole focus.");
                 }
             }
-            Program.Write("screenshot-tests.json",new{Pass=true,IsolatedWorkerRoundTrip=true,WorkerErrorAndCancellation=true,BoundedPixelProtocol=true,SdrRoundTrip=true,HdrWhiteLevels=new[]{80,200,480},HighlightAndNonfiniteChecks=true,MixedDisplays=true,AllRotations=true,CropAndAnnotations=true,FlattenedRedaction=true,UndoRedo=true,AtomicSave=true,LegacyPreferences=true,ToolbarArrowCursor=true,CanvasToolAndResizeCursors=true,OffscreenEditorPreviews=previews,GlobalKeysRegistered=false,DesktopCaptured=false,ClipboardWritten=false,InteractivePrintScreenTest=false});
+            Program.Write("screenshot-tests.json",new{Pass=true,IsolatedWorkerRoundTrip=true,WorkerErrorAndCancellation=true,BoundedPixelProtocol=true,SdrRoundTrip=true,HdrWhiteLevels=new[]{80,200,480},HighlightAndNonfiniteChecks=true,MixedDisplays=true,AllRotations=true,CropAndAnnotations=true,FlattenedRedaction=true,UndoRedo=true,AtomicSave=true,LegacyPreferences=true,ToolbarArrowCursor=true,CanvasToolAndResizeCursors=true,BottomRightToolbarCluster=true,FullScreenDragDirections=true,NoMoreButton=true,OffscreenEditorPreviews=previews,GlobalKeysRegistered=false,DesktopCaptured=false,ClipboardWritten=false,InteractivePrintScreenTest=false});
         }
         finally{SynchronizationContext.SetSynchronizationContext(previousContext);if(Directory.Exists(folder))Directory.Delete(folder,true);}
     }
@@ -199,6 +202,7 @@ static class ScreenshotTests
         editor.TestDrag(new(100,100),new(600,450));
         var bars=editor.Controls.OfType<FlowLayoutPanel>().ToArray();
         Require(bars.Length==2&&bars.All(bar=>bar.Controls.Count>0),"Screenshot cursor test did not find both toolbars.");
+        Require(bars.All(bar=>bar.ContextMenuStrip!=null)&&!bars.SelectMany(bar=>bar.Controls.Cast<Control>()).Any(button=>Equals(button.Tag,"More")),"Screenshot editor still needs a More button instead of the toolbar context menu.");
         foreach(int dpi in new[]{96,144})
         foreach(var tool in new[]{ScreenshotTool.Select,ScreenshotTool.Pen,ScreenshotTool.Text})
         {
@@ -220,6 +224,13 @@ static class ScreenshotTests
                         Require(button.Cursor==Cursors.Default,$"Screenshot button {button.Tag} inherited the {editor.Cursor} canvas cursor.");
                 }
             }
+        }
+        foreach(int dpi in new[]{96,144})
+        foreach(var (from,to) in new (Point,Point)[]{(new(0,0),new(999,699)),(new(999,699),new(0,0)),(new(999,0),new(0,699)),(new(0,699),new(999,0))})
+        {
+            editor.Document.Selection=Rectangle.Empty;editor.TestDpi(dpi);editor.TestDrag(from,to);editor.CheckToolbar();
+            var actions=bars.Single(bar=>bar.FlowDirection==FlowDirection.LeftToRight);
+            Require(editor.Document.Selection==new Rectangle(0,0,999,699)&&actions.Right>=994&&actions.Bottom>=694,"A full-screen drag did not keep the controls at the bottom right.");
         }
         Require(!editor.Visible,"Screenshot cursor test activated the editor.");
     }
@@ -407,7 +418,8 @@ static class ScreenshotTests
                     editor.TestTool(ScreenshotTool.Arrow);editor.TestDrag(new(150,150),new(400,300));Require(editor.Document.CanUndo,"Drawing through the editor lost the mark.");
                     editor.Refresh();Require(editor.PaintCount>0,"The shown screenshot editor never painted its native window.");
                     editor.TestAction("Undo");Require(!editor.Document.CanUndo&&editor.Document.CanRedo,"Editor Undo button failed.");
-                    editor.TestAction("More");Require(editor.MoreVisible&&!editor.IsDisposed,"The compact More menu closed the editor.");
+                    var copy=editor.Controls.OfType<FlowLayoutPanel>().SelectMany(bar=>bar.Controls.Cast<Control>()).Single(button=>Equals(button.Tag,"Copy"));
+                    SendMessage(copy.Handle,0x007b,copy.Handle,-1);Require(editor.MoreVisible&&!editor.IsDisposed,"The toolbar context menu failed to open or closed the editor.");
                     editor.TestAction("Redo");editor.CloseMore();Application.DoEvents();Require(!editor.IsDisposed&&editor.Document.CanUndo,"Editor Redo menu action failed or dismissed the screenshot.");
                     Require(editor.TestKey(Keys.Control|Keys.Z)&&!editor.Document.CanUndo&&editor.Document.CanRedo,"Ctrl+Z did not undo the annotation while a toolbar had focus.");
                     Require(!editor.TestKey(Keys.Control|Keys.S)&&!editor.TestKey(Keys.Control|Keys.C),"Removed copy/save key combination still executes an action.");
@@ -422,6 +434,7 @@ static class ScreenshotTests
             });
             Application.Run(editor);if(failure!=null)throw failure;
         }
-        Program.Write("screenshot-ui-tests.json",new{Pass=true,Languages=new[]{"en","ru"},NativeWindowShown=true,NativeWindowPainted=true,SelectionAndResize=true,AnnotationAndUndoButtons=true,CompactMoreMenu=true,CtrlZUndo=true,RemovedCopySaveChords=true,ResizeWhileDrawing=true,TextCancel=true,ToolbarBounds=true,DesktopCaptured=false,OsInputInjected=false,ClipboardWritten=false,PrintScreenPressed=false});
+        Program.Write("screenshot-ui-tests.json",new{Pass=true,Languages=new[]{"en","ru"},NativeWindowShown=true,NativeWindowPainted=true,SelectionAndResize=true,AnnotationAndUndoButtons=true,ToolbarContextMenu=true,CtrlZUndo=true,RemovedCopySaveChords=true,ResizeWhileDrawing=true,TextCancel=true,ToolbarBounds=true,DesktopCaptured=false,OsInputInjected=false,ClipboardWritten=false,PrintScreenPressed=false});
     }
+    [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="SendMessageW")] static extern nint SendMessage(nint window,int message,nint wParam,nint lParam);
 }
