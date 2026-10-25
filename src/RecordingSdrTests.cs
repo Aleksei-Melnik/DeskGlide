@@ -53,7 +53,7 @@ static class RecordingSdrTests
                 var startup=Stopwatch.StartNew();
                 while(recorder.BufferedSeconds<4&&recorder.Error==null&&startup.Elapsed.TotalSeconds<30)Thread.Sleep(50);
                 Require(recorder.Error==null,"SDR recording failed: "+recorder.Error);
-                Require(recorder.BufferedSeconds>=4,"SDR recorder did not produce four seconds within the startup deadline.");
+                Require(recorder.BufferedSeconds>=4,$"SDR recorder did not produce four seconds within the startup deadline: buffered={recorder.BufferedSeconds:R}, encoded={recorder.EncodedFrames}, status={recorder.Status}.");
                 saved=recorder.SaveAsync("SDR tests").GetAwaiter().GetResult();
             }
             finally{stop.Cancel();producer.GetAwaiter().GetResult();recorder.Update(options with{Enabled=false});}
