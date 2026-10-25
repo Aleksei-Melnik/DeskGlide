@@ -1,3 +1,13 @@
+DeskGlide 0.7.44
+
+- Fixed KVM clipboard images from applications that provide DIB or DIBV5 data instead of PNG, including the image formats used by Qt applications such as Telegram Desktop. Image conversion now reads those formats directly and preserves colors, orientation and transparency.
+- A broken or unsupported image representation no longer prevents trying another available format. Clipboard size limits and chunked, hash-checked transfer remain in place; failed reads now log the exception details.
+- Included Stream Deck plugin 1.1.1.0 with the six supported replay, monitor, KVM and streaming actions. The unfinished Video Recording action is excluded.
+
+Update through **Updates → Update all PCs**, including the computer from which you copy the image. The existing signing key and pairing are retained. No Windows restart is needed.
+
+Previous release: 0.7.43
+
 DeskGlide 0.7.43
 
 - Kept screenshot drawing tools and Copy/Save together at the bottom-right corner of the selection. At screen edges, both panels move inside as a group, including full-screen selections; tools no longer jump left while export actions jump to the top.

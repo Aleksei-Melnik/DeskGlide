@@ -76,6 +76,10 @@ jobs:
             app/screenshot-gpu-tests.json
             app/kvm-test.json
             app/kvm-input-thread-test.json
+            app/kvm-files-test.json
+            app/kvm-image-tests.json
+            app/kvm-image-format-tests.json
+            app/kvm-native-image-tests.json
             app/monitor-layout-tests.json
             app/update-tests.json
             app/update-installation-tests.json

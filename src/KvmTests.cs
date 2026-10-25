@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 
 namespace SdrCapture;
 static class KvmTests
@@ -62,6 +63,7 @@ static class KvmTests
     }
     static void ClipboardImages(string folder,KvmService service,Control dispatcher)
     {
+        ClipboardImageFormats();
         using var source=new Bitmap(1200,1200,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         var pixels=source.LockBits(new(0,0,source.Width,source.Height),System.Drawing.Imaging.ImageLockMode.WriteOnly,source.PixelFormat);
         var random=new byte[pixels.Stride*source.Height];new Random(1234).NextBytes(random);for(int i=3;i<random.Length;i+=4)random[i]=255;
@@ -98,6 +100,69 @@ static class KvmTests
         if(!badPng)throw new Exception("Non-PNG screenshot payload was accepted");
         Program.Write("kvm-image-tests.json",new{Pass=true,PixelsPreserved=true,PngOnlyClipboard=true,NativeBitmapAndPng=true,FileDropFallback=true,ImageBytes=png.Length,PacketLimitRespected=true,InvalidImageManifestsRejected=true,ClipboardModified=false});
     }
+    static void ClipboardImageFormats()
+    {
+        using var source=new Bitmap(3,2,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        for(int y=0;y<source.Height;y++)for(int x=0;x<source.Width;x++)source.SetPixel(x,y,Color.FromArgb(255,30+x*40,40+y*50,150+x+y));
+        string dibV5=DataFormats.GetFormat(17).Name;
+        foreach(bool v5 in new[]{false,true})foreach(bool topDown in new[]{false,true})
+        {
+            byte[] dib=ClipboardDib(source,v5,topDown);using var stream=new MemoryStream(dib,false);stream.Position=7;
+            var data=new DataObject();data.SetData(v5?dibV5:DataFormats.Dib,false,stream);
+            using var actual=KvmClipboardImage.Capture(data);
+            RequireImage(actual,source,"DIB clipboard pixels/orientation");
+            if(stream.Position!=7)throw new Exception("DIB clipboard stream position changed");
+        }
+        using var transparent=new Bitmap(2,1,System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        transparent.SetPixel(0,0,Color.FromArgb(128,40,80,120));transparent.SetPixel(1,0,Color.FromArgb(255,20,60,100));
+        var transparentData=new DataObject();transparentData.SetData(dibV5,false,ClipboardDib(transparent,true,false));
+        using(var actual=KvmClipboardImage.Capture(transparentData))RequireImage(actual,transparent,"DIBV5 transparency changed");
+        using var badPng=new MemoryStream(new byte[32],false);badPng.Position=5;
+        var fallback=new DataObject();fallback.SetData("PNG",false,badPng);fallback.SetImage(source);
+        using(var actual=KvmClipboardImage.Capture(fallback))RequireImage(actual,source,"Invalid PNG prevented a valid bitmap fallback");
+        if(badPng.Position!=5)throw new Exception("Invalid PNG stream position changed");
+        using var validDib=new MemoryStream(ClipboardDib(source,false,false),false);
+        var dibFallback=new DataObject();dibFallback.SetData("PNG",false,new byte[32]);dibFallback.SetData(DataFormats.Dib,false,validDib);
+        using(var actual=KvmClipboardImage.Capture(dibFallback))RequireImage(actual,source,"Invalid PNG prevented a valid DIB fallback");
+        byte[] oversized=ClipboardDib(source,false,false);System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(oversized.AsSpan(4),int.MaxValue);
+        var invalid=new DataObject();invalid.SetData(DataFormats.Dib,false,oversized);
+        bool rejected=false;try{using var ignored=KvmClipboardImage.Capture(invalid);}catch(IOException){rejected=true;}
+        if(!rejected)throw new Exception("Oversized DIB clipboard dimensions accepted");
+        var text=new DataObject();text.SetText("clipboard image test");
+        if(KvmClipboardImage.Capture(text)!=null)throw new Exception("Text clipboard was treated as an image");
+        Program.Write("kvm-image-format-tests.json",new{Pass=true,DibAndDibV5=true,TopDownAndBottomUp=true,Padded24BitRows=true,TransparencyPreserved=true,InvalidPngFallsBack=true,StreamPositionsPreserved=true,BoundedDimensions=true,ClipboardModified=false});
+    }
+    static void RequireImage(Bitmap? actual,Bitmap expected,string message)
+    {
+        if(actual?.Size!=expected.Size)throw new Exception(message);
+        for(int y=0;y<expected.Height;y++)for(int x=0;x<expected.Width;x++)if(actual.GetPixel(x,y)!=expected.GetPixel(x,y))throw new Exception(message);
+    }
+    static byte[] ClipboardDib(Bitmap source,bool v5,bool topDown)
+    {
+        int header=v5?124:40,bpp=v5?32:24,stride=((source.Width*bpp+31)/32)*4;
+        byte[] result=new byte[header+stride*source.Height];var bytes=result.AsSpan();
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes,header);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes[4..],source.Width);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes[8..],topDown?-source.Height:source.Height);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(bytes[12..],1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(bytes[14..],(short)bpp);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes[20..],stride*source.Height);
+        if(v5)
+        {
+            System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(bytes[16..],3);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes[40..],0x00ff0000);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes[44..],0x0000ff00);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes[48..],0x000000ff);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes[52..],0xff000000);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes[56..],0x73524742);
+        }
+        for(int y=0;y<source.Height;y++)for(int x=0;x<source.Width;x++)
+        {
+            var color=source.GetPixel(x,y);int offset=header+(topDown?y:source.Height-1-y)*stride+x*(bpp/8);
+            result[offset]=color.B;result[offset+1]=color.G;result[offset+2]=color.R;if(v5)result[offset+3]=color.A;
+        }
+        return result;
+    }
     public static void NativeClipboardImage()
     {
         if(EventWaitHandle.TryOpenExisting("Local\\SdrCapture.OpenKvm",out var running))
@@ -108,6 +173,13 @@ static class KvmTests
         KvmClipboardImage.Save(source,path);byte[] expected=File.ReadAllBytes(path);
         try
         {
+            using var owner=new Control();_=owner.Handle;
+            foreach(bool v5 in new[]{false,true})foreach(bool topDown in new[]{false,true})
+            {
+                PublishNativeDib(owner.Handle,v5?17u:8u,ClipboardDib(source,v5,topDown));
+                using var dibImage=KvmClipboardImage.Capture(Clipboard.GetDataObject()??throw new Exception("Empty native DIB clipboard"));
+                RequireImage(dibImage,source,"Native DIB/DIBV5 screenshot pixels changed");
+            }
             using(var payload=KvmClipboardImage.Open(path))Clipboard.SetDataObject(payload.Data,true,0,0);
             GC.Collect();GC.WaitForPendingFinalizers();
             using var pasted=Clipboard.GetImage();
@@ -117,10 +189,35 @@ static class KvmTests
             using var captured=KvmClipboardImage.Capture(data);
             if(captured==null||captured.Size!=source.Size||captured.GetPixel(21,17)!=source.GetPixel(21,17))throw new Exception("Windows clipboard screenshot could not be captured again");
             if(!Clipboard.ContainsFileDropList())throw new Exception("File-drop image fallback missing");
-            Program.Write("kvm-native-image-tests.json",new{Pass=true,NativeClipboardBitmap=true,NativeClipboardPng=true,PayloadDisposedBeforePaste=true,PngCaptureFromWindows=true});
+            Program.Write("kvm-native-image-tests.json",new{Pass=true,NativeClipboardBitmap=true,NativeClipboardPng=true,NativeDibAndDibV5=true,TopDownAndBottomUp=true,PayloadDisposedBeforePaste=true,PngCaptureFromWindows=true});
         }
         finally{Clipboard.Clear();}
     }
+    static void PublishNativeDib(nint owner,uint format,byte[] dib)
+    {
+        nint memory=GlobalAlloc(2,(nuint)dib.Length);if(memory==0)throw new System.ComponentModel.Win32Exception();
+        try
+        {
+            nint address=GlobalLock(memory);if(address==0)throw new System.ComponentModel.Win32Exception();
+            try{Marshal.Copy(dib,0,address,dib.Length);}finally{GlobalUnlock(memory);}
+            if(!OpenClipboard(owner))throw new System.ComponentModel.Win32Exception();
+            try
+            {
+                if(!EmptyClipboard()||SetClipboardData(format,memory)==0)throw new System.ComponentModel.Win32Exception();
+                memory=0;
+            }
+            finally{CloseClipboard();}
+        }
+        finally{if(memory!=0)GlobalFree(memory);}
+    }
+    [DllImport("user32.dll",SetLastError=true)]static extern bool OpenClipboard(nint owner);
+    [DllImport("user32.dll",SetLastError=true)]static extern bool EmptyClipboard();
+    [DllImport("user32.dll")]static extern bool CloseClipboard();
+    [DllImport("user32.dll",SetLastError=true)]static extern nint SetClipboardData(uint format,nint memory);
+    [DllImport("kernel32.dll",SetLastError=true)]static extern nint GlobalAlloc(uint flags,nuint bytes);
+    [DllImport("kernel32.dll",SetLastError=true)]static extern nint GlobalLock(nint memory);
+    [DllImport("kernel32.dll")]static extern bool GlobalUnlock(nint memory);
+    [DllImport("kernel32.dll")]static extern nint GlobalFree(nint memory);
     static async Task RunAsync()
     {
         string folder=Path.Combine(AppContext.BaseDirectory,"kvm-test-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);

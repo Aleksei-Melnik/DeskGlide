@@ -72,7 +72,7 @@ sealed class KvmClipboard:NativeWindow,IDisposable
             }
         }
         catch(ExternalException){publishRetry.Start();}
-        catch(Exception e){Log.Write("Clipboard capture: "+e.Message);Notification?.Invoke("Буфер обмена не передан: "+e.Message);}
+        catch(Exception e){Log.Write("Clipboard capture: "+e);Notification?.Invoke("Буфер обмена не передан: "+e.Message);}
     }
     void StartSend(Func<Task> send)
     {

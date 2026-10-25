@@ -6,7 +6,7 @@
   "CategoryIcon": "imgs/category",
   "Author": "Yami",
   "Description": "Save instant replays, open remote computers and control mouse transitions with live DeskGlide status.",
-  "Version": "1.0.1.0",
+  "Version": "1.1.1.0",
   "CodePath": "bin/plugin.js",
   "Icon": "imgs/plugin",
   "URL": "https://github.com/Aleksei-Melnik/DeskGlide",
