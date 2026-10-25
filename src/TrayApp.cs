@@ -227,17 +227,22 @@ sealed partial class TrayApp:ApplicationContext
     }
     void OpenViewer(KvmPeerInfo peer)
     {
-        if(kvm==null||settings.Kvm.Role!="Host")return;
+        if(kvmHub is {IsClosed:false} picker)picker.OpenDesktop(()=>ShowViewer(peer));
+        else ShowViewer(peer);
+    }
+    void ShowViewer(KvmPeerInfo peer)
+    {
+        if(kvm==null||settings.Kvm.Role!="Host")throw new InvalidOperationException(UiStrings.T("Open KVM on the controller PC."));
         controller?.ReturnLocal();
         if(viewers.TryGetValue(peer.Id,out var existing)&&!existing.IsClosed){existing.Reveal();existing.NativeSurface.RefreshKeyboardCapture();return;}
         void RefreshViewerMode(){if(controller!=null)controller.ViewerActive=viewers.Values.Any(v=>!v.IsClosed&&v.IsActive);}
-        var viewer=new Ui.ViewerWindow(kvm,peer,controller);viewers[peer.Id]=viewer;viewer.Activated+=(_,_)=>RefreshViewerMode();viewer.Deactivated+=(_,_)=>RefreshViewerMode();viewer.Closed+=(_,_)=>{viewers.Remove(peer.Id);RefreshViewerMode();};viewer.Reveal();
+        var viewer=new Ui.ViewerWindow(kvm,peer,controller);viewers[peer.Id]=viewer;viewer.Activated+=(_,_)=>RefreshViewerMode();viewer.Deactivated+=(_,_)=>RefreshViewerMode();viewer.Closed+=(_,_)=>{viewers.Remove(peer.Id);RefreshViewerMode();};try{viewer.Reveal();}catch{viewer.Close();throw;}
     }
     public void OpenKvm()=>Guard(()=>
     {
         controller?.ReturnLocal();
         if(kvmHub is {IsClosed:false}){kvmHub.Reveal();return;}
-        kvmHub=new(()=>kvm,()=>controller?.Seamless??false,enabled=>{if(controller!=null){controller.Seamless=enabled;settings.Kvm.Seamless=enabled;settings.Save();}},()=>{controller?.ReturnLocal();foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();},OpenViewer,OpenSettings,p=>p.RemoteViewOnly||settings.Kvm.RemoteOnlyPeers.Contains(p.Id),(p,only)=>{settings.Kvm.RemoteOnlyPeers.Remove(p.Id);if(only)settings.Kvm.RemoteOnlyPeers.Add(p.Id);settings.Save();controller?.UpdateLayout(settings.Kvm);});kvmHub.Reveal();
+        kvmHub=new(()=>kvm,()=>controller?.Seamless??false,enabled=>{if(controller!=null){controller.Seamless=enabled;settings.Kvm.Seamless=enabled;settings.Save();}},()=>{controller?.ReturnLocal();foreach(var viewer in viewers.Values.ToArray())viewer.ReturnControl();},ShowViewer,OpenSettings,p=>p.RemoteViewOnly||settings.Kvm.RemoteOnlyPeers.Contains(p.Id),(p,only)=>{settings.Kvm.RemoteOnlyPeers.Remove(p.Id);if(only)settings.Kvm.RemoteOnlyPeers.Add(p.Id);settings.Save();controller?.UpdateLayout(settings.Kvm);});kvmHub.Reveal();
     });
     void StartKvm()
     {

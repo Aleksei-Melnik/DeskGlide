@@ -1,3 +1,13 @@
+DeskGlide 0.7.41
+
+- Fixed the KVM computer selector appearing behind ordinary desktop windows when opened through the tray, shortcut or Stream Deck. The selector is raised without staying permanently on top. A foreground fullscreen window keeps its focus and remains above a selector opened in the background.
+- Choosing Open desktop now hides the computer selector before opening or reusing the remote viewer, then closes the selector after success. Failed opens restore the selector with an error and allow retry.
+- Retained the Instant Replay motion fixes from 0.7.40 and existing settings.
+
+Update through **Updates → Update all PCs**. The existing signing key, pairing and Stream Deck plugin are retained. No Windows restart is needed.
+
+Previous release: 0.7.40
+
 DeskGlide 0.7.40
 
 - Fixed uneven Instant Replay motion when the rate of distinct captured pictures changes. The selector previously switched between two policies at a capture-density threshold, allowing its picture timing to drift by almost 20 ms before catching up. It now chooses the nearest viable picture using the available buffered inventory.

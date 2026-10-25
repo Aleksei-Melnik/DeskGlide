@@ -503,6 +503,7 @@
   "Recording tools download is too large.": "Размер загрузки превышает допустимый.",
   "Recording tools download is incomplete.": "Компонент записи скачался не полностью.",
   "Recording tools checksum mismatch. Nothing installed.": "Проверка компонента записи не пройдена. Установка отменена.",
+  "Open KVM on the controller PC.": "Откройте KVM на управляющем ПК.",
   "Recording tools archive is incomplete.": "В архиве компонента записи не хватает файлов.",
   "Recording setup failed. Check your connection and retry in Instant replay.": "Не удалось настроить запись. Проверьте интернет и повторите установку во вкладке «Мгновенный повтор».",
   "Install the signed VB-CABLE driver on this PC? Windows will ask for administrator permission. Choose Install Driver, then restart if needed. Previous default audio devices will be restored.\n\nVB-CABLE is donationware by VB-Audio.": "Установить подписанный драйвер VB-CABLE на этом ПК? Windows запросит права администратора. Нажмите Install Driver и перезагрузите ПК, если потребуется. Прежние аудиоустройства по умолчанию будут восстановлены.\n\nVB-CABLE — donationware компании VB-Audio."

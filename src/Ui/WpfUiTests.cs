@@ -123,6 +123,62 @@ static class WpfUiTests
         var handle=new System.Windows.Interop.WindowInteropHelper(window).Handle;
         Require((GetWindowLongPtr(handle,-16).ToInt64()&0x00040000)!=0,"Native resize style is missing from the remote viewer");
     }
+    static void KvmPickerFlow(KvmPeerInfo peer)
+    {
+        using var service=new KvmService(new KvmOptions());
+        ViewerWindow? viewer=null;KvmWindow? picker=null;bool hiddenBeforeOpen=false;
+        picker=new(()=>null,()=>false,_=>{},()=>{},selected=>
+        {
+            hiddenBeforeOpen=!picker!.IsVisible;
+            Require(selected.Id==peer.Id,"KVM picker opened a different computer");
+            viewer=new(service,selected){ShowInTaskbar=false};viewer.Reveal();
+        },_=>{}){ShowInTaskbar=false};
+        picker.Reveal();Pump();picker.RenderPeers("Host",[peer]);Pump();
+        Invoke(ActionButton(picker,"Open desktop  →"));
+        Require(hiddenBeforeOpen&&picker.IsClosed&&viewer is {IsVisible:true},"KVM picker did not disappear before the viewer opened and close after success");
+        var existing=viewer!;existing.Hide();bool hiddenBeforeReuse=false;
+        var reuse=new KvmWindow(()=>null,()=>false,_=>{},()=>{},_=>{hiddenBeforeReuse=!picker!.IsVisible;existing.Reveal();},_=>{}){ShowInTaskbar=false};picker=reuse;
+        reuse.Reveal();Pump();reuse.RenderPeers("Host",[peer]);Pump();Invoke(ActionButton(reuse,"Open desktop  →"));
+        Require(hiddenBeforeReuse&&reuse.IsClosed&&existing.IsVisible,"Reusing an existing KVM viewer left its picker open");existing.Close();
+        bool fail=true;int attempts=0;
+        var retry=new KvmWindow(()=>null,()=>false,_=>{},()=>{},_=>{attempts++;if(fail)throw new IOException("The selected PC is disconnected.");},_=>{}){ShowInTaskbar=false};
+        retry.Reveal();Pump();retry.RenderPeers("Host",[peer]);Pump();Invoke(ActionButton(retry,"Open desktop  →"));
+        Require(retry.IsVisible&&!retry.IsClosed&&Children((W.DependencyObject)retry.Content).OfType<C.TextBlock>().Any(t=>t.Text=="The selected PC is disconnected."),"Failed KVM opening did not restore the picker with its error");
+        fail=false;Invoke(ActionButton(retry,"Open desktop  →"));Require(attempts==2&&retry.IsClosed,"Restored KVM picker could not retry opening");
+    }
+    static void KvmPickerActivation()
+    {
+        bool Above(IntPtr upper,IntPtr lower)
+        {
+            for(var next=GetWindow(upper,2);next!=IntPtr.Zero;next=GetWindow(next,2))if(next==lower)return true;
+            return false;
+        }
+        using var ordinary=new Form{Text="Ordinary foreground",StartPosition=FormStartPosition.Manual,Bounds=new(80,80,1000,700)};
+        ordinary.Show();ordinary.Activate();SetForegroundWindow(ordinary.Handle);Pump();
+        var picker=new KvmWindow(()=>null,()=>false,_=>{},()=>{},_=>{},_=>{}){ShowInTaskbar=false};
+        picker.Reveal();Pump();var handle=new System.Windows.Interop.WindowInteropHelper(picker).Handle;
+        Require(picker.IsVisible&&Above(handle,ordinary.Handle),"KVM picker stayed behind an ordinary foreground window");
+        Require(!picker.Topmost&&(GetWindowLongPtr(handle,-20).ToInt64()&8)==0,"KVM picker remained permanently topmost");
+        ordinary.Activate();SetForegroundWindow(ordinary.Handle);Pump();picker.Reveal();Pump();
+        Require(Above(handle,ordinary.Handle),"An already visible KVM picker stayed behind an ordinary window");
+        ordinary.WindowState=FormWindowState.Maximized;ordinary.Activate();SetForegroundWindow(ordinary.Handle);Pump();picker.Reveal();Pump();
+        Require(Above(handle,ordinary.Handle),"KVM picker treated an ordinary maximized window as fullscreen");
+        using var fullscreen=new Form{Text="Borderless fullscreen foreground",FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,Bounds=Screen.PrimaryScreen!.Bounds};
+        fullscreen.Show();fullscreen.Activate();SetForegroundWindow(fullscreen.Handle);Pump();
+        Require(GetForegroundWindow()==fullscreen.Handle,"Fullscreen fixture could not take foreground focus");
+        int activated=0;picker.Activated+=(_,_)=>activated++;
+        picker.Reveal();Pump();
+        Require(GetForegroundWindow()==fullscreen.Handle&&activated==0&&Above(fullscreen.Handle,handle),"Visible KVM picker covered or activated over foreground fullscreen");
+        picker.WindowState=W.WindowState.Minimized;Pump();fullscreen.Activate();SetForegroundWindow(fullscreen.Handle);Pump();activated=0;picker.Reveal();Pump();
+        Require(picker.IsVisible&&picker.WindowState==W.WindowState.Normal&&GetForegroundWindow()==fullscreen.Handle&&activated==0&&Above(fullscreen.Handle,handle),"Restoring KVM picker interrupted foreground fullscreen");picker.Close();
+        fullscreen.TopMost=true;var background=new KvmWindow(()=>null,()=>false,_=>{},()=>{},_=>{},_=>{}){ShowInTaskbar=false};
+        fullscreen.Activate();SetForegroundWindow(fullscreen.Handle);Pump();activated=0;background.Activated+=(_,_)=>activated++;background.Reveal();Pump();
+        var backgroundHandle=new System.Windows.Interop.WindowInteropHelper(background).Handle;
+        Require(background.IsVisible&&GetForegroundWindow()==fullscreen.Handle&&activated==0&&Above(fullscreen.Handle,backgroundHandle),"Opening KVM picker interrupted foreground fullscreen");
+        Require(!background.Topmost&&(GetWindowLongPtr(backgroundHandle,-20).ToInt64()&8)==0,"Background KVM picker became topmost");
+        fullscreen.Close();ordinary.Activate();SetForegroundWindow(ordinary.Handle);Pump();background.Reveal();Pump();
+        Require(Above(backgroundHandle,ordinary.Handle),"KVM picker could not come forward after leaving fullscreen");background.Close();
+    }
     static void RunTests()
     {
         UiStrings.Shared.Language="en";
@@ -219,6 +275,7 @@ static class WpfUiTests
             UiStrings.Shared.Language="ru";Pump();preview.SelectPage(0,false);Render(preview,Path.Combine(folder,$"{role}-ru.png"));foreach(int id in new[]{3,10,11}){preview.SelectPage(id,false);Render(preview,Path.Combine(folder,$"{role}-ru-{id}.png"));}preview.Close();UiStrings.Shared.Language="en";
         }
         var options=new KvmOptions();var peer=new KvmPeerInfo(Guid.NewGuid().ToString("N"),"STREAM-PC",[new("LEFT",0,0,1920,1080,true),new("RIGHT",1920,0,1080,1920,false)],"0.8.0",1);var server=new KvmPeerInfo(Guid.NewGuid().ToString("N"),"SERVER",[new("DISPLAY",0,0,1920,1080,true)],"0.8.0",1,true);
+        KvmPickerActivation();KvmPickerFlow(peer);
         var layout=new List<MonitorPlacement>{new(){Peer=options.Id,Name="GAMING-PC",Device="LOCAL",X=0,Y=0,Width=2560,Height=1440,Hotkey=1},new(){Peer=peer.Id,Name="STREAM-PC",Device="LEFT",X=-1920,Y=180,Width=1920,Height=1080,Hotkey=2},new(){Peer=peer.Id,Name="STREAM-PC",Device="RIGHT",X=2560,Y=-240,Width=1080,Height=1920,Hotkey=3}};
         var canvas=new MonitorCanvas(options,layout);var layoutWindow=new ShellWindow("Monitor test",820,680){Content=Kit.Card(canvas),Opacity=0,ShowInTaskbar=false};layoutWindow.Reveal();Pump();Render(layoutWindow,Path.Combine(folder,"monitors.png"));canvas.SelectMonitor("LEFT");Pump();Invoke(Children(canvas).OfType<C.Button>().First(b=>(string?)b.Tag=="Remove from layout"));Require(canvas.ExcludedMonitors.Contains(peer.Id+"|LEFT")&&!canvas.ExcludedMonitors.Contains(peer.Id+"|RIGHT")&&canvas.Result.Count==3,"Removing one monitor removed its sibling or lost position");canvas.AddMonitor(peer.Id+"|LEFT",-1920,0);Require(!canvas.ExcludedMonitors.Contains(peer.Id+"|LEFT")&&canvas.Result.Single(m=>m.Device=="LEFT").X==-1920,"Monitor could not return from available list");layoutWindow.Close();
         var hub=new KvmWindow(()=>null,()=>true,_=>{},()=>{},_=>{},_=>{}){Opacity=0,ShowInTaskbar=false};hub.Reveal();Pump();ChromeWorks(hub);hub.RenderPeers("Host",[peer,server]);Render(hub,Path.Combine(folder,"kvm-connected.png"));Invoke(ActionButton(hub,"Close window"));Require(hub.IsClosed,"KVM custom close failed");
@@ -233,7 +290,7 @@ static class WpfUiTests
         PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x100,(IntPtr)(int)Keys.F11,IntPtr.Zero);PostMessage(picture.Handle,0x101,(IntPtr)(int)Keys.F11,IntPtr.Zero);Pump();Require(viewer.WindowStyle==W.WindowStyle.None&&System.Windows.Shell.WindowChrome.GetWindowChrome(viewer)!=null,"WPF fullscreen did not restore");
         Require(viewer.ResizeMode==W.ResizeMode.CanResize&&Math.Abs(viewer.Width-viewerBounds.Width)<1&&Math.Abs(viewer.Height-viewerBounds.Height)<1&&Math.Abs(viewer.Left-viewerBounds.Left)<1&&Math.Abs(viewer.Top-viewerBounds.Top)<1,"Full screen did not restore the resized window bounds or resize controls");
         ChromeWorks(viewer);viewer.Close();
-        Program.Write("wpf-ui-tests.json",new{Pass=true,SettingsOpenMs=opening,PagesRendered=42,PairingCodeHiddenUntilRevealed=true,HiddenPairingCodeCopied=true,ProductionWpfMessageLoop=true,NavigationAndSaveInvoked=true,LiveLanguageSwitch=true,HostReceiverHidden=true,IndividualMonitorRemoveAndRestore=true,SettingsResponsiveDuringDiscovery=true,SettingsSelectionsPreserved=true,ClosedDuringDiscovery=true,WpfKvmViewerOpened=true,HostedKeyboardAndKeyRelease=true,WpfFullscreenRepeatGuard=true,NativeCaptionHitTesting=true,NativeTitleBarRemoved=true,CustomMinimizeClose=true,RapidAnimatedNavigationPreservedEdits=true});
+        Program.Write("wpf-ui-tests.json",new{Pass=true,SettingsOpenMs=opening,PagesRendered=42,PairingCodeHiddenUntilRevealed=true,HiddenPairingCodeCopied=true,ProductionWpfMessageLoop=true,NavigationAndSaveInvoked=true,LiveLanguageSwitch=true,HostReceiverHidden=true,IndividualMonitorRemoveAndRestore=true,SettingsResponsiveDuringDiscovery=true,SettingsSelectionsPreserved=true,ClosedDuringDiscovery=true,WpfKvmViewerOpened=true,HostedKeyboardAndKeyRelease=true,WpfFullscreenRepeatGuard=true,NativeCaptionHitTesting=true,NativeTitleBarRemoved=true,CustomMinimizeClose=true,RapidAnimatedNavigationPreservedEdits=true,KvmPickerAboveOrdinaryWindows=true,KvmPickerPreservesFullscreen=true,KvmPickerHiddenBeforeViewer=true,KvmPickerClosesOnViewerReuse=true,KvmPickerRestoresAfterFailure=true});
     }
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool PostMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr window,uint message,IntPtr wParam,IntPtr lParam);
@@ -250,4 +307,7 @@ static class WpfUiTests
     [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")] static extern IntPtr GetWindowLongPtr(IntPtr window,int index);
     [System.Runtime.InteropServices.DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")] static extern IntPtr SetWindowLongPtr(IntPtr window,int index,IntPtr value);
     [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr window,uint command);
 }

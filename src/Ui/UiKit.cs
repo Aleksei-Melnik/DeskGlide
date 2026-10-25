@@ -114,7 +114,8 @@ class ShellWindow:W.Window
     {
         base.OnApplyTemplate();if(appearancePending)PrepareAppearance();
     }
-    public void Reveal()
+    public virtual void Reveal()=>Reveal(true);
+    protected void Reveal(bool activate)
     {
         if(IsClosed)return;
         bool opening=!IsVisible||WindowState==W.WindowState.Minimized;
@@ -124,10 +125,15 @@ class ShellWindow:W.Window
             ResetAppearance();
             if(animate){appearancePending=true;ApplyTemplate();PrepareAppearance();}
         }
-        if(!IsVisible){if(W.Application.Current==null)System.Windows.Forms.Integration.ElementHost.EnableModelessKeyboardInterop(this);Show();}
-        if(WindowState==W.WindowState.Minimized)WindowState=W.WindowState.Normal;
+        bool showActivated=ShowActivated;if(!activate)ShowActivated=false;
+        try
+        {
+            if(!IsVisible){if(W.Application.Current==null)System.Windows.Forms.Integration.ElementHost.EnableModelessKeyboardInterop(this);Show();}
+            if(WindowState==W.WindowState.Minimized)WindowState=W.WindowState.Normal;
+        }
+        finally{if(!activate)ShowActivated=showActivated;}
         if(animate)StartAppearance();
-        Activate();SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle);
+        if(activate){Activate();SetForegroundWindow(new System.Windows.Interop.WindowInteropHelper(this).Handle);}
     }
     void PrepareAppearance()
     {

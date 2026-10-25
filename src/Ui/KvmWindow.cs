@@ -17,6 +17,7 @@ sealed class KvmWindow:ShellWindow
     readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromSeconds(1)};
     bool refreshing;
     string signature="";
+    string? openingError;
     public KvmWindow(Func<KvmService?> network,Func<bool> seamless,Action<bool> setSeamless,Action returnHome,Action<KvmPeerInfo> open,Action<int> settings,Func<KvmPeerInfo,bool>? remoteOnly=null,Action<KvmPeerInfo,bool>? setRemoteOnly=null):base("KVM",900,660)
     {
         AnimateOnReveal=true;
@@ -28,10 +29,25 @@ sealed class KvmWindow:ShellWindow
         edges.Checked+=(_,_)=>{if(!refreshing)setSeamless(true);};edges.Unchecked+=(_,_)=>{if(!refreshing)setSeamless(false);};
         timer.Tick+=(_,_)=>Refresh();Loaded+=(_,_)=>{Refresh();timer.Start();};Closed+=(_,_)=>timer.Stop();
     }
+    public override void Reveal()
+    {
+        if(IsClosed)return;
+        var handle=new System.Windows.Interop.WindowInteropHelper(this).EnsureHandle();
+        if(WindowActivation.ForegroundIsFullscreen())WindowActivation.KeepKvmBehindFullscreen(handle);
+        // Even the initial Show and minimized restore must avoid activation:
+        // foreground protection is checked again before any Z-order lift.
+        Reveal(false);WindowActivation.RaiseKvm(handle);
+    }
+    internal void OpenDesktop(Action showViewer)
+    {
+        openingError=null;Hide();
+        try{showViewer();Close();}
+        catch(Exception e){openingError=e.Message;Reveal();status.Text=openingError;throw;}
+    }
     void Refresh()
     {
         var service=network();refreshing=true;edges.IsChecked=seamless();edges.IsEnabled=service?.Options.Role=="Host";refreshing=false;
-        status.Text=service?.Options.Role switch{"Host"=>UiStrings.F("{0} connected computers",service.Peers.Length),"Client"=>service.Peers.FirstOrDefault() is {} host?UiStrings.F("Connected to {0}",host.Name):UiStrings.T("Waiting for the host…"),_=>UiStrings.T("KVM is off. Start by pairing a computer.")};RenderPeers(service?.Options.Role??"Off",service?.Peers.OrderBy(p=>p.Name).ToArray()??[]);
+        status.Text=openingError??(service?.Options.Role switch{"Host"=>UiStrings.F("{0} connected computers",service.Peers.Length),"Client"=>service.Peers.FirstOrDefault() is {} host?UiStrings.F("Connected to {0}",host.Name):UiStrings.T("Waiting for the host…"),_=>UiStrings.T("KVM is off. Start by pairing a computer.")});RenderPeers(service?.Options.Role??"Off",service?.Peers.OrderBy(p=>p.Name).ToArray()??[]);
     }
     internal void RenderPeers(string role,KvmPeerInfo[] peers)
     {
@@ -46,7 +62,7 @@ sealed class KvmWindow:ShellWindow
             var badge=Kit.Text(peer.RemoteViewOnly?"REMOTE SERVER":"CONNECTED COMPUTER",10,"#31D1DB");badge.FontWeight=W.FontWeights.SemiBold;
             var title=Kit.Text(peer.Name,24);title.FontWeight=W.FontWeights.SemiBold;title.Margin=new(0,12,0,6);
             var detail=Kit.Text(UiStrings.F("{0} displays",peer.Screens.Length)+(peer.Version.Length>0?$"  ·  v{peer.Version}":""),12,"#B0A9BC");detail.Margin=new(0,0,0,20);
-            var button=Kit.Button("Open desktop  →",()=>open(peer),true);button.HorizontalAlignment=W.HorizontalAlignment.Stretch;
+            var button=Kit.Button("Open desktop  →",()=>{try{OpenDesktop(()=>open(peer));}catch(Exception e){Log.Write(e.ToString());}},true);button.HorizontalAlignment=W.HorizontalAlignment.Stretch;
             var card=Kit.Card(Kit.Stack(badge,title,detail,button));card.Width=391;card.Margin=new(0,0,14,14);computers.Children.Add(card);
         }
     }
