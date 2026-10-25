@@ -11,6 +11,12 @@ static class MonitorLayoutTests
         new(){Peer=peer,Device=device,Name=peer+" · "+device,X=x,Y=y,Width=width,Height=height,Hotkey=hotkey};
     public static void Run()
     {
+        var monitor=new Rectangle(0,0,1920,1080);
+        Require(!WindowActivation.IsFullscreenClient("WorkerW",monitor,monitor)&&!WindowActivation.IsFullscreenClient("Progman",monitor,monitor),"The Windows desktop was classified as a fullscreen application.");
+        Require(WindowActivation.IsFullscreenClient("GameWindow",monitor,monitor)&&WindowActivation.IsFullscreenClient("Chrome_WidgetWin_1",monitor,monitor),"Borderless game or browser fullscreen was not protected.");
+        Require(!WindowActivation.IsFullscreenClient("Chrome_WidgetWin_1",new(0,31,1920,1009),monitor),"Ordinary maximized browser client area was classified as fullscreen.");
+        var secondary=new Rectangle(-1920,0,1920,1080);
+        Require(WindowActivation.IsFullscreenClient("GameWindow",secondary,secondary),"Fullscreen protection failed on a secondary monitor.");
         // A driver reinstall changed DISPLAY5 to DISPLAY1; the old merge saved both.
         var old=Placement(Local,Old,2133,-3859);
         var current=Placement(Local,Current,2133,-1292,hotkey:1);

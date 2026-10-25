@@ -24,10 +24,15 @@ static class WindowActivation
         var origin=new NativePoint();if(!ClientToScreen(window,ref origin))return false;
         var monitor=new MonitorInfo{Size=Marshal.SizeOf<MonitorInfo>()};
         if(!GetMonitorInfo(MonitorFromWindow(window,2),ref monitor))return false;
-        // Compare the client area to the entire monitor, not its work area.
-        // A maximized browser still reserves its caption and/or the taskbar.
-        return origin.X<=monitor.Bounds.Left&&origin.Y<=monitor.Bounds.Top&&origin.X+client.Right>=monitor.Bounds.Right&&origin.Y+client.Bottom>=monitor.Bounds.Bottom;
+        var name=new System.Text.StringBuilder(256);GetClassNameW(window,name,name.Capacity);
+        return IsFullscreenClient(name.ToString(),new(origin.X,origin.Y,client.Right,client.Bottom),
+            Rectangle.FromLTRB(monitor.Bounds.Left,monitor.Bounds.Top,monitor.Bounds.Right,monitor.Bounds.Bottom));
     }
+    // Compare the client area to the entire monitor, not its work area.
+    // A maximized browser still reserves its caption and/or the taskbar.
+    internal static bool IsFullscreenClient(string windowClass,Rectangle client,Rectangle monitor)=>
+        !string.Equals(windowClass,"WorkerW",StringComparison.OrdinalIgnoreCase)&&!string.Equals(windowClass,"Progman",StringComparison.OrdinalIgnoreCase)&&
+        client.Left<=monitor.Left&&client.Top<=monitor.Top&&client.Right>=monitor.Right&&client.Bottom>=monitor.Bottom;
     internal static void KeepKvmBehindFullscreen(IntPtr window)=>SetWindowPos(window,(IntPtr)1,0,0,0,0,0x13); // HWND_BOTTOM; no activation, move or resize.
     internal static void RaiseKvm(IntPtr window)
     {
@@ -45,6 +50,7 @@ static class WindowActivation
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
     [DllImport("user32.dll")] static extern IntPtr GetDesktopWindow();
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetClassNameW(IntPtr window,System.Text.StringBuilder name,int maximum);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr window);
     [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr window,out NativeRect rectangle);
     [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr window,ref NativePoint point);
