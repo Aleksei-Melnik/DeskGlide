@@ -86,6 +86,87 @@ static class RecordingCadenceTests
         Require(RecordingFrameSelection.Index([85,94,100,102,104,106],100,80,20,10)==0,"An incomplete lookahead was mistaken for sustained oversampling.");
         Require(RecordingFrameSelection.Index(Enumerable.Range(0,50).Select(i=>(long)i*5).ToArray(),100,90,20,10)==20,"Sustained oversampling lost nearest-image motion pacing.");
         Require(RecordingFrameSelection.Index(Enumerable.Range(0,32).Select(i=>(long)i*5).ToArray(),100,90,20,10)==20,"Readback age changed motion phase despite sufficient buffered continuation.");
-        Program.Write("recording-cadence-tests.json",new{Pass=true,Fps=new[]{60,120},LegacyArtificialRepeats=legacyRepeats,NewArtificialRepeats=actualRepeats,NarrowWindowRepeats=legacyWindowRepeats,RealTraceRepeats=repeats,LegacyUnevenMotionSteps=legacyUneven,NewUnevenMotionSteps=integerUneven,NoAccumulatedPacingDrift=true,SourceOrderPreserved=true,RealSourceGapsNotInvented=true});
+        VariableCaptureCadence();
+        NearRateJitter();
+        WideWindowJitter();
+        BufferedGapWithRecovery();
+        Program.Write("recording-cadence-tests.json",new{Pass=true,Fps=new[]{60,120},LegacyArtificialRepeats=legacyRepeats,NewArtificialRepeats=actualRepeats,NarrowWindowRepeats=legacyWindowRepeats,RealTraceRepeats=repeats,LegacyUnevenMotionSteps=legacyUneven,NewUnevenMotionSteps=integerUneven,NoAccumulatedPacingDrift=true,SourceOrderPreserved=true,RealSourceGapsNotInvented=true,VariableCapturePhaseStable=true});
+    }
+    static void VariableCaptureCadence()
+    {
+        const long frequency=12000000,origin=frequency;
+        var results=new List<(int Fps,double ErrorMs,double BoundMs)>();
+        foreach(int fps in new[]{60,120})
+        {
+            long period=frequency/fps,previous=-1,maximumError=0;
+            double source=origin;var history=new List<long>();
+            for(int frame=0;frame<fps*20;frame++)
+            {
+                long due=origin+frame*period;
+                // Every source interval is shorter than the output interval.
+                // Changing capture density must not change the motion phase.
+                while(source<=due+frequency/10)
+                {
+                    history.Add((long)Math.Round(source));
+                    int rate=((long)(source-origin)/(frequency*15/100)%2)==0?fps*3/2:fps*2;
+                    source+=frequency/(double)rate;
+                }
+                int at=RecordingFrameSelection.Index(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(history),due,previous,frequency/50,period);
+                long selected=history[at];Require(selected>previous,"Changing capture density repeated or reordered an available picture.");
+                if(frame>=fps)maximumError=Math.Max(maximumError,Math.Abs(selected-due));
+                previous=selected;if(at>0)history.RemoveRange(0,at);
+            }
+            double bound=frequency/(double)(fps*3/2)/2+2;
+            results.Add((fps,maximumError*1000.0/frequency,bound*1000/frequency));
+        }
+        bool pass=results.All(r=>r.ErrorMs<=r.BoundMs);
+        Program.Write("recording-variable-cadence-tests.json",new{Pass=pass,Cases=results.Select(r=>new{r.Fps,MaximumPhaseErrorMs=r.ErrorMs,NearestPictureBoundMs=r.BoundMs})});
+        Require(pass,"Variable capture density changed recording motion phase despite buffered pictures: "+string.Join("; ",results.Select(r=>$"{r.Fps} FPS {r.ErrorMs:F3} ms (bound {r.BoundMs:F3} ms)")));
+    }
+    static void NearRateJitter()
+    {
+        const long frequency=12000000,origin=frequency;
+        foreach(int fps in new[]{60,120})
+        {
+            long period=frequency/fps,previous=-1;int next=0;var history=new List<long>();
+            long[] source=Enumerable.Range(0,80).Select(n=>origin+n*period+(n<10?0:n<12?-period*6/10:n<21?period*18/100:period*6/10)).ToArray();
+            for(int frame=0;frame<60;frame++)
+            {
+                long due=origin+frame*period;
+                while(next<source.Length&&source[next]<=due+frequency/10)history.Add(source[next++]);
+                int at=RecordingFrameSelection.Index(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(history),due,previous,frequency/50,period);
+                Require(history[at]==source[frame],"Near-rate jitter discarded a picture needed by a later output deadline: "+fps+" FPS frame "+frame);
+                previous=history[at];if(at>0)history.RemoveRange(0,at);
+            }
+        }
+    }
+    static void WideWindowJitter()
+    {
+        const long frequency=12000000,origin=frequency,period=100000;
+        long previous=-1;int next=0;var history=new List<long>();
+        long[] source=Enumerable.Range(0,100).Select(n=>origin+n*period+(n<10?0:n==10?-60000:n==11?-120000:n<31?-160000:n<41?-20000:160000)).ToArray();
+        for(int frame=0;frame<80;frame++)
+        {
+            long due=origin+frame*period;
+            while(next<source.Length&&source[next]<=due+frequency/10)history.Add(source[next++]);
+            int at=RecordingFrameSelection.Index(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(history),due,previous,frequency/50,period);
+            Require(history[at]==source[frame],"A multi-period jitter allowance was mistaken for extra source pictures at frame "+frame);
+            previous=history[at];if(at>0)history.RemoveRange(0,at);
+        }
+    }
+    static void BufferedGapWithRecovery()
+    {
+        const long frequency=12000000,origin=frequency,period=100000;
+        long[] source=Enumerable.Range(0,20).Select(n=>origin+n*period+(n<9?0:n==9?-30000:-60000))
+            .Concat(Enumerable.Range(0,150).Select(n=>origin+2145000+n*50000L)).ToArray();
+        long previous=-1;int next=0;var history=new List<long>();
+        for(int frame=0;frame<70;frame++)
+        {
+            long due=origin+frame*period;
+            while(next<source.Length&&source[next]<=due+frequency*15/100)history.Add(source[next++]);
+            int at=RecordingFrameSelection.Index(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(history),due,previous,frequency/50,period);
+            Require(history[at]>previous,"Post-gap pictures authorized an early skip and avoidable repeat at frame "+frame);
+            previous=history[at];if(at>0)history.RemoveRange(0,at);
+        }
     }
 }

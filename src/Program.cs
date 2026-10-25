@@ -64,6 +64,7 @@ internal static class Program
             if(args.Contains("--recording-pixels-test")){RecordingPixelTests.Run();return 0;}
             if(args.Contains("--replay-app-tests")){ReplayAppTests.Run();return 0;}
             if(args.Contains("--recording-cadence-tests")){RecordingCadenceTests.Run();return 0;}
+            if(args.Contains("--recording-motion-tests")){RecordingMotionTests.Run(args.Contains("--hardware"));return 0;}
             if(args.Contains("--recording-frame-queue-tests")){RecordingFrameQueueTests.Run();return 0;}
             if(args.Contains("--recording-duplicate-tests")){RecordingDuplicateTests.Run();return 0;}
             if(args.Contains("--gpu-readback-tests")){GpuReadbackTests.Run();return 0;}

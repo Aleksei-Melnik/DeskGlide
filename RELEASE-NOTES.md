@@ -1,3 +1,15 @@
+DeskGlide 0.7.40
+
+- Fixed uneven Instant Replay motion when the rate of distinct captured pictures changes. The selector previously switched between two policies at a capture-density threshold, allowing its picture timing to drift by almost 20 ms before catching up. It now chooses the nearest viable picture using the available buffered inventory.
+- Preserved chronological frames when source timing varies around the recording frame rate. The inventory reserve covers the full timing allowance, and continuation checks cover the fully buffered timeline, including short source gaps followed by recovery. Genuine missing source frames still require holds; this does not invent game frames.
+- Kept the existing interface, recording settings, local GPU encoding, SDR color conversion, KVM and Stream Deck actions.
+
+Validation: reproducible 60/120 FPS motion-phase regressions, equal-rate jitter and buffered-gap cases, decoded synthetic MP4 frame IDs with audio, and fullscreen 2560×1440 AV1 capture. Hardware checks cover H.264, HEVC and AV1 at 60/120 FPS. These tests do not establish zero frame drops in every game or under GPU saturation.
+
+Update through **Updates → Update all PCs**. The existing update signing key and settings are retained. No Windows restart or Stream Deck plugin reinstall is needed.
+
+Previous release: 0.7.39
+
 DeskGlide 0.7.39
 
 - Restored the application and Stream Deck plugin source to release 0.7.37. Removed the recording-system redesign introduced in 0.7.38, including ordinary recording, paired-PC encoding, CPU x264 selection and the new detailed encoder settings.
