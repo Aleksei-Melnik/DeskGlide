@@ -4,7 +4,7 @@ using Vortice.DXGI;
 
 namespace SdrCapture;
 sealed class CaptureResetException(string message):Exception(message);
-internal readonly record struct CaptureObservation(long CapturedAt,long AcquiredAt,long SubmittedAt,long DesktopAt,long MouseAt,uint Accumulated,bool Queued);
+internal readonly record struct CaptureObservation(long CapturedAt,long AcquiredAt,long SubmittedAt,long DesktopAt,long MouseAt,uint Accumulated,bool Queued,long ConfigurationStartedAt=0,long AcquireStartedAt=0);
 public sealed class DesktopCapture:IDisposable
 {
     readonly IDXGIFactory1 factory;
@@ -59,6 +59,7 @@ public sealed class DesktopCapture:IDisposable
     VideoBuffer? NextCore(VideoBuffer? frame)
     {
         DesktopUpdated=false;AccumulatedFrames=0;
+        long configurationStartedAt=Observe!=null?System.Diagnostics.Stopwatch.GetTimestamp():0;
         var current=output.Description1;
         if(!current.AttachedToDesktop || (current.ColorSpace==ColorSpaceType.RgbFullG2084NoneP2020)!=display.Hdr ||
             current.DesktopCoordinates.Right-current.DesktopCoordinates.Left!=display.Width ||
@@ -70,6 +71,7 @@ public sealed class DesktopCapture:IDisposable
         if(!display.Hdr)WhiteNits=80;
         else if(now>=whiteReadAt){WhiteNits=WhiteLevel.Read(display.Device);whiteReadAt=now+System.Diagnostics.Stopwatch.Frequency/4;}
         ReleaseAcquired();
+        long acquireStartedAt=Observe!=null?System.Diagnostics.Stopwatch.GetTimestamp():0;
         var result=duplication.AcquireNextFrame(FrameWaitMilliseconds,out var info,out var resource);
         if(result.Code==unchecked((int)0x887A0027))return frame??color.TryReadNdi();
         result.CheckError();
@@ -91,7 +93,7 @@ public sealed class DesktopCapture:IDisposable
                     frame?.Dispose();frame=direct;queued=true;
                 }
                 else queued=color.QueueNdi(texture,display.Hdr,display.Hdr&&CompensateSdr?(float)(80/WhiteNits):1,capturedAt);
-                Observe?.Invoke(new(capturedAt,acquiredAt,System.Diagnostics.Stopwatch.GetTimestamp(),info.LastPresentTime,info.LastMouseUpdateTime,info.AccumulatedFrames,queued));
+                Observe?.Invoke(new(capturedAt,acquiredAt,System.Diagnostics.Stopwatch.GetTimestamp(),info.LastPresentTime,info.LastMouseUpdateTime,info.AccumulatedFrames,queued,configurationStartedAt,acquireStartedAt));
             }
         }
         // Holding ownership across the next pacing/frame wait can prevent a

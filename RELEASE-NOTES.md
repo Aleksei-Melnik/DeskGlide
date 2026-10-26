@@ -1,3 +1,13 @@
+DeskGlide 0.7.45
+
+- Reduced Instant Replay frame preparation work when Windows publishes unchanged desktop pixels at a new timestamp. Identical raw images are now rejected before NV12 conversion, avoiding repeated packing and temporary frame allocation.
+- Kept the existing SDR pixels, recording settings, GPU encoders and picture timing. The comparison retains one source frame and releases it when replay is disabled or stopped; resolution and recording-configuration changes remain supported.
+- Expanded capture diagnostics to trace configuration queries, desktop acquisition, prepared images and encoder selections, with a configurable test-scene frame rate.
+
+Update through **Updates → Update all PCs**. The existing signing key, pairing and Stream Deck plugin are retained. No Windows restart is needed.
+
+Previous release: 0.7.44
+
 DeskGlide 0.7.44
 
 - Fixed KVM clipboard images from applications that provide DIB or DIBV5 data instead of PNG, including the image formats used by Qt applications such as Telegram Desktop. Image conversion now reads those formats directly and preserves colors, orientation and transparency.

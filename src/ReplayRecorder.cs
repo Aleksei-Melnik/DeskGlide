@@ -35,6 +35,8 @@ public sealed class ReplayRecorder:IDisposable
     ReplayOptions options;
     readonly object framesGate=new();
     readonly List<RecordingFrame> frames=[];
+    VideoBuffer? comparedSource;
+    int comparedGeneration;
     readonly RecordingFramePool framePool=new();
     ReplayAudio? audio;
     int version,disposed;
@@ -59,6 +61,11 @@ public sealed class ReplayRecorder:IDisposable
     public long AudioReadyTicks {get;private set;}
     long duplicateSourceFrames;
     public long DuplicateSourceFrames=>Interlocked.Read(ref duplicateSourceFrames);
+    long convertedSourceFrames;
+    public long ConvertedSourceFrames=>Interlocked.Read(ref convertedSourceFrames);
+    long skippedSourceConversions;
+    public long SkippedSourceConversions=>Interlocked.Read(ref skippedSourceConversions);
+    internal long SourceComparisonBytes {get{lock(framesGate)return comparedSource?.Length??0;}}
     internal int SourceHistoryCount {get{lock(framesGate)return frames.Count;}}
     internal Action<long>? FramePreparedForTest;
     internal Action<long,long>? FrameSelectedForTest;
@@ -67,7 +74,7 @@ public sealed class ReplayRecorder:IDisposable
     public long ConversionQueueDrops=>incoming.Dropped;
     public long ConversionQueueBytes=>incoming.QueuedBytes;
     public double MaxPipeWriteMs {get;private set;}
-    public long FrameMemoryBytes {get{lock(framesGate)return frames.Sum(f=>(long)f.Data.Length)+framePool.CachedBytes+incoming.QueuedBytes;}}
+    public long FrameMemoryBytes {get{lock(framesGate)return frames.Sum(f=>(long)f.Data.Length)+framePool.CachedBytes+incoming.QueuedBytes+(comparedSource?.Length??0);}}
     public int EncoderStarts {get;private set;}
     public double BufferedSeconds {get{lock(chunksGate)return Math.Min(WindowSeconds,chunks.Sum(c=>Math.Max(0,c.End-Math.Max(c.Start,savedUntil))));}}
     // Display the written part of the open segment too; closed segments arrive
@@ -127,13 +134,29 @@ public sealed class ReplayRecorder:IDisposable
     void ConvertFrame(VideoBuffer frame,int generation)
     {
         if(Volatile.Read(ref disposed)!=0||!Volatile.Read(ref options).Enabled)return;
+        lock(framesGate)
+        {
+            if(generation!=Volatile.Read(ref version))return;
+            // DWM can publish the same desktop pixels again at a new time.
+            // Retain one immutable raw image to reject that work before NV12
+            // packing/allocation. The packed comparison below still handles
+            // different UYVY inputs that become the same NV12 picture.
+            if(comparedGeneration==generation&&comparedSource is { } previous&&
+                previous.Width==frame.Width&&previous.Height==frame.Height&&
+                previous.Data.AsSpan(0,previous.Length).SequenceEqual(frame.Data.AsSpan(0,frame.Length)))
+            {
+                Interlocked.Increment(ref duplicateSourceFrames);Interlocked.Increment(ref skippedSourceConversions);return;
+            }
+        }
         long begin=Stopwatch.GetTimestamp();
         var reference=new RecordingFrame(frame,framePool);
+        Interlocked.Increment(ref convertedSourceFrames);
         MaxConvertMs=Math.Max(MaxConvertMs,Stopwatch.GetElapsedTime(begin).TotalMilliseconds);
         MaxFramePreparationAgeMs=Math.Max(MaxFramePreparationAgeMs,Stopwatch.GetElapsedTime(reference.CapturedAt).TotalMilliseconds);
         lock(framesGate)
         {
             if(Volatile.Read(ref disposed)!=0||!Volatile.Read(ref options).Enabled||generation!=Volatile.Read(ref version)){reference.Dispose();return;}
+            var comparison=frame.Retain();comparedSource?.Dispose();comparedSource=comparison;comparedGeneration=generation;
             // DWM can publish a new desktop timestamp for unchanged pixels.
             // Such an entry is not a new video image: retaining it lets the
             // CFR selector repeat that image despite a fresh one being ready.
@@ -176,7 +199,7 @@ public sealed class ReplayRecorder:IDisposable
     public void Update(ReplayOptions value)
     {
         value.Validate();var old=Volatile.Read(ref options);Volatile.Write(ref options,value with {});
-        if(!value.Enabled){incoming.Clear();lock(framesGate){foreach(var frame in frames)frame.Dispose();frames.Clear();}}
+        if(!value.Enabled){incoming.Clear();lock(framesGate){foreach(var frame in frames)frame.Dispose();frames.Clear();comparedSource?.Dispose();comparedSource=null;}}
         if(old.Enabled!=value.Enabled||old.Quality!=value.Quality||old.Codec!=value.Codec||old.AudioMode!=value.AudioMode||old.Fps!=value.Fps||old.Width!=value.Width||old.Height!=value.Height||old.Microphone!=value.Microphone||old.GameAudio!=value.GameAudio||old.ExtraAudio!=value.ExtraAudio||old.Silent!=value.Silent)Interlocked.Increment(ref version);
     }
     async Task Run()
@@ -500,7 +523,7 @@ public sealed class ReplayRecorder:IDisposable
         if(Interlocked.Exchange(ref disposed,1)!=0)return;
         incoming.Dispose();
         stop.Cancel();try{worker.Wait(7000);}catch{}
-        lock(framesGate){foreach(var frame in frames)frame.Dispose();frames.Clear();}
+        lock(framesGate){foreach(var frame in frames)frame.Dispose();frames.Clear();comparedSource?.Dispose();comparedSource=null;}
         framePool.Dispose();
         // Completed clips and delivery jobs are never part of ring cleanup.
         if(worker.IsCompleted)lock(chunksGate)foreach(var chunk in chunks.Where(c=>c.Pins==0))TryDelete(chunk.Path);

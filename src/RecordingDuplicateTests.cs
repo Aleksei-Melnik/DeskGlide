@@ -19,6 +19,7 @@ static class RecordingDuplicateTests
         var timeout=Stopwatch.StartNew();
         while((recorder.DuplicateSourceFrames<3||recorder.SourceHistoryCount<3)&&timeout.ElapsedMilliseconds<5000)Thread.Sleep(1);
         Require(recorder.DuplicateSourceFrames==3&&recorder.SourceHistoryCount==3,"New timestamps made unchanged pixels into new video images");
+        Require(recorder.ConvertedSourceFrames==3,"Unchanged source pictures were converted to NV12 before being discarded.");
         // Before filtering, the entries at +4/+12 ms won over genuinely new
         // images, repeating A/B even though B/C existed within the CFR window.
         using(var b=recorder.SelectForTest(origin+4*millisecond,origin,8*millisecond))
@@ -29,6 +30,35 @@ static class RecordingDuplicateTests
         timeout.Restart();while(recorder.SourceHistoryCount<2&&timeout.ElapsedMilliseconds<5000)Thread.Sleep(1);
         using(var changed=recorder.SelectForTest(long.MaxValue,-1,0))
             Require(changed is {Width:12,Height:4}&&recorder.DuplicateSourceFrames==3,"Same byte length hid a resolution/aspect change");
-        Program.Write("recording-duplicate-tests.json",new{Pass=true,NewTimestampsDoNotInventNewImages=true,FreshAvailableImagesSelected=true,ExactPixelsCompared=true,FirstPresentationTimeRetained=true,FormatChangesPreserved=true});
+        RawComparisonLifetime();
+        Program.Write("recording-duplicate-tests.json",new{Pass=true,NewTimestampsDoNotInventNewImages=true,FreshAvailableImagesSelected=true,ExactPixelsCompared=true,FirstPresentationTimeRetained=true,FormatChangesPreserved=true,RawDuplicatesSkipNv12Packing=true,SourceCacheBoundedAndReleased=true,PackedPixelFallbackPreserved=true,RecordingGenerationRespected=true});
+    }
+    static void RawComparisonLifetime()
+    {
+        var options=new ReplayOptions{Enabled=true,Fps=120};
+        using var recorder=new ReplayRecorder(options,true,8,null,startEncoder:false){SynchronousFrameConversionForTest=true};
+        using var first=new VideoBuffer(8,6){CapturedAt=100};
+        using var second=new VideoBuffer(8,6){CapturedAt=200};
+        first.Data.AsSpan().Fill(40);second.Data.AsSpan().Fill(40);
+        for(int y=0;y<6;y++)for(int x=0;x<8;x+=2)
+        {
+            // These UYVY images differ, but their vertically averaged NV12
+            // chroma is identical. The packed fallback must keep filtering it.
+            first.Data[(y*8+x)*2]=first.Data[(y*8+x)*2+2]=(byte)((y&1)==0?10:14);
+            second.Data[(y*8+x)*2]=second.Data[(y*8+x)*2+2]=(byte)((y&1)==0?11:13);
+        }
+        recorder.Offer(first);recorder.Offer(second);recorder.Offer(second);
+        Require(recorder.ConvertedSourceFrames==2&&recorder.SkippedSourceConversions==1&&recorder.DuplicateSourceFrames==2&&recorder.SourceHistoryCount==1,"Raw comparison bypassed the packed-image fallback or failed to cache its source.");
+        Require(recorder.SourceComparisonBytes==first.Length,"Raw comparison retained more than one source frame.");
+        // Same pixels in a changed recording configuration still go through
+        // packing once; an old generation's comparison cannot short-circuit it.
+        recorder.Update(options with{Fps=60});recorder.Offer(second);
+        Require(recorder.ConvertedSourceFrames==3&&recorder.SkippedSourceConversions==1,"Raw comparison reused an obsolete recording generation.");
+        recorder.Update(options with{Enabled=false});
+        Require(recorder.SourceComparisonBytes==0&&recorder.SourceHistoryCount==0,"Disabling replay retained the comparison source.");
+        recorder.Update(options);recorder.Offer(second);
+        Require(recorder.SourceHistoryCount==1&&recorder.ConvertedSourceFrames==4,"Re-enabling replay discarded its first image.");
+        recorder.Dispose();
+        Require(recorder.SourceComparisonBytes==0,"Stopping replay retained the comparison source.");
     }
 }
