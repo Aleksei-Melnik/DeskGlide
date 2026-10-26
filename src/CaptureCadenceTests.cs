@@ -152,7 +152,7 @@ static class CaptureCadenceTests
         {
             try
             {
-                surface.Begin();WindowActivation.Show(surface);await Task.Delay(10000);engine.Start(new(display.Device));
+                surface.Begin();WindowActivation.Show(surface);await Task.Delay(10000);engine.Start(new(display.Device),"DeskGlide capture diagnostic "+Guid.NewGuid().ToString("N")[..8]);
                 if(ndi)receive=Task.Run(()=>
                 {
                     try
