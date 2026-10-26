@@ -7,6 +7,14 @@ static class RecordingDuplicateTests
     static void Require(bool value,string message){if(!value)throw new Exception(message);}
     public static void Run()
     {
+        string? previous=Environment.GetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT");
+        string root=Path.Combine(Path.GetTempPath(),"DeskGlide-DuplicateTests-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(root);
+        Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",root);
+        try{RunIsolated();}
+        finally{Environment.SetEnvironmentVariable("SDRCAPTURE_REPLAY_ROOT",previous);}
+    }
+    static void RunIsolated()
+    {
         using var recorder=new ReplayRecorder(new ReplayOptions{Enabled=true,Fps=120},true,8,null,startEncoder:false);
         long origin=Stopwatch.GetTimestamp(),millisecond=Stopwatch.Frequency/1000;
         void Offer(int at,byte value,int width=8,int height=6)
