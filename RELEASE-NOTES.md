@@ -1,7 +1,7 @@
 DeskGlide 0.7.46
 
-- Added a link to the published DeskGlide plugin on Elgato Marketplace in Settings → Stream Deck, beside the setup guide.
-- Updated the README and Stream Deck setup guide with the public listing. The bundled plugin installer remains available.
+- The existing Install plugin button in Settings → Stream Deck now opens the published DeskGlide plugin on Elgato Marketplace in your default browser.
+- Updated the README and Stream Deck setup guide with the public listing. The plugin package remains available from GitHub Releases for manual installation.
 
 Update through **Updates → Update all PCs**. The existing signing key, settings and pairing are retained. The Stream Deck plugin remains version 1.1.1.
 

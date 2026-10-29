@@ -195,10 +195,7 @@ sealed class SettingsWindow:ShellWindow
         System.ComponentModel.PropertyChangedEventHandler languageChanged=(_,_)=>UpdateStatus();UiStrings.Shared.PropertyChanged+=languageChanged;Closed+=(_,_)=>UiStrings.Shared.PropertyChanged-=languageChanged;
         var setupHeader=new C.Grid{Margin=new(0,5,0,12)};setupHeader.ColumnDefinitions.Add(new());setupHeader.ColumnDefinitions.Add(new(){Width=W.GridLength.Auto});
         var heading=Kit.Text("Three simple steps",14);heading.FontWeight=W.FontWeights.SemiBold;heading.VerticalAlignment=W.VerticalAlignment.Center;setupHeader.Children.Add(heading);
-        var marketplace=Kit.Button("Elgato Marketplace ↗",()=>{try{Process.Start(new ProcessStartInfo(StreamDeckInstallation.MarketplaceUrl){UseShellExecute=true});}catch(Exception e){error.Text=e.Message;}});
-        var guide=Kit.Button("Setup guide ↗",()=>Process.Start(new ProcessStartInfo("https://github.com/Aleksei-Melnik/DeskGlide/blob/main/docs/STREAM-DECK.md"){UseShellExecute=true}));
-        foreach(var link in new[]{marketplace,guide}){link.Background=System.Windows.Media.Brushes.Transparent;link.BorderThickness=new(0);link.Padding=new(0,6,0,6);}
-        var resources=Kit.Actions(marketplace,guide);C.Grid.SetColumn(resources,1);setupHeader.Children.Add(resources);page.Children.Add(setupHeader);
+        var guide=Kit.Button("Setup guide ↗",()=>Process.Start(new ProcessStartInfo("https://github.com/Aleksei-Melnik/DeskGlide/blob/main/docs/STREAM-DECK.md"){UseShellExecute=true}));guide.Background=System.Windows.Media.Brushes.Transparent;guide.BorderThickness=new(0);guide.Padding=new(0,6,0,6);C.Grid.SetColumn(guide,1);setupHeader.Children.Add(guide);page.Children.Add(setupHeader);
         var steps=new C.Grid();for(int i=0;i<3;i++)steps.ColumnDefinitions.Add(new());
         void Step(int index,string label,string description)
         {

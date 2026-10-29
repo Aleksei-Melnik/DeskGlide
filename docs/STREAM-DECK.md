@@ -6,8 +6,8 @@ Control DeskGlide with live buttons instead of simulated hotkeys. Free, Windows 
 
 1. Update DeskGlide to **0.7.20 or later** on each participating PC.
 2. Install the [DeskGlide plugin from Elgato Marketplace](https://marketplace.elgato.com/product/deskglide-756e68ee-b961-40bb-b19c-cb0a39635679).
-   The same listing is linked under **Settings → Stream Deck → Elgato Marketplace**.
-   For installation from a local package, use **Install plugin** on that page or open
+   **Settings → Stream Deck → Install plugin** opens the same Marketplace listing.
+   For installation from a local package, open
    `com.yami.deskglide.streamDeckPlugin` from [GitHub Releases](https://github.com/Aleksei-Melnik/DeskGlide/releases/latest).
 3. In Stream Deck, drag a **DeskGlide** action onto a key.
 
@@ -64,7 +64,7 @@ Support: [GitHub issues](https://github.com/Aleksei-Melnik/DeskGlide/issues).
 ## Разовая настройка
 
 Обновите DeskGlide на обоих ПК. Установите [плагин из Elgato Marketplace](https://marketplace.elgato.com/product/deskglide-756e68ee-b961-40bb-b19c-cb0a39635679).
-Установка встроенного пакета также доступна в **Настройки → Stream Deck → Установить плагин**.
+Кнопка **Настройки → Stream Deck → Установить плагин** открывает ту же страницу Marketplace.
 Перетащите действие DeskGlide на кнопку в Stream Deck. Для сохранения повтора с кнопки на стрим-ПК
 выберите **Связанный управляющий ПК**. Компьютеры должны быть подключены друг к другу в DeskGlide.
 «Сохранено» означает, что файл доставлен в выбранную папку; «Копирую» — что он пока находится

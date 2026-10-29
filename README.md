@@ -19,14 +19,14 @@ in the DeskGlide tray menu. [Controls and validation](docs/SCREENSHOTS.md).
 ## Stream Deck
 
 Install the [DeskGlide plugin from Elgato Marketplace](https://marketplace.elgato.com/product/deskglide-756e68ee-b961-40bb-b19c-cb0a39635679).
-**Settings → Stream Deck** links to Marketplace, installs the bundled plugin and
-shows its connection.
+**Settings → Stream Deck → Install plugin** opens this Marketplace listing.
+The Stream Deck page also shows the plugin's connection.
 Save replay, switch to a monitor, open KVM or a particular PC/server, lock mouse transitions, and toggle
 replay/streaming with live state on the keys. On a receiving PC, replay and toggle
 actions can target the paired controller PC. Requires DeskGlide 0.7.20+ and Stream
 Deck 7.1+. [Setup guide](docs/STREAM-DECK.md) · [Privacy](docs/STREAM-DECK-PRIVACY.md).
-The bundled installer is also available as a separate download from
-[GitHub Releases](https://github.com/Aleksei-Melnik/DeskGlide/releases/latest).
+A plugin package is also available from
+[GitHub Releases](https://github.com/Aleksei-Melnik/DeskGlide/releases/latest) for manual installation.
 
 ## Getting started
 

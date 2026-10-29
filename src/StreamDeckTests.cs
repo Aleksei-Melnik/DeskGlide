@@ -11,9 +11,8 @@ static class StreamDeckTests
     public static void Run()=>RunAsync().GetAwaiter().GetResult();
     static async Task RunAsync()
     {
-        string package=@"C:\Packages with spaces\clip & 100%\com.yami.deskglide.streamDeckPlugin";
-        var install=StreamDeckInstallation.InstallCommand(@"C:\Program Files\Elgato\StreamDeck\StreamDeck.exe",package);
-        Require(!install.UseShellExecute&&install.ArgumentList.Count==1&&install.ArgumentList[0]==package,"Plugin installation must pass the original package directly to Stream Deck, without file-association redirection");
+        var install=StreamDeckInstallation.InstallCommand();
+        Require(install.UseShellExecute&&install.FileName==StreamDeckInstallation.MarketplaceUrl&&install.ArgumentList.Count==0,"Install plugin must open Elgato Marketplace in the default browser, without requiring a local Stream Deck installation or package.");
         string folder=Path.Combine(Path.GetTempPath(),"DeskGlide-Deck-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(folder);
         string discovery=Path.Combine(folder,"bridge.json"),name="DeskGlide.StreamDeck.Test."+Guid.NewGuid().ToString("N");
         using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(15));var token=timeout.Token;
@@ -53,7 +52,7 @@ static class StreamDeckTests
         Require(JsonDocument.Parse((await DeckProtocol.ReadLine(next,token))!).RootElement.GetProperty("type").GetString()=="status","Malformed client killed listener");
         server.Dispose();server.Dispose();
         Require(!File.Exists(discovery)&&!File.Exists(discovery+".tmp"),"Discovery writer retained files after shutdown");
-        Program.Write("streamdeck-tests.json",new{Pass=true,DirectPluginInstallation=true,ConcurrentSaveAndStatus=true,DuplicateSuppressed=true,CommandsWhitelisted=true,BoundedInput=true,LocalNamedPipeRoundtrip=true,LiveInputInjected=false});
+        Program.Write("streamdeck-tests.json",new{Pass=true,MarketplaceInstallation=true,OpensDefaultBrowser=true,ConcurrentSaveAndStatus=true,DuplicateSuppressed=true,CommandsWhitelisted=true,BoundedInput=true,LocalNamedPipeRoundtrip=true,LiveInputInjected=false});
         Directory.Delete(folder);
     }
     static void Require(bool condition,string error){if(!condition)throw new Exception(error);}
