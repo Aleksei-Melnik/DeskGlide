@@ -1,3 +1,12 @@
+DeskGlide 0.7.46
+
+- Added a link to the published DeskGlide plugin on Elgato Marketplace in Settings → Stream Deck, beside the setup guide.
+- Updated the README and Stream Deck setup guide with the public listing. The bundled plugin installer remains available.
+
+Update through **Updates → Update all PCs**. The existing signing key, settings and pairing are retained. The Stream Deck plugin remains version 1.1.1.
+
+Previous release: 0.7.45
+
 DeskGlide 0.7.45
 
 - Reduced Instant Replay frame preparation work when Windows publishes unchanged desktop pixels at a new timestamp. Identical raw images are now rejected before NV12 conversion, avoiding repeated packing and temporary frame allocation.

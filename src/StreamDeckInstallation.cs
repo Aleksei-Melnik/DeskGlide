@@ -6,6 +6,7 @@ namespace SdrCapture;
 static class StreamDeckInstallation
 {
     public const string Package="streamdeck/com.yami.deskglide.streamDeckPlugin";
+    public const string MarketplaceUrl="https://marketplace.elgato.com/product/deskglide-756e68ee-b961-40bb-b19c-cb0a39635679";
 
     public static void Install()
     {

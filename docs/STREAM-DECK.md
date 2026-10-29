@@ -5,18 +5,16 @@ Control DeskGlide with live buttons instead of simulated hotkeys. Free, Windows 
 ## Install
 
 1. Update DeskGlide to **0.7.20 or later** on each participating PC.
-2. Use **Settings → Stream Deck → Install plugin**, or download
-   `com.yami.deskglide.streamDeckPlugin` from [GitHub Releases](https://github.com/Aleksei-Melnik/DeskGlide/releases/latest) and open it.
+2. Install the [DeskGlide plugin from Elgato Marketplace](https://marketplace.elgato.com/product/deskglide-756e68ee-b961-40bb-b19c-cb0a39635679).
+   The same listing is linked under **Settings → Stream Deck → Elgato Marketplace**.
+   For installation from a local package, use **Install plugin** on that page or open
+   `com.yami.deskglide.streamDeckPlugin` from [GitHub Releases](https://github.com/Aleksei-Melnik/DeskGlide/releases/latest).
 3. In Stream Deck, drag a **DeskGlide** action onto a key.
 
 Requires **Stream Deck 7.1 or later**, Windows 10/11, and DeskGlide running in the same Windows user session.
 Stream Deck supplies the Node runtime; users do not need to install Node or a developer SDK.
-Plugin 1.0.0.0 was submitted to Elgato Marketplace under Yami (@yami) on October 12,
-2026. That submission was rejected; no publicly approved listing is available yet.
-Until approval, install the current plugin package from DeskGlide or GitHub.
-Version 1.0.1 adds monitor switching and revised minimal key artwork; it is newer
-than the original Marketplace submission. Version 1.1.1.0 packages the current
-six-action plugin with a version above the withdrawn 1.1.0.0 recording redesign.
+The published Marketplace plugin is version 1.1.1, with the six actions listed below.
+The local package remains available for installation without Marketplace.
 
 ## Buttons
 
@@ -65,7 +63,8 @@ Support: [GitHub issues](https://github.com/Aleksei-Melnik/DeskGlide/issues).
 
 ## Разовая настройка
 
-Обновите DeskGlide на обоих ПК. Откройте **Настройки → Stream Deck → Установить плагин**.
+Обновите DeskGlide на обоих ПК. Установите [плагин из Elgato Marketplace](https://marketplace.elgato.com/product/deskglide-756e68ee-b961-40bb-b19c-cb0a39635679).
+Установка встроенного пакета также доступна в **Настройки → Stream Deck → Установить плагин**.
 Перетащите действие DeskGlide на кнопку в Stream Deck. Для сохранения повтора с кнопки на стрим-ПК
 выберите **Связанный управляющий ПК**. Компьютеры должны быть подключены друг к другу в DeskGlide.
 «Сохранено» означает, что файл доставлен в выбранную папку; «Копирую» — что он пока находится
